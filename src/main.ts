@@ -161,7 +161,7 @@ async function main() {
   const container = document.createElement('div');
   container.style.cssText = 'position:absolute;left:0;top:0;opacity:0;pointer-events:none;width:1200px';
   document.body.appendChild(container);
-  container.innerHTML = `<style>@font-face{font-family:'Lato';src:url('/Lato-Regular.ttf') format('truetype');font-weight:400}@font-face{font-family:'Lato';src:url('/Lato-Regular.ttf') format('truetype');font-weight:700}</style>${HTML_SRC}`;
+  container.innerHTML = `<style>@font-face{font-family:'Lato';src:url('/Lato-Regular.ttf') format('truetype');font-weight:400}@font-face{font-family:'Lato';src:url('/Lato-Regular.ttf') format('truetype');font-weight:700}</style><style>${CSS_SRC}</style>${HTML_SRC}`;
   await document.fonts.ready;
 
   // ── Build element tree from DOM ───────────────────────────────────────────
