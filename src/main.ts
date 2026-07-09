@@ -230,7 +230,7 @@ async function main() {
   rCanvas.addEventListener('wheel',e=>{e.preventDefault();const W=innerWidth,H=innerHeight,zC=camZ/dpr;const wx=(e.clientX-W/2)/zC+camX,wy=(e.clientY-H/2)/zC+camY;camZ*=Math.exp(-e.deltaY*.0008);camZ=Math.max(.02,camZ);const zC2=camZ/dpr;camX=wx-(e.clientX-W/2)/zC2;camY=wy-(e.clientY-H/2)/zC2;viewX=camX;viewY=camY;viewZ=camZ},{passive:false});
   addEventListener('resize',setSize);setSize();camZ=rCanvas.width/pageW*.85;viewX=camX=pageW/2;viewY=camY=pageH*.2;viewZ=camZ;
 
-  function scrToWorld(sx:number,sy:number){return{x:(sx-tCanvas.width/2)/viewZ+viewX,y:(sy-tCanvas.height/2)/viewZ+viewY}}
+  function scrToWorld(sx:number,sy:number){return{x:(sx-tCanvas.width/2)/camZ+camX,y:(sy-tCanvas.height/2)/camZ+camY}}
   function hitTest(wx:number,wy:number):StyledEl|null{
     for(const el of styledEls){if(wx>=el.x&&wx<=el.x+el.w&&wy>=el.y&&wy<=el.y+el.h){const hoverable=el.el.closest('.card,.btn') as Element|null;if(hoverable){for(const se of styledEls)if(se.el===hoverable)return se}}}
     return null;
