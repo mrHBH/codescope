@@ -200,6 +200,7 @@ async function main() {
   const atlas=buildGlyphAtlas(font,[...allChars].join(' '));
 
   // ── State machine ─────────────────────────────────────────────────────────
+  const hoveredSet = new Set<StyledEl>();
   let hovered: StyledEl|null = null;
   let active: StyledEl|null = null;
   const transitions: Map<StyledEl,{prop:string;from:number;to:number;start:number;end:number}[]> = new Map();
@@ -232,14 +233,26 @@ async function main() {
 
   function scrToWorld(sx:number,sy:number){return{x:(sx-tCanvas.width/2)/camZ+camX,y:(sy-tCanvas.height/2)/camZ+camY}}
   function hitTest(wx:number,wy:number):StyledEl|null{
-    for(const el of styledEls){if(wx>=el.x&&wx<=el.x+el.w&&wy>=el.y&&wy<=el.y+el.h){const hoverable=el.el.closest('.card,.btn') as Element|null;if(hoverable){for(const se of styledEls)if(se.el===hoverable)return se}}}
+    // Return deepest element at (wx,wy) by walking children in reverse z-order
+    function find(el:StyledEl):StyledEl|null{
+      for(let i=el.children.length-1;i>=0;i--){
+        const c=el.children[i];
+        if(wx>=c.x&&wx<=c.x+c.w&&wy>=c.y&&wy<=c.y+c.h){
+          const deeper=find(c);
+          return deeper||c;
+        }
+      }
+      return null;
+    }
+    if(!root)return null;
+    if(wx>=root.x&&wx<=root.x+root.w&&wy>=root.y&&wy<=root.y+root.h)return find(root)||root;
     return null;
   }
   function triggerTransition(el:StyledEl,prop:string,duration:number){
     const now=performance.now();
     const ex=transitions.get(el)||[];
     transitions.set(el,ex);
-    const tgt=parseFloat(resolveStyle(el,cssRules,el===hovered?'hover':el===active?'active':'').background||'')||0;
+    const tgt=parseFloat(resolveStyle(el,cssRules,hoveredSet.has(el)?'hover':el===active?'active':'').background||'')||0;
     const cur=ex.find(t=>t.prop===prop);
     if(cur){cur.from=cur.to;cur.to=tgt}else ex.push({prop,from:tgt,to:tgt,start:now,end:now+duration*1000});
     ex.forEach(t=>{if(t.prop===prop){t.start=now;t.end=now+duration*1000}});
@@ -264,20 +277,22 @@ async function main() {
     viewX=camX;viewY=camY;viewZ=camZ;
     const Cw=tCanvas.width,Ch=tCanvas.height;
 
-    // Hit-test hover
+    // Update hover
     const prevHover=hovered;
     hovered=hitTest(mwx,mwy);
     if(hovered!==prevHover){
-      if(hovered)triggerTransition(hovered,'box-shadow',0.3);
-      if(prevHover)triggerTransition(prevHover,'box-shadow',0.3);
+      if(hovered)triggerTransition(hovered,'background',0.2);
+      if(prevHover)triggerTransition(prevHover,'background',0.2);
     }
+    hoveredSet.clear();
+    let cur=hovered;while(cur){hoveredSet.add(cur);cur=cur.parent;}
 
     // Build windfoil instances
     const crv=Array.from(atlas.curves),rws=Array.from(atlas.rows),inst:number[]=[];
     addRect(0,0,pageW,pageH,[0.94,0.93,0.90,1],crv,rws,inst);
 
     for(const el of styledEls){
-      const state=el===hovered?'hover':el===active?'active':'';
+      const state=hoveredSet.has(el)?'hover':el===active?'active':'';
       const style=resolveStyle(el,cssRules,state);
       const baseBg=parseColor(style['background-color']||style.background||'');
       const nrmStyle=resolveStyle(el,cssRules,'');
