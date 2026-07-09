@@ -237,10 +237,22 @@ async function main() {
   }
   function triggerTransition(el:StyledEl,prop:string,duration:number){
     const now=performance.now();
-    const ex=transitions.get(el)||[];transitions.set(el,ex);
-    const idx=ex.findIndex(t=>t.prop===prop);
-    const cur=parseFloat(resolveStyle(el,cssRules,el===hovered?'hover':el===active?'active':'').background||'')||0;
-    if(idx>=0){ex[idx].to=cur;ex[idx].start=now;ex[idx].end=now+duration*1000}else ex.push({prop,from:cur,to:cur,start:now,end:now+duration*1000});
+    const ex=transitions.get(el)||[];
+    transitions.set(el,ex);
+    const tgt=parseFloat(resolveStyle(el,cssRules,el===hovered?'hover':el===active?'active':'').background||'')||0;
+    const cur=ex.find(t=>t.prop===prop);
+    if(cur){cur.from=cur.to;cur.to=tgt}else ex.push({prop,from:tgt,to:tgt,start:now,end:now+duration*1000});
+    ex.forEach(t=>{if(t.prop===prop){t.start=now;t.end=now+duration*1000}});
+  }
+
+  function interpolate(el:StyledEl,prop:string,def:number):number{
+    const tx=transitions.get(el);if(!tx)return def;
+    const t=tx.find(x=>x.prop===prop);if(!t)return def;
+    const now=performance.now();
+    if(now>=t.end){t.from=t.to;return t.to}
+    const p=(now-t.start)/(t.end-t.start);
+    const eased=1-Math.pow(1-p,3); // ease-out
+    return t.from+(t.to-t.from)*eased;
   }
 
   // ── Frame loop ────────────────────────────────────────────────────────────
@@ -267,11 +279,28 @@ async function main() {
     for(const el of styledEls){
       const state=el===hovered?'hover':el===active?'active':'';
       const style=resolveStyle(el,cssRules,state);
-      let bgClr=parseColor(style['background-color']||style.background||'');
+      const baseBg=parseColor(style['background-color']||style.background||'');
+      const nrmStyle=resolveStyle(el,cssRules,'');
+      const nrmBg=parseColor(nrmStyle['background-color']||nrmStyle.background||'');
       const txClr=parseColor(style.color||'');
       const fs=parseFloat(style['font-size']||'16');
-      const fw=style['font-weight']==='700'||style['font-weight']==='bold'?700:400;
       const ta=style['text-align']||'left';
+
+      // Interpolate background color if transitioning
+      let bgClr=baseBg;
+      const tr=transitions.get(el);
+      if(tr){
+        for(const t of tr){
+          if(t.prop==='background'||t.prop==='background-color'){
+            const now=performance.now();
+            if(now<t.end){
+              const p=(now-t.start)/(t.end-t.start);
+              const e=1-Math.pow(1-p,3);
+              bgClr=baseBg.map((v,i)=>nrmBg[i]+(v-nrmBg[i])*e);
+            }
+          }
+        }
+      }
 
       if(bgClr[3]>0)addRect(el.x,el.y,el.x+el.w,el.y+el.h,bgClr,crv,rws,inst);
       if(el.text){
