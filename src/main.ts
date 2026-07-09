@@ -45,6 +45,8 @@ function parseColor(c: string): number[] {
   return [0,0,0,1];
 }
 
+function rgb(c: number[]): string { return 'rgb('+Math.round(c[0]*255)+','+Math.round(c[1]*255)+','+Math.round(c[2]*255)+')'; }
+
 function matchesSelector(el: StyledEl, sel: string): boolean {
   if (!sel) return false;
   const parts = sel.match(/([.#]?[\w-]+)/g) || [];
@@ -112,9 +114,8 @@ function highlightCode(text: string): Seg[] {
   return segs;
 }
 
-// Inline text flow: lays out an element's own text plus inline children as one
-// wrapped paragraph, honoring text-align (so button/centered text is centered)
-// and per-element uppercase. `now` drives the marquee scroll.
+// Inline flow: one wrapped paragraph for an element + its inline children.
+// Clips strictly to the element box (hard page-width / card-width guarantee).
 function layoutFlow(el: StyledEl, font: FontFace, atlas: any, inst: number[], now: number) {
   const left=el.x+el.pad[3], right=el.x+el.w-el.pad[1];
   const mid=(left+right)/2;
@@ -126,13 +127,14 @@ function layoutFlow(el: StyledEl, font: FontFace, atlas: any, inst: number[], no
   }
   let scroll=0;
   if(el.classes.includes('marquee')){let all='';for(const it of items)all+=' '+it.text;scroll=((now*0.08)%(tw(all,font,el.fs)+right-left));}
+  const bottom=el.y+el.h-el.pad[2];
   let curX=left-scroll, curY=el.y+el.pad[0];
   let line: {w:string;fs:number;color:number[];ww:number}[]=[];
   const flush=()=>{
     if(!line.length)return;
     let total=0;for(let i=0;i<line.length;i++){if(i)total+=tw(' ',font,line[i].fs);total+=line[i].ww;}
     let sx=align==='center'?mid-total/2:align==='right'?right-total:left;
-    for(const wd of line){const oy=curY+(el.lh-wd.fs)*0.8;if(!(el.classes.includes('marquee')&&(sx>right||sx+wd.ww<left)) && oy<=el.y+el.h-el.pad[2])layoutStr(inst,wd.w,wd.color,atlas.table,font,{x:sx,y:oy,size:wd.fs});sx+=wd.ww+tw(' ',font,wd.fs);}
+    for(const wd of line){const oy=curY+(el.lh-wd.fs)*0.8;if(sx<=right && sx+wd.ww>=left && oy<=bottom)layoutStr(inst,wd.w,wd.color,atlas.table,font,{x:sx,y:oy,size:wd.fs});sx+=wd.ww+tw(' ',font,wd.fs);}
     line=[];
   };
   for(const it of items){
@@ -148,7 +150,7 @@ function layoutFlow(el: StyledEl, font: FontFace, atlas: any, inst: number[], no
 
 function layoutPre(el: StyledEl, font: FontFace, atlas: any, inst: number[]) {
   const segs=highlightCode(el.text);
-  const left=el.x+el.pad[3], right=el.x+el.w-el.pad[1];
+  const left=el.x+el.pad[3], right=el.x+el.w-el.pad[1], bottom=el.y+el.h-el.pad[2];
   let curX=left, curY=el.y+el.pad[0];
   for(const s of segs){
     if(s.kind==='nl'){curX=left;curY+=el.lh;continue;}
@@ -156,68 +158,103 @@ function layoutPre(el: StyledEl, font: FontFace, atlas: any, inst: number[]) {
     const ww=tw(s.text,font,14);
     if(curX+ww>right&&curX>left){curX=left;curY+=el.lh;}
     const oy=curY+(el.lh-14)*0.8;
-    if(oy<=el.y+el.h-el.pad[2]) layoutStr(inst,s.text,s.color,atlas.table,font,{x:curX,y:oy,size:14});
+    if(curX>=left && curX+ww<=right && oy<=bottom) layoutStr(inst,s.text,s.color,atlas.table,font,{x:curX,y:oy,size:14});
     curX+=ww;
   }
 }
 
-// ── Document ────────────────────────────────────────────────────────────────
+// ── Themes (concrete colors so the JS CSS engine handles :hover/:active) ─────
 
-const CSS_SRC = `
+interface Palette { [k:string]:string }
+const palettes: Record<string,Palette> = {
+  light: {
+    backdrop:'#e9e6df', pageBg:'#f0ede6', fg:'#1a1a2e', muted:'#4a4a55',
+    card:'#ffffff', accent:'#4466cc', accentDark:'#3355bb', accentActive:'#2244aa',
+    codeBg:'#1e1e2e', codeFg:'#cdd6f4', tagBg:'#e0d8f0', tagFg:'#5a4a8a',
+    callout:'#4a5bbf', cta:'#3a4db0', border:'#d8d2c6', kicker:'#8866aa', link:'#5a4a8a',
+    progress:'#d9d3c8', progFill:'#4466cc', pulse:'#2f9e54',
+    badgeBg:'#ffffff', badgeBorder:'#ddd6c8', badgeFg:'#444',
+    alertBg:'#e3eefc', alertFg:'#1d4ed8', avatarBg:'#4466cc',
+    timeline:'#d8d2c6', statusOk:'#2f9e54', shadow:'rgba(0,0,0,0.12)',
+  },
+  dark: {
+    backdrop:'#0c0e14', pageBg:'#161922', fg:'#e6e6ef', muted:'#9aa0b5',
+    card:'#1f2330', accent:'#6f8bff', accentDark:'#5a76f0', accentActive:'#3f57d0',
+    codeBg:'#0a0c12', codeFg:'#cdd6f4', tagBg:'#2a2f45', tagFg:'#aab4ff',
+    callout:'#3a4db0', cta:'#4a5bbf', border:'#262b3a', kicker:'#9a8cff', link:'#aab4ff',
+    progress:'#2a2f40', progFill:'#6f8bff', pulse:'#4fd07a',
+    badgeBg:'#1f2330', badgeBorder:'#2a2f45', badgeFg:'#cfd3e6',
+    alertBg:'#16223c', alertFg:'#8fb4ff', avatarBg:'#6f8bff',
+    timeline:'#262b3a', statusOk:'#4fd07a', shadow:'rgba(0,0,0,0.45)',
+  },
+};
+
+function buildCSS(p: Palette): string {
+  return `
 * { box-sizing: border-box; margin: 0; padding: 0; }
-.kicker { font-size: 12px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; color: #8866aa; margin-bottom: 10px; }
-.page { font-family: Lato, sans-serif; background: #f0ede6; color: #1a1a2e; padding: 32px 80px 64px; width: 100%; max-width: none; margin: 0 0 90px; border-radius: 0 0 18px 18px; }
-.nav { display: flex; align-items: center; justify-content: space-between; margin-bottom: 40px; padding-bottom: 18px; border-bottom: 1px solid #d8d2c6; }
-.brand { font-size: 22px; font-weight: 700; color: #16162e; }
-.brand span { color: #4466cc; }
+.kicker { font-size: 12px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; color: ${p.kicker}; margin-bottom: 10px; }
+.status { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; color: ${p.muted}; }
+.status.ok::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: ${p.statusOk}; }
+.page { font-family: Lato, sans-serif; background: ${p.pageBg}; color: ${p.fg}; padding: 32px 80px 64px; width: 100%; max-width: none; margin: 0 0 90px; border-radius: 0 0 18px 18px; }
+.nav { display: flex; align-items: center; justify-content: space-between; margin-bottom: 40px; padding-bottom: 18px; border-bottom: 1px solid ${p.border}; }
+.brand { font-size: 22px; font-weight: 700; color: ${p.fg}; }
+.brand span { color: ${p.accent}; }
 .nav-links { display: flex; gap: 22px; }
-.nav-links a { font-size: 14px; color: #5a4a8a; text-decoration: none; }
+.nav-links a { font-size: 14px; color: ${p.link}; text-decoration: none; }
 .hero { margin-bottom: 44px; }
-.hero h1 { font-size: 52px; font-weight: 700; color: #16162e; line-height: 1.05; margin-bottom: 16px; }
-.hero h1 em { font-style: normal; color: #4466cc; }
-.lead { font-size: 19px; line-height: 1.6; color: #4a4a55; margin-bottom: 22px; max-width: 640px; }
+.hero h1 { font-size: 52px; font-weight: 700; color: ${p.fg}; line-height: 1.05; margin-bottom: 16px; }
+.hero h1 em { font-style: normal; color: ${p.accent}; }
+.lead { font-size: 19px; line-height: 1.6; color: ${p.muted}; margin-bottom: 22px; max-width: 640px; }
 .btn-row { display: flex; gap: 12px; margin-bottom: 28px; }
-h2 { font-size: 26px; font-weight: 700; color: #2a2a4e; margin-top: 44px; margin-bottom: 14px; }
+h2 { font-size: 26px; font-weight: 700; color: ${p.fg}; margin-top: 44px; margin-bottom: 14px; }
 p { font-size: 16px; line-height: 1.6; margin-bottom: 16px; }
-.highlight { background: #e8e0d4; border-left: 4px solid #8866aa; padding: 16px 20px; margin: 24px 0; border-radius: 4px; font-size: 15px; color: #444; }
-pre { background: #1e1e2e; color: #cdd6f4; padding: 20px 24px; border-radius: 8px; font-size: 14px; line-height: 1.5; margin: 20px 0; }
+.highlight { background: ${p.tagBg}; border-left: 4px solid ${p.kicker}; padding: 16px 20px; margin: 24px 0; border-radius: 4px; font-size: 15px; color: ${p.muted}; }
+.alert { display: flex; gap: 12px; align-items: center; background: ${p.alertBg}; color: ${p.alertFg}; padding: 14px 18px; border-radius: 10px; margin: 22px 0; font-size: 15px; }
+pre { background: ${p.codeBg}; color: ${p.codeFg}; padding: 20px 24px; border-radius: 8px; font-size: 14px; line-height: 1.5; margin: 20px 0; }
 .grid { display: flex; gap: 20px; margin: 24px 0; }
-.feature { flex: 1; background: white; border-radius: 12px; padding: 24px; box-shadow: 0 0 0 rgba(0,0,0,0); }
-.feature:hover { box-shadow: 0 8px 24px rgba(0,0,0,0.12); }
-.feature h3 { font-size: 19px; font-weight: 700; color: #2a2a4e; margin-bottom: 8px; }
-.callout { background: #4a5bbf; color: white; padding: 28px 32px; border-radius: 14px; margin: 24px 0; display: flex; align-items: center; gap: 24px; }
+.feature { flex: 1; background: ${p.card}; border-radius: 12px; padding: 24px; box-shadow: 0 0 0 rgba(0,0,0,0); }
+.feature:hover { box-shadow: 0 8px 24px ${p.shadow}; }
+.feature h3 { font-size: 19px; font-weight: 700; color: ${p.fg}; margin-bottom: 8px; }
+.callout { background: ${p.callout}; color: white; padding: 28px 32px; border-radius: 14px; margin: 24px 0; display: flex; align-items: center; gap: 24px; }
 .callout h3 { font-size: 22px; font-weight: 700; margin-bottom: 6px; }
 .callout p { color: #e8ecff; margin-bottom: 0; }
 ul { margin: 12px 0 20px 22px; }
 li { font-size: 16px; line-height: 1.7; }
-.card { background: white; border-radius: 12px; padding: 24px; margin: 24px 0; box-shadow: 0 0 0 rgba(0,0,0,0); }
-.card:hover { box-shadow: 0 8px 24px rgba(0,0,0,0.12); }
-.card h3 { font-size: 19px; font-weight: 700; color: #2a2a4e; margin-bottom: 8px; }
-.tag { display: inline-block; background: #e0d8f0; color: #5a4a8a; padding: 3px 11px; border-radius: 12px; font-size: 12px; font-weight: 700; margin-right: 6px; }
-.btn { display: inline-block; text-align: center; background: #4466cc; color: white; padding: 11px 26px; border-radius: 8px; font-size: 15px; font-weight: 700; cursor: pointer; box-shadow: 0 0 0 rgba(0,0,0,0); }
-.btn:hover { background: #3355bb; box-shadow: 0 4px 14px rgba(68,102,204,0.4); }
-.btn:active { background: #2244aa; }
-.btn.ghost { background: transparent; color: #4466cc; border: 2px solid #4466cc; }
-.btn.ghost:hover { background: #eef2ff; }
-.progress { background: #d9d3c8; border-radius: 999px; height: 10px; margin: 18px 0; overflow: hidden; }
-.pulse { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; color: #2f9e54; font-weight: 700; padding-left: 22px; }
-.marquee { background: #16162e; color: #9aa6ff; padding: 12px 18px; border-radius: 8px; font-size: 14px; overflow: hidden; white-space: nowrap; margin: 20px 0; }
+.card { background: ${p.card}; border-radius: 12px; padding: 24px; margin: 24px 0; box-shadow: 0 0 0 rgba(0,0,0,0); }
+.card:hover { box-shadow: 0 8px 24px ${p.shadow}; }
+.card h3 { font-size: 19px; font-weight: 700; color: ${p.fg}; margin-bottom: 8px; }
+.tag { display: inline-block; background: ${p.tagBg}; color: ${p.tagFg}; padding: 3px 11px; border-radius: 12px; font-size: 12px; font-weight: 700; margin-right: 6px; }
+.btn { display: inline-block; text-align: center; background: ${p.accent}; color: white; padding: 11px 26px; border-radius: 8px; font-size: 15px; font-weight: 700; cursor: pointer; box-shadow: 0 0 0 rgba(0,0,0,0); }
+.btn:hover { background: ${p.accentDark}; box-shadow: 0 4px 14px ${p.shadow}; }
+.btn:active { background: ${p.accentActive}; }
+.btn.ghost { background: transparent; color: ${p.accent}; border: 2px solid ${p.accent}; }
+.btn.ghost:hover { background: ${p.tagBg}; }
+.progress { background: ${p.progress}; border-radius: 999px; height: 10px; margin: 18px 0; overflow: hidden; }
+.pulse { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; color: ${p.pulse}; font-weight: 700; padding-left: 22px; }
 .stats { display: flex; gap: 16px; margin: 24px 0; }
-.stat { flex: 1; background: #fff; border-radius: 12px; padding: 20px; text-align: center; }
-.stat .num { font-size: 34px; font-weight: 700; color: #4466cc; }
-.stat .lbl { font-size: 13px; color: #777; margin-top: 4px; }
+.stat { flex: 1; background: ${p.card}; border-radius: 12px; padding: 20px; text-align: center; }
+.stat .num { font-size: 34px; font-weight: 700; color: ${p.accent}; }
+.stat .lbl { font-size: 13px; color: ${p.muted}; margin-top: 4px; }
 .steps { margin: 20px 0; }
 .step { display: flex; gap: 16px; margin-bottom: 18px; align-items: flex-start; }
-.step .n { flex: 0 0 34px; height: 34px; border-radius: 50%; background: #4466cc; color: white; font-weight: 700; text-align: center; }
-.pullquote { font-size: 24px; line-height: 1.4; color: #2a2a4e; border-left: 4px solid #4466cc; padding: 8px 0 8px 22px; margin: 24px 0; font-style: italic; }
+.step .n { flex: 0 0 34px; height: 34px; border-radius: 50%; background: ${p.accent}; color: white; font-weight: 700; text-align: center; }
+.timeline { border-left: 2px solid ${p.timeline}; margin: 20px 0 20px 12px; padding-left: 20px; }
+.tl { position: relative; margin-bottom: 18px; }
+.tl::before { content:''; position:absolute; left:-27px; top:4px; width:10px; height:10px; border-radius:50%; background:${p.accent}; }
+.pullquote { font-size: 24px; line-height: 1.4; color: ${p.fg}; border-left: 4px solid ${p.accent}; padding: 8px 0 8px 22px; margin: 24px 0; font-style: italic; }
 .badges { display: flex; flex-wrap: wrap; gap: 10px; margin: 20px 0; }
-.badge { background: #fff; border: 1px solid #ddd6c8; border-radius: 8px; padding: 8px 14px; font-size: 14px; color: #444; }
-.cta { text-align: center; background: #3a4db0; color: white; border-radius: 16px; padding: 40px; margin: 24px 0; }
+.badge { background: ${p.badgeBg}; border: 1px solid ${p.badgeBorder}; border-radius: 8px; padding: 8px 14px; font-size: 14px; color: ${p.badgeFg}; }
+.avatars { display: flex; align-items: center; }
+.avatar { width: 38px; height: 38px; border-radius: 50%; background: ${p.avatarBg}; color: white; font-weight: 700; display: flex; align-items: center; justify-content: center; margin-left: -10px; border: 2px solid ${p.pageBg}; }
+.cta { text-align: center; background: ${p.cta}; color: white; border-radius: 16px; padding: 40px; margin: 24px 0; }
 .cta h3 { font-size: 28px; font-weight: 700; margin-bottom: 12px; }
 .cta p { color: #e8ecff; margin-bottom: 18px; }
-.divider { height: 1px; background: #d8d2c6; margin: 28px 0; }
-.footer { margin-top: 40px; padding-top: 16px; border-top: 1px solid #d8d2c6; font-size: 13px; color: #999; }
+.divider { height: 1px; background: ${p.border}; margin: 28px 0; }
+.footer { margin-top: 40px; padding-top: 16px; border-top: 1px solid ${p.border}; font-size: 13px; color: ${p.muted}; }
 `;
+}
+
+// ── Document content ─────────────────────────────────────────────────────────
 
 const HTML_SRC = `
 <div class="page">
@@ -237,6 +274,7 @@ const HTML_SRC = `
     <div class="progress"></div>
     <div class="pulse">Live &mdash; 60 fps</div>
   </div>
+  <div class="alert"><span>&#9888;</span><div>Everything you see &mdash; every box, every glyph &mdash; is one GPU draw call, shaded analytically.</div></div>
   <h2>Hover effects</h2>
   <div class="card"><h3>Hover Card</h3><p>Move your mouse over this card. The box-shadow interpolates smoothly. Hover state is detected by hit-testing the cursor's world position against element bounds.</p><span class="tag">hover</span><span class="tag">transition</span></div>
   <h2>Features</h2>
@@ -274,13 +312,19 @@ const HTML_SRC = `
   <div class="stats">
     <div class="stat"><div class="num">0</div><div class="lbl">aliasing artifacts</div></div>
     <div class="stat"><div class="num">1</div><div class="lbl">draw call</div></div>
-    <div class="stat"><div class="num">∞</div><div class="lbl">zoom levels</div></div>
+    <div class="stat"><div class="num">&#8734;</div><div class="lbl">zoom levels</div></div>
   </div>
   <h2>How it works</h2>
   <div class="steps">
     <div class="step"><div class="n">1</div><div><h3>Parse</h3><p>The stylesheet is parsed into rules; selectors are matched against the element tree.</p></div></div>
     <div class="step"><div class="n">2</div><div><h3>Layout</h3><p>The browser computes every box; we read its rect so hits line up with pixels.</p></div></div>
     <div class="step"><div class="n">3</div><div><h3>Paint</h3><p>Each background and glyph is one GPU instance, shaded analytically.</p></div></div>
+  </div>
+  <h2>Timeline</h2>
+  <div class="timeline">
+    <div class="tl"><h3>Parse</h3><p>CSS becomes a rule list in microseconds.</p></div>
+    <div class="tl"><h3>Match</h3><p>Selectors resolve against the live DOM tree.</p></div>
+    <div class="tl"><h3>Shade</h3><p>Windfoil integrates coverage per pixel, analytically.</p></div>
   </div>
   <div class="callout"><div><h3>Try it</h3><p>Scroll-zoom all the way out to see the entire document at once.</p></div></div>
   <div class="marquee">selectors | pseudo-classes | transitions | analytic coverage | closed-form integral | GPU instances | </div>
@@ -299,9 +343,11 @@ const HTML_SRC = `
     <h1>Designed to be read.</h1>
   </div>
   <div class="pullquote">"Typography is what language looks like." &mdash; and windfoil makes it look sharp everywhere.</div>
+  <div class="status ok">All systems operational</div>
   <div class="badges">
     <div class="badge">Headings</div><div class="badge">Lead text</div><div class="badge">Cards</div><div class="badge">Badges</div><div class="badge">Stats</div><div class="badge">Quotes</div><div class="badge">Code</div><div class="badge">Buttons</div>
   </div>
+  <div class="avatars"><div class="avatar">A</div><div class="avatar">B</div><div class="avatar">C</div><div class="avatar">D</div></div>
   <h2>Components</h2>
   <div class="grid">
     <div class="feature"><h3>Stat blocks</h3><p>Big numbers with small labels &mdash; great for dashboards.</p></div>
@@ -318,8 +364,8 @@ const HTML_SRC = `
 async function main() {
   const fpsEl = document.getElementById('fps')!;
   const dpr = Math.min(devicePixelRatio, 2);
-  const PAGE_W = 1040;   // hard maximum page column width (world units)
-  const NAV_W = 76;     // permanent side-nav width (CSS px, zoom-independent)
+  const PAGE_W = 1040;
+  const MAXZOOM = 6;
 
   const rCanvas = document.createElement('canvas');
   rCanvas.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;z-index:0;cursor:grab';
@@ -335,12 +381,12 @@ async function main() {
   const gpuCtx = tCanvas.getContext('webgpu')!;
   gpuCtx.configure({ device, format: 'rgba8unorm', alphaMode: 'premultiplied' });
 
-  const cssRules = parseCSS(CSS_SRC);
-
+  // Build layout DOM (kept in the document, hidden, so themes can be swapped live)
   const container = document.createElement('div');
   container.style.cssText = 'position:absolute;left:0;top:0;opacity:0;pointer-events:none;width:'+PAGE_W+'px';
   document.body.appendChild(container);
-  container.innerHTML = `<style>@font-face{font-family:'Lato';src:url('/Lato-Regular.ttf') format('truetype');font-weight:400}@font-face{font-family:'Lato';src:url('/Lato-Regular.ttf') format('truetype');font-weight:700}</style><style>${CSS_SRC}</style>${HTML_SRC}`;
+  container.innerHTML = `<style>@font-face{font-family:'Lato';src:url('/Lato-Regular.ttf') format('truetype');font-weight:400}@font-face{font-family:'Lato';src:url('/Lato-Regular.ttf') format('truetype');font-weight:700}</style><style id="themeStyle">${buildCSS(palettes.light)}</style>${HTML_SRC}`;
+  const themeStyle = container.querySelector('#themeStyle') as HTMLStyleElement;
   await document.fonts.ready;
 
   const styledEls: StyledEl[] = [];
@@ -387,46 +433,52 @@ async function main() {
 
   const docH=Math.max(...styledEls.map(e=>e.y+e.h))+60;
   const pages = pageRoots.map(r=>({x:r.x,y:r.y,w:r.w,h:r.h}));
-  document.body.removeChild(container);
 
   const allChars=new Set<string>();
   for(const el of styledEls) for(const ch of el.text) allChars.add(ch);
-  for(const ch of '●∞→★✓—') allChars.add(ch);
+  for(const ch of '●∞→★✓—⚠') allChars.add(ch);
   const atlas=buildGlyphAtlas(font,[...allChars].join(' '));
 
-  // ── Camera (with eased navigation between pages) ───────────────────────────
+  // ── Theme state ─────────────────────────────────────────────────────────────
+  let cssRules = parseCSS(buildCSS(palettes.light));
+  let isDark=false;
+  let themeCol = { backdrop: parseColor(palettes.light.backdrop), pageBg: parseColor(palettes.light.pageBg), prog: parseColor(palettes.light.progFill), pulse: parseColor(palettes.light.pulse), shadow: parseColor(palettes.light.shadow) };
+  function applyTheme(dark:boolean){
+    isDark=dark; const p=palettes[dark?'dark':'light'];
+    themeStyle.textContent=buildCSS(p);
+    cssRules=parseCSS(themeStyle.textContent);
+    themeCol={ backdrop:parseColor(p.backdrop), pageBg:parseColor(p.pageBg), prog:parseColor(p.progFill), pulse:parseColor(p.pulse), shadow:parseColor(p.shadow) };
+    for(const el of styledEls){ const cs=getComputedStyle(el.el); el.color=parseColor(cs.color); el.bg=parseColor(cs.backgroundColor); el.curBg=parseColor(cs.backgroundColor); el.upper=cs.textTransform==='uppercase'; el.textAlign=cs.textAlign||'left'; }
+    if(themeBtn) themeBtn.textContent=dark?'☀️':'🌙';
+  }
+
+  // ── Camera ───────────────────────────────────────────────────────────────────
   let camZ=0.5,camX=600,camY=300;
   let viewZ=camZ,viewX=camX,viewY=camY;
   let tgtX=camX,tgtY=camY,tgtZ=camZ;
   let velX=0,velY=0,dragging=false,lastMoveT=0;
-  let pressed:StyledEl|null=null;
+  let zoomAnchor:{wx:number;wy:number;sx:number;sy:number}|null=null;
   const pointers=new Map<number,{x:number;y:number}>();
   let mx=innerWidth*dpr/2, my=innerHeight*dpr/2, mwx=0, mwy=0;
   let minZoom=0.02;
-  let docCY=docH/2;
 
   function setSize(){
     const w=innerWidth,h=innerHeight;
     [rCanvas,tCanvas].forEach(c=>{c.width=w*dpr;c.height=h*dpr;c.style.width=w+'px';c.style.height=h+'px';});
-    if(pages.length){const allH=Math.max(...pages.map(p=>p.y+p.h))+60;minZoom=Math.min((tCanvas.width-NAV_W*dpr)/PAGE_W,tCanvas.height/allH)*0.95;}
+    if(pages.length){const allH=Math.max(...pages.map(p=>p.y+p.h))+60;minZoom=Math.min(tCanvas.width/PAGE_W,tCanvas.height/allH)*0.95;}
   }
   function bufCoords(clientX:number,clientY:number){
     const rc=rCanvas.getBoundingClientRect();
     return { x:(clientX-rc.left)*(rCanvas.width/rc.width), y:(clientY-rc.top)*(rCanvas.height/rc.height) };
   }
   function scrToWorld(sx:number,sy:number){return{x:(sx-tCanvas.width/2)/camZ+camX,y:(sy-tCanvas.height/2)/camZ+camY}}
-  function navOffsetX(z:number){ return (NAV_W*dpr)/(2*z); }
-  let currentPage=0; const navBtns:HTMLButtonElement[]=[];
-  function updateNav(){ navBtns.forEach((b,i)=>{ const on=i===currentPage; b.style.background=on?'#4466cc':'rgba(255,255,255,0.06)'; b.style.color=on?'#fff':'#cfc8e8'; }); }
   function goToPage(i:number){
     const p=pages[i]; if(!p) return;
-    tgtZ=((tCanvas.width-NAV_W*dpr)/PAGE_W)*0.96; // fit page WIDTH into the area right of the side nav
-    tgtX=p.x+p.w/2 - navOffsetX(tgtZ);           // center inside the area right of the side nav
-    tgtY=p.y+p.h/2;
-    velX=velY=0; currentPage=i; updateNav();
+    tgtZ=(tCanvas.width/PAGE_W)*0.96;
+    tgtX=p.x+p.w/2; tgtY=p.y+p.h/2;
+    velX=velY=0; zoomAnchor=null;
   }
 
-  // Virtual root spanning all pages for hit-testing
   const docRoot: StyledEl = {
     tag:'BODY', classes:[], id:'', x:0, y:0, w:PAGE_W, h:docH, pad:[0,0,0,0], text:'',
     children: pageRoots, parent:null, el: container,
@@ -445,13 +497,14 @@ async function main() {
     return null;
   }
 
+  let pressed:StyledEl|null=null;
   rCanvas.addEventListener('pointerdown',e=>{
-    rCanvas.setPointerCapture(e.pointerId);
+    rCanvas.setPointerCapture(e.pointerId); zoomAnchor=null;
     const b=bufCoords(e.clientX,e.clientY);
     pointers.set(e.pointerId,{x:b.x,y:b.y});dragging=true;velX=velY=0;lastMoveT=performance.now();
     const w=scrToWorld(b.x,b.y);
     const hit=hitTest(w.x,w.y);
-    pressed = (hit && (hit.classes.includes('btn')||hit.classes.includes('card')||hit.classes.includes('feature')))?hit:null;
+    pressed=(hit&&(hit.classes.includes('btn')||hit.classes.includes('card')||hit.classes.includes('feature')))?hit:null;
     let nav:StyledEl|null=hit; while(nav && !nav.el.getAttribute('data-page')) nav=nav.parent;
     if(nav) goToPage(parseInt(nav.el.getAttribute('data-page')||'0',10));
   });
@@ -459,40 +512,30 @@ async function main() {
     const b=bufCoords(e.clientX,e.clientY); mx=b.x; my=b.y;
     if(!pointers.has(e.pointerId))return;
     const prev=pointers.get(e.pointerId)!;pointers.set(e.pointerId,{x:b.x,y:b.y});
-    if(pointers.size===1){camX-=(b.x-prev.x)/camZ;camY-=(b.y-prev.y)/camZ;tgtX=camX;tgtY=camY;tgtZ=camZ;const t=performance.now(),ddt=t-lastMoveT;if(ddt>0){velX=velX?velX*.7+((b.x-prev.x)/ddt)*.3:(b.x-prev.x)/ddt;velY=velY?velY*.7+((b.y-prev.y)/ddt)*.3:(b.y-prev.y)/ddt;lastMoveT=t}}
+    if(pointers.size===1){camX-=(b.x-prev.x)/camZ;camY-=(b.y-prev.y)/camZ;tgtX=camX;tgtY=camY;tgtZ=camZ;zoomAnchor=null;const t=performance.now(),ddt=t-lastMoveT;if(ddt>0){velX=velX?velX*.7+((b.x-prev.x)/ddt)*.3:(b.x-prev.x)/ddt;velY=velY?velY*.7+((b.y-prev.y)/ddt)*.3:(b.y-prev.y)/ddt;lastMoveT=t}}
   });
   const rel=()=>{pointers.clear();dragging=false;pressed=null;if(performance.now()-lastMoveT>80)velX=velY=0;};
   rCanvas.addEventListener('pointerup',rel);rCanvas.addEventListener('pointercancel',rel);
+  // Continuous, smooth, zoom-to-cursor: set a target zoom and anchor, ease every frame.
   rCanvas.addEventListener('wheel',e=>{
     e.preventDefault();
     const b=bufCoords(e.clientX,e.clientY);
     const Cw=tCanvas.width, Ch=tCanvas.height;
     const wx=(b.x-Cw/2)/camZ+camX, wy=(b.y-Ch/2)/camZ+camY;
-    camZ*=Math.exp(-e.deltaY*.0008); camZ=Math.max(minZoom,camZ);
-    camX=wx-(b.x-Cw/2)/camZ; camY=wy-(b.y-Ch/2)/camZ;
-    if(camZ<=minZoom*1.02){ camX=PAGE_W/2 - navOffsetX(minZoom); camY=docCY; camZ=minZoom; } // zoom-out reveals the whole document
-    tgtX=camX;tgtY=camY;tgtZ=camZ; viewX=camX;viewY=camY;viewZ=camZ;
+    const newZ=Math.max(minZoom, Math.min(MAXZOOM, camZ*Math.exp(-e.deltaY*.0008)));
+    tgtZ=newZ; tgtX=wx-(b.x-Cw/2)/newZ; tgtY=wy-(b.y-Ch/2)/newZ;
+    zoomAnchor={wx,wy,sx:b.x,sy:b.y};
+    if(newZ<=minZoom*1.02){ camX=PAGE_W/2; camY=docH/2; camZ=minZoom; tgtX=PAGE_W/2; tgtY=docH/2; tgtZ=minZoom; zoomAnchor=null; }
+    viewX=camX;viewY=camY;viewZ=camZ;
   },{passive:false});
-  // Permanent side navigation — real DOM, fixed, never affected by zoom/pan
-  const navEl=document.createElement('nav');
-  navEl.style.cssText=`position:fixed;left:0;top:0;bottom:0;width:${NAV_W}px;z-index:10;`+
-    `display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;`+
-    `background:rgba(22,22,46,0.92);border-right:1px solid rgba(255,255,255,0.08);`;
-  const pageNames=['Home','Features','Showcase'];
-  pages.forEach((p,i)=>{
-    const b=document.createElement('button');
-    b.textContent=String(i+1); b.title=pageNames[i]||('Page '+(i+1));
-    b.style.cssText=`width:44px;height:44px;border-radius:12px;border:none;cursor:pointer;`+
-      `font:700 15px Lato,sans-serif;color:#cfc8e8;background:rgba(255,255,255,0.06);transition:background .15s,color .15s;`;
-    b.onmouseenter=()=>{ if(i!==currentPage){b.style.background='rgba(68,102,204,0.35)';b.style.color='#fff';} };
-    b.onmouseleave=()=>{ if(i!==currentPage){b.style.background='rgba(255,255,255,0.06)';b.style.color='#cfc8e8';} };
-    b.onclick=()=>goToPage(i);
-    navBtns.push(b); navEl.appendChild(b);
-    const lab=document.createElement('div'); lab.textContent=pageNames[i]||('Page '+(i+1));
-    lab.style.cssText='font:600 9px Lato,sans-serif;color:#8a85a8;letter-spacing:.5px;text-transform:uppercase;';
-    navEl.appendChild(lab);
-  });
-  document.body.appendChild(navEl);
+
+  // Dark-mode toggle (fixed DOM control, never affected by zoom)
+  let themeBtn:HTMLButtonElement|null=null;
+  const tb=document.createElement('button');
+  tb.textContent='🌙'; tb.title='Toggle dark mode';
+  tb.style.cssText='position:fixed;top:14px;right:14px;z-index:10;width:42px;height:42px;border-radius:10px;border:none;cursor:pointer;font-size:18px;background:rgba(22,22,46,0.85);color:#fff;';
+  tb.onclick=()=>applyTheme(!isDark);
+  document.body.appendChild(tb); themeBtn=tb;
 
   addEventListener('resize',setSize);setSize();goToPage(0);camX=tgtX;camY=tgtY;camZ=tgtZ;
 
@@ -503,18 +546,19 @@ async function main() {
     const dt=prevTs?now-prevTs:16;prevTs=now;
     fpsDt=fpsDt*.9+dt*.1;fpsEl.textContent=`${Math.round(1000/fpsDt)} fps`;
 
-    // Camera update: inertia, then eased navigation
+    const e=1-Math.pow(0.01,dt/1000); // smooth easing factor
     if(!dragging){
       if(Math.abs(velX)>0.01||Math.abs(velY)>0.01){
-        camX-=(velX*dt)/camZ;camY-=(velY*dt)/camZ;tgtX=camX;tgtY=camY;tgtZ=camZ;
+        camX-=(velX*dt)/camZ;camY-=(velY*dt)/camZ;tgtX=camX;tgtY=camY;tgtZ=camZ;zoomAnchor=null;
         velX*=Math.pow(.85,dt/16);velY*=Math.pow(.85,dt/16);
         if(Math.abs(velX)<.01&&Math.abs(velY)<.01)velX=velY=0;
       } else {
-        const e=1-Math.pow(0.004,dt/1000);
-        camX+=(tgtX-camX)*e;camY+=(tgtY-camY)*e;camZ+=(tgtZ-camZ)*e;
+        camZ+=(tgtZ-camZ)*e;
+        if(zoomAnchor){ const Cw=tCanvas.width,Ch=tCanvas.height; camX=zoomAnchor.wx-(zoomAnchor.sx-Cw/2)/camZ; camY=zoomAnchor.wy-(zoomAnchor.sy-Ch/2)/camZ; if(Math.abs(camZ-tgtZ)<0.0008)zoomAnchor=null; }
+        else { camX+=(tgtX-camX)*e; camY+=(tgtY-camY)*e; }
       }
     }
-    camZ=Math.max(minZoom,camZ);
+    camZ=Math.max(minZoom,Math.min(MAXZOOM,camZ));
     viewX=camX;viewY=camY;viewZ=camZ;
     const Cw=tCanvas.width,Ch=tCanvas.height;
 
@@ -524,7 +568,7 @@ async function main() {
     const hoveredSet=new Set<StyledEl>();let cur=hovered;while(cur){hoveredSet.add(cur);cur=cur.parent;}
 
     const crv=Array.from(atlas.curves),rws=Array.from(atlas.rows),inst:number[]=[];
-    addRect(0,0,PAGE_W,docH,[0.94,0.93,0.90,1],crv,rws,inst);
+    addRect(0,0,PAGE_W,docH,themeCol.pageBg,crv,rws,inst);
 
     const k=1-Math.pow(0.0015,dt/1000);
     for(const el of styledEls){
@@ -538,7 +582,7 @@ async function main() {
       el.curShadow+=(tgtShadow-el.curShadow)*k;
 
       if(el.curBg[3]>0.004){
-        if(el.curShadow>0.01){const g=14*el.curShadow;addRect(el.x-g,el.y-g,el.x+el.w+g,el.y+el.h+g,[0,0,0,0.12*el.curShadow],crv,rws,inst);}
+        if(el.curShadow>0.01){const g=14*el.curShadow;addRect(el.x-g,el.y-g,el.x+el.w+g,el.y+el.h+g,[themeCol.shadow[0],themeCol.shadow[1],themeCol.shadow[2],themeCol.shadow[3]*el.curShadow],crv,rws,inst);}
         addRect(el.x,el.y,el.x+el.w,el.y+el.h,el.curBg,crv,rws,inst);
       }
 
@@ -550,15 +594,15 @@ async function main() {
       if(el.classes.includes('progress')){
         const frac=((now%3200)/3200);
         const fw=(el.w-el.pad[3]-el.pad[1])*frac;
-        addRect(el.x+el.pad[3], el.y+el.h/2-5, el.x+el.pad[3]+fw, el.y+el.h/2+5, [0.27,0.4,0.8,1], crv,rws,inst);
+        addRect(el.x+el.pad[3], el.y+el.h/2-5, el.x+el.pad[3]+fw, el.y+el.h/2+5, themeCol.prog, crv,rws,inst);
       }
       if(el.classes.includes('pulse')){
         const a=0.45+0.55*Math.sin(now/280);
-        addRect(el.x+2, el.y+el.h/2-7, el.x+16, el.y+el.h/2+7, [0.18,0.62,0.33,a], crv,rws,inst);
+        addRect(el.x+2, el.y+el.h/2-7, el.x+16, el.y+el.h/2+7, [themeCol.pulse[0],themeCol.pulse[1],themeCol.pulse[2],a], crv,rws,inst);
       }
     }
 
-    rCtx.fillStyle='#f0ede6';rCtx.fillRect(0,0,Cw,Ch);
+    rCtx.fillStyle=rgb(themeCol.backdrop);rCtx.fillRect(0,0,Cw,Ch);
     const wf=createGlyphRenderer(device,{code:shaderCode,format:'rgba8unorm',curves:new Float32Array(crv),rows:new Uint32Array(rws),instances:new Float32Array(inst),instanceCount:inst.length/16});
     const enc=device.createCommandEncoder();
     const pass=enc.beginRenderPass({colorAttachments:[{view:gpuCtx.getCurrentTexture().createView(),clearValue:{r:0,g:0,b:0,a:0},loadOp:'clear',storeOp:'store'}]});
