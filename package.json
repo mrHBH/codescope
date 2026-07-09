@@ -1,0 +1,22 @@
+{
+  "name": "codescope",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "camera-controls": "^3.1.2",
+    "opentype.js": "^2.0.0",
+    "png-tools": "^1.0.4",
+    "three": "^0.185.1"
+  },
+  "devDependencies": {
+    "@webgpu/types": "^0.1.71",
+    "typescript": "^7.0.2",
+    "vite": "^8.1.3"
+  }
+}
