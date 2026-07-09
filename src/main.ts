@@ -29,7 +29,7 @@ function addRect(x0:number,y0:number,x1:number,y1:number,clr:number[],crv:number
 
 const HTML_DOC = `<!DOCTYPE html><html><head><style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:sans-serif;background:#f0ede6;color:#1a1a2e;padding:40px 80px;max-width:900px}
+.page{font-family:sans-serif;background:#f0ede6;color:#1a1a2e;padding:0}
 h1{font-size:36px;font-weight:700;color:#16162e;margin-bottom:8px}
 h2{font-size:24px;font-weight:700;color:#2a2a4e;margin-top:36px;margin-bottom:12px}
 p{font-size:16px;line-height:1.6;margin-bottom:16px}
@@ -137,13 +137,39 @@ async function main() {
     [rasterCanvas, textCanvas].forEach(c => { c.width = w*dpr; c.height = h*dpr });
   }
 
+  // ── Input ────────────────────────────────────────────────────────────────
+  let mouseWX = 0, mouseWY = 0; // mouse pos in world coords
+  const hovered = new Set<Element>();
+
+  function screenToWorld(sx: number, sy: number) {
+    return {
+      x: (sx - textCanvas.width/2) / viewZ + viewX,
+      y: (sy - textCanvas.height/2) / viewZ + viewY,
+    };
+  }
+
   rasterCanvas.addEventListener('pointerdown', (e) => {
     rasterCanvas.setPointerCapture(e.pointerId);
-    pointers.set(e.pointerId,{x:e.clientX*dpr,y:e.clientY*dpr}); dragging=true;velX=velY=0;lastMoveT=performance.now();
+    if(e.pointerType!=='mouse') pointers.set(e.pointerId,{x:e.clientX*dpr,y:e.clientY*dpr});
+    else pointers.set(e.pointerId,{x:e.clientX*dpr,y:e.clientY*dpr});
+    dragging=true;velX=velY=0;lastMoveT=performance.now();
+
+    // Click: hit-test and check if button
+    const w = screenToWorld(e.clientX*dpr, e.clientY*dpr);
+    for (const el of els) {
+      if (w.x>=el.x && w.x<=el.x+el.w && w.y>=el.y && w.y<=el.y+el.h) {
+        const btn = el.el.closest('.btn') as HTMLElement|null;
+        if (btn) btn.style.background = '#3355bb'; // visual feedback
+      }
+    }
   });
   rasterCanvas.addEventListener('pointermove', (e) => {
-    if(!pointers.has(e.pointerId))return; const p={x:e.clientX*dpr,y:e.clientY*dpr},prev=pointers.get(e.pointerId)!; pointers.set(e.pointerId,p);
-    if(pointers.size===1){camX-=(p.x-prev.x)/camZ;camY-=(p.y-prev.y)/camZ;const t=performance.now(),ddt=t-lastMoveT;if(ddt>0){velX=velX?velX*.7+((p.x-prev.x)/ddt)*.3:(p.x-prev.x)/ddt;velY=velY?velY*.7+((p.y-prev.y)/ddt)*.3:(p.y-prev.y)/ddt;lastMoveT=t}}
+    if(!pointers.has(e.pointerId))return;
+    const px=e.clientX*dpr,py=e.clientY*dpr,prev=pointers.get(e.pointerId)!;pointers.set(e.pointerId,{x:px,y:py});
+    if(pointers.size===1){camX-=(px-prev.x)/camZ;camY-=(py-prev.y)/camZ;const t=performance.now(),ddt=t-lastMoveT;if(ddt>0){velX=velX?velX*.7+((px-prev.x)/ddt)*.3:(px-prev.x)/ddt;velY=velY?velY*.7+((py-prev.y)/ddt)*.3:(py-prev.y)/ddt;lastMoveT=t}}
+    // Track world mouse position
+    const w = screenToWorld(px, py);
+    mouseWX = w.x; mouseWY = w.y;
   });
   const rel=()=>{pointers.clear();dragging=false;if(performance.now()-lastMoveT>80)velX=velY=0};
   rasterCanvas.addEventListener('pointerup',rel); rasterCanvas.addEventListener('pointercancel',rel);
@@ -157,11 +183,6 @@ async function main() {
   camZ = rasterCanvas.width / pageW * 0.85; viewZ=camZ; viewX=camX=pageW/2; viewY=camY=pageH*0.2;
 
   // ── Mouse tracking ──────────────────────────────────────────────────────
-  let mouseX = 0, mouseY = 0;
-  rasterCanvas.addEventListener('pointermove',(e)=>{mouseX=e.clientX*dpr;mouseY=e.clientY*dpr});
-  const hovered = new Set<Element>();
-
-  // ── Frame loop ──────────────────────────────────────────────────────────
   let fpsDt = 16, prevTs = 0;
 
   function frame(now: number) {
@@ -176,10 +197,8 @@ async function main() {
 
     // Hit-test: which cards/buttons/tags are hovered
     const newHovered = new Set<Element>();
-    const mx = (mouseX - Cw/2) / viewZ + viewX;
-    const my = (mouseY - Ch/2) / viewZ + viewY;
     for (const el of els) {
-      if (mx >= el.x && mx <= el.x+el.w && my >= el.y && my <= el.y+el.h) {
+      if (mouseWX >= el.x && mouseWX <= el.x+el.w && mouseWY >= el.y && mouseWY <= el.y+el.h) {
         const hoverable = el.el.closest('.card,.btn,.tag') as Element | null;
         if (hoverable) newHovered.add(hoverable);
       }
