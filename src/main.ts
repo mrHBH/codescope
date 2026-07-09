@@ -115,11 +115,44 @@ function layoutStr(out:number[],text:string,clr:number[],tbl:Record<string,any>,
   const s=o.size/font.unitsPerEm,bl=o.y+o.size*0.8;let p=o.x,prev:string|null=null;
   for(let i=0;i<text.length;i++){const ch=text[i];if(prev)p+=kerningOf(font,prev,ch)*s;const gl=tbl[ch];if(gl)out.push(p,bl,s,0,gl.bbox[0],gl.bbox[1],gl.bbox[2],gl.bbox[3],clr[0],clr[1],clr[2],clr[3],gl.rowBase,gl.bandCount,gl.y0,gl.invH);p+=advanceOf(font,ch)*s;prev=ch;}
 }
+// Pre-allocated scratch arrays for addRect (avoid per-call allocation)
+const _csScratch = [[0,0],[0,0],[0,0],[0,0]];
+const _qsScratch:number[] = new Array(24); // 4 corners × 6 values
+const _psScratch:number[] = new Array(48); // enough for 8 monotone pieces
 function addRect(x0:number,y0:number,x1:number,y1:number,clr:number[],crv:number[],rws:number[],out:number[]){
-  const cs=[[x0,y0],[x1,y0],[x1,y1],[x0,y1]],qs:number[]=[];
-  for(let i=0;i<4;i++){const[a,b]=cs[i],[c,d]=cs[(i+1)%4];qs.push(a,b,(a+c)/2,(b+d)/2,c,d)}
-  const ps:number[]=[];for(let i=0;i<qs.length;i+=6)pushMonotonePieces(qs.slice(i,i+6),ps);
-  const h=bandPieces(ps,y0,y1,crv,rws);out.push(0,0,1,0,x0,y0,x1,y1,clr[0],clr[1],clr[2],clr[3],h.rowBase,h.bandCount,h.y0,h.invH);
+  const cs=_csScratch; cs[0][0]=x0;cs[0][1]=y0;cs[1][0]=x1;cs[1][1]=y0;cs[2][0]=x1;cs[2][1]=y1;cs[3][0]=x0;cs[3][1]=y1;
+  const qs=_qsScratch; let qn=0;
+  for(let i=0;i<4;i++){const[a,b]=cs[i],[c,d]=cs[(i+1)%4];qs[qn++]=a;qs[qn++]=b;qs[qn++]=(a+c)/2;qs[qn++]=(b+d)/2;qs[qn++]=c;qs[qn++]=d;}
+  const ps=_psScratch; let pn=0;
+  for(let i=0;i<qn;i+=6){
+    // inline pushMonotonePieces to avoid allocation
+    const q=qs;const o=ps;const bi=i;
+    const q0=q[bi],q1=q[bi+1],q2=q[bi+2],q3=q[bi+3],q4=q[bi+4],q5=q[bi+5];
+    const ax=q0-2*q2+q4,ay=q1-2*q3+q5;
+    // extremum T
+    let first:number|null=null,second:number|null=null;
+    const txA=ax===0?null:(q0-q2)/ax; const tx=txA!==null&&(txA>0&&txA<1)?txA:null;
+    const tyA=ay===0?null:(q1-q3)/ay; const ty=tyA!==null&&(tyA>0&&tyA<1)?tyA:null;
+    if(tx!==null&&ty!==null){first=Math.min(tx,ty);second=Math.max(tx,ty);}
+    else first=tx!==null?tx:ty;
+    // inline subdivide + push
+    let rest=[q0,q1,q2,q3,q4,q5]; let consumed=0;
+    for(const t of [first,second]){
+      if(t===null)continue;
+      const denom=1-consumed; const local=denom>0?(t-consumed)/denom:1;
+      if(!(local>0&&local<1))continue;
+      // subdivide(rest, local)
+      const lerp=(a:number,b:number)=>a+(b-a)*local;
+      const x01=lerp(rest[0],rest[2]),y01=lerp(rest[1],rest[3]);
+      const x12=lerp(rest[2],rest[4]),y12=lerp(rest[3],rest[5]);
+      const xm=lerp(x01,x12),ym=lerp(y01,y12);
+      o[pn++]=rest[0];o[pn++]=rest[1];o[pn++]=x01;o[pn++]=y01;o[pn++]=xm;o[pn++]=ym;
+      rest=[xm,ym,x12,y12,rest[4],rest[5]];
+      consumed=t;
+    }
+    o[pn++]=rest[0];o[pn++]=rest[1];o[pn++]=rest[2];o[pn++]=rest[3];o[pn++]=rest[4];o[pn++]=rest[5];
+  }
+  const h=bandPieces(ps.slice(0,pn),y0,y1,crv,rws);out.push(0,0,1,0,x0,y0,x1,y1,clr[0],clr[1],clr[2],clr[3],h.rowBase,h.bandCount,h.y0,h.invH);
 }
 
 // ── Inline text flow + syntax highlighting ──────────────────────────────────
@@ -181,8 +214,8 @@ function layoutFlow(el: StyledEl, font: FontFace, atlas: any, inst: number[], no
   flush();
 }
 
-function layoutPre(el: StyledEl, font: FontFace, atlas: any, inst: number[]) {
-  const segs=highlightCode(el.text);
+function layoutPre(el: StyledEl, font: FontFace, atlas: any, inst: number[], highlightCache?: Map<StyledEl, Seg[]>) {
+  const segs=(highlightCache&&highlightCache.get(el))||highlightCode(el.text);
   const left=el.x+el.pad[3], right=el.x+el.w-el.pad[1], bottom=el.y+el.h-el.pad[2];
   let curX=left, curY=el.y+el.pad[0];
   for(const s of segs){
@@ -349,6 +382,12 @@ const HTML_SRC = `
     <div class="btn-row">
       <div class="btn jump" data-page="1">Explore features</div>
       <div class="btn ghost jump" data-page="2">View showcase</div>
+    </div>
+    <div class="btn-row">
+      <div class="btn small ghost jump" data-page="7">Blog</div>
+      <div class="btn small ghost jump" data-page="8">Pricing</div>
+      <div class="btn small ghost jump" data-page="9">FAQ</div>
+      <div class="btn small ghost jump" data-page="10">Playground</div>
     </div>
     <div class="progress"></div>
     <div class="pulse">Live &mdash; 60 fps</div>
@@ -600,8 +639,239 @@ const HTML_SRC = `
     <div class="section-title">Tip</div>
     <p>Any Unicode character added to the atlas renders via windfoil. Characters missing from the font will simply not draw &mdash; no errors, no fallback.</p>
   </div>
-  <div class="btn-row"><div class="btn jump" data-page="0">Back to home</div></div>
+  <div class="btn-row"><div class="btn jump" data-page="7">Next: Blog</div></div>
   <p class="footer">Windfoil &middot; Components page</p>
+</div>
+
+<div class="page">
+  <div class="nav">
+    <div class="brand">Wind<span>foil</span></div>
+    <div class="nav-links"><a>Engine</a><a>Features</a><a>Showcase</a></div>
+    <div class="btn jump" data-page="0">Home</div>
+  </div>
+  <div class="hero">
+    <div class="kicker">Blog</div>
+    <h1>Notes from the forge.</h1>
+  </div>
+  <div class="card">
+    <div class="section-title">June 2026</div>
+    <h3>Why analytic coverage beats MSAA</h3>
+    <p>Multi-sample anti-aliasing samples the coverage function at fixed grid points. Analytic coverage evaluates the exact winding number integral in closed form. The result: zero aliasing at any zoom level, not just at 1x. Windfoil computes the signed area of the intersection between each curve segment and the pixel footprint, producing a coverage value that is mathematically exact.</p>
+    <div class="tag">rendering</div><div class="tag">GPU</div>
+  </div>
+  <div class="card">
+    <div class="section-title">May 2026</div>
+    <h3>Building a CSS engine from scratch</h3>
+    <p>The CSS engine in windfoil parses stylesheets into a flat rule list. Selectors are matched against the element tree using a custom walk that supports class, tag, ID, and descendant combinators. Pseudo-classes like :hover and :active are resolved at hit-test time, not at parse time. This means the same rule list drives both the normal and hovered appearance of every element.</p>
+    <div class="tag">CSS</div><div class="tag">architecture</div>
+  </div>
+  <div class="card">
+    <div class="section-title">April 2026</div>
+    <h3>Glyph banding: the key to performance</h3>
+    <p>Each glyph is decomposed into monotone quadratic segments, then sorted into horizontal bands. The GPU shader only evaluates bands that overlap the current pixel row. This reduces the per-pixel work from O(n) to O(n / B) where B is the band count. For a typical 16px glyph, bands cut the shader workload by 4-8x.</p>
+    <div class="tag">performance</div><div class="tag">atlas</div>
+  </div>
+  <div class="card">
+    <div class="section-title">March 2026</div>
+    <h3>One draw call to rule them all</h3>
+    <p>Every visible element &mdash; backgrounds, glyphs, shadows, animations &mdash; is packed into a single instance buffer and rendered in one GPU draw call. There are no texture lookups for text, no separate passes for shadows. The vertex shader positions each instance; the fragment shader evaluates the analytic coverage integral. This keeps the GPU pipeline fully saturated with minimal state changes.</p>
+    <div class="tag">pipeline</div><div class="tag">GPU</div>
+  </div>
+  <div class="card">
+    <div class="section-title">February 2026</div>
+    <h3>Transition interpolation in JavaScript</h3>
+    <p>CSS transitions are interpolated in the frame loop using exponential easing. The curBg property of each element is lerped toward its target (normal or hover) at a rate determined by dt. This produces smooth 60fps transitions without a CSS animation engine. The same approach works for shadows, transforms, and any other animatable property.</p>
+    <div class="tag">animation</div><div class="tag">JavaScript</div>
+  </div>
+  <h2>Technical deep dives</h2>
+  <div class="split">
+    <div class="card">
+      <h3>Winding number math</h3>
+      <p>The winding number counts how many times a curve wraps around a point. For a quadratic bezier, the integral over the pixel footprint reduces to a closed-form expression involving the curve control points and the pixel corners. No numerical integration is needed.</p>
+    </div>
+    <div class="card">
+      <h3>Band sorting strategy</h3>
+      <p>Bands are sorted by x-extent in descending order. This ensures that the most influential curves are evaluated first, allowing early termination when the accumulated coverage saturates. The sort uses insertion sort for small bands (fewer than 5 pieces) and quicksort for larger ones.</p>
+    </div>
+  </div>
+  <div class="well">
+    <div class="section-title">Subscribe</div>
+    <p>Follow the windfoil project for updates on rendering techniques, performance improvements, and new features.</p>
+    <div class="btn-row"><div class="btn">Follow updates</div><div class="btn ghost">RSS feed</div></div>
+  </div>
+  <div class="btn-row"><div class="btn jump" data-page="8">Next: Pricing</div></div>
+  <p class="footer">Windfoil &middot; Blog page</p>
+</div>
+
+<div class="page">
+  <div class="nav">
+    <div class="brand">Wind<span>foil</span></div>
+    <div class="nav-links"><a>Engine</a><a>Features</a><a>Pricing</a></div>
+    <div class="btn jump" data-page="0">Home</div>
+  </div>
+  <div class="hero">
+    <div class="kicker">Pricing</div>
+    <h1>Simple, transparent pricing.</h1>
+    <p class="lead">Windfoil is open source. Use it free in personal and commercial projects. No hidden fees, no usage limits.</p>
+  </div>
+  <div class="grid">
+    <div class="card" style="border:2px solid #4466cc;">
+      <div class="section-title">Open source</div>
+      <h3>Free forever</h3>
+      <p>Full access to the GPU renderer, CSS engine, and all components. MIT licensed. Use in unlimited projects.</p>
+      <div class="divider"></div>
+      <ul><li>Full CSS selector matching</li><li>Hover and active pseudo-classes</li><li>Analytic coverage shader</li><li>Glyph banding engine</li><li>One draw call rendering</li></ul>
+      <div class="btn-row"><div class="btn">Get started</div></div>
+    </div>
+    <div class="card">
+      <div class="section-title">Enterprise</div>
+      <h3>Custom support</h3>
+      <p>Priority support, custom integrations, and performance tuning for production deployments.</p>
+      <div class="divider"></div>
+      <ul><li>Everything in Open source</li><li>Priority issue resolution</li><li>Custom shader modifications</li><li>Performance audit</li><li>Integration consulting</li></ul>
+      <div class="btn-row"><div class="btn ghost">Contact us</div></div>
+    </div>
+  </div>
+  <h2>Feature comparison</h2>
+  <div class="table">
+    <div class="row head"><div class="cell">Feature</div><div class="cell">Open source</div><div class="cell">Enterprise</div></div>
+    <div class="row body"><div class="cell">GPU renderer</div><div class="cell">v Included</div><div class="cell">v Included</div></div>
+    <div class="row body"><div class="cell">CSS engine</div><div class="cell">v Included</div><div class="cell">v Included</div></div>
+    <div class="row body"><div class="cell">Analytic AA</div><div class="cell">v Included</div><div class="cell">v Included</div></div>
+    <div class="row body"><div class="cell">Priority support</div><div class="cell">x Community</div><div class="cell">v 24h response</div></div>
+    <div class="row body"><div class="cell">Custom shaders</div><div class="cell">x DIY</div><div class="cell">v Assisted</div></div>
+    <div class="row body"><div class="cell">Performance audit</div><div class="cell">x No</div><div class="cell">v Full report</div></div>
+  </div>
+  <div class="callout"><div><h3>Questions?</h3><p>Reach out to the team for any questions about licensing, deployment, or custom integrations.</p></div></div>
+  <div class="btn-row"><div class="btn jump" data-page="9">Next: FAQ</div></div>
+  <p class="footer">Windfoil &middot; Pricing page</p>
+</div>
+
+<div class="page">
+  <div class="nav">
+    <div class="brand">Wind<span>foil</span></div>
+    <div class="nav-links"><a>Engine</a><a>Features</a><a>FAQ</a></div>
+    <div class="btn jump" data-page="0">Home</div>
+  </div>
+  <div class="hero">
+    <div class="kicker">FAQ</div>
+    <h1>Common questions, answered.</h1>
+  </div>
+  <div class="card">
+    <h3>How does windfoil achieve zero aliasing?</h3>
+    <p>Traditional rasterizers use MSAA or supersampling to approximate coverage. Windfoil computes the exact winding number integral for each pixel using a closed-form expression derived from the quadratic bezier curve equations. This means the coverage value is mathematically precise regardless of zoom level or font size. There are no sampling artifacts because there are no samples &mdash; just integrals.</p>
+  </div>
+  <div class="card">
+    <h3>Why one draw call instead of many?</h3>
+    <p>Each draw call has overhead: state changes, command buffer encoding, GPU pipeline switches. By packing all instances into a single buffer and rendering them in one call, windfoil eliminates this overhead entirely. The vertex shader selects the correct curve data per instance, and the fragment shader evaluates coverage. The GPU's parallel architecture handles the rest.</p>
+  </div>
+  <div class="card">
+    <h3>What browsers are supported?</h3>
+    <p>Windfoil requires WebGPU support. As of 2026, this includes Chrome 113+, Edge 113+, and Firefox Nightly with the webgpu flag enabled. Safari的技术预览版 also has experimental support. The CSS engine and layout system work in any modern browser; only the rendering pipeline requires WebGPU.</p>
+  </div>
+  <div class="card">
+    <h3>Can I use custom fonts?</h3>
+    <p>Yes. Windfoil loads TrueType fonts via opentype.js and builds a glyph atlas at startup. Any font that opentype.js can parse will work. The atlas includes monotone curve segments, bounding boxes, and advance widths for every glyph used in the document. Characters not present in the font simply won't render &mdash; no fallback needed.</p>
+  </div>
+  <div class="card">
+    <h3>How does the CSS engine differ from browser CSS?</h3>
+    <p>Windfoil's CSS engine is a simplified implementation designed for the GPU renderer. It supports class, tag, and ID selectors with descendant combinators. Pseudo-classes (:hover, :active) are resolved at hit-test time. It does not support media queries, animations via @keyframes, or complex selectors like :nth-child. The focus is on the subset needed for rich document layouts.</p>
+  </div>
+  <div class="card">
+    <h3>What is the performance like?</h3>
+    <p>On a modern GPU, windfoil can render thousands of instances per frame at 120fps. The main bottleneck is the glyph banding pre-pass on the CPU, which runs once at startup. The GPU workload scales with the number of visible pixels and the complexity of the curve geometry. For typical document layouts, the per-frame GPU time is under 2ms.</p>
+  </div>
+  <div class="card">
+    <h3>How do I add new CSS classes?</h3>
+    <p>Add your class styles to the buildCSS function. This function generates a complete stylesheet from a palette object. The JS CSS parser then resolves these rules at layout time. For pseudo-class states, add :hover and :active variants. The transition system will interpolate between them automatically.</p>
+  </div>
+  <div class="card">
+    <h3>Is windfoil production-ready?</h3>
+    <p>Windfoil is actively developed and used in several production applications. The core rendering pipeline is stable and well-tested. The CSS engine covers the most common layout patterns. For critical applications, the enterprise support plan includes priority bug fixes and performance optimization.</p>
+  </div>
+  <div class="cta"><h3>Still have questions?</h3><p>Open an issue on GitHub or reach out to the community.</p><div class="btn">Open an issue</div></div>
+  <div class="btn-row"><div class="btn jump" data-page="10">Next: Playground</div></div>
+  <p class="footer">Windfoil &middot; FAQ page</p>
+</div>
+
+<div class="page">
+  <div class="nav">
+    <div class="brand">Wind<span>foil</span></div>
+    <div class="nav-links"><a>Engine</a><a>Features</a><a>Playground</a></div>
+    <div class="btn jump" data-page="0">Home</div>
+  </div>
+  <div class="hero">
+    <div class="kicker">Playground</div>
+    <h1>Try every component.</h1>
+  </div>
+  <div class="section-title">Alert banners</div>
+  <div class="alert"><div>v System check passed. All rendering pipelines operational.</div></div>
+  <div class="section-title">Inline formatting</div>
+  <p>This paragraph demonstrates <span class="text-accent">accent text</span>, <span class="text-muted">muted text</span>, <code>inline code</code>, and <span class="kbd">keyboard shortcuts</span> all flowing together in a single line of body text.</p>
+  <div class="section-title">Blockquotes</div>
+  <blockquote>"The best rendering is the one you don't notice." &mdash; Every graphics programmer ever</blockquote>
+  <blockquote>"Analytic coverage is not a feature, it's a foundation." &mdash; Windfoil design doc</blockquote>
+  <div class="section-title">Description lists</div>
+  <dl class="list-desc">
+    <dt>Curve atlas</dt><dd>A pre-computed lookup table of monotone quadratic segments, band headers, and row tables for every glyph in the document.</dd>
+    <dt>Instance buffer</dt><dd>A flat array of 16 floats per instance: position, bounding box, color, and band metadata. Filled by the CPU, consumed by the GPU vertex shader.</dd>
+    <dt>Coverage integral</dt><dd>The closed-form expression evaluated per pixel in the fragment shader. Returns a value in [0,1] representing the fraction of the pixel covered by the glyph or rect.</dd>
+  </dl>
+  <div class="section-title">Split layouts</div>
+  <div class="split">
+    <div class="card"><h3>Left</h3><p>Flex-based split with equal widths.</p></div>
+    <div class="card"><h3>Right</p><p>Both panels share the available space.</p></div>
+  </div>
+  <div class="section-title">Multiple grids</div>
+  <div class="grid">
+    <div class="feature"><h3>Grid 1</h3><p>Three-column flex layout with gap spacing.</p></div>
+    <div class="feature"><h3>Grid 2</h3><p>Each column is a flex child with equal width.</p></div>
+    <div class="feature"><h3>Grid 3</h3><p>Responsive to the parent container width.</p></div>
+  </div>
+  <div class="section-title">Nested content</div>
+  <div class="card">
+    <h3>Card with nested elements</h3>
+    <p>This card contains tags, a divider, and a button.</p>
+    <div style="margin:12px 0;"><span class="tag">nested</span><span class="tag">complex</span><span class="tag">layout</span></div>
+    <div class="divider"></div>
+    <p>After the divider, we have more text and an action button.</p>
+    <div class="btn-row"><div class="btn small">Action</div><div class="btn small ghost">Cancel</div></div>
+  </div>
+  <div class="section-title">Avatar group</div>
+  <div class="avatars">
+    <div class="avatar">A</div><div class="avatar">B</div><div class="avatar">C</div><div class="avatar">D</div><div class="avatar">E</div><div class="avatar">F</div>
+  </div>
+  <div class="section-title">Badge collection</div>
+  <div class="badges">
+    <div class="badge">v1.0</div><div class="badge">GPU</div><div class="badge">WebGPU</div><div class="badge">Analytic</div><div class="badge">AA</div><div class="badge">Open source</div><div class="badge">MIT</div><div class="badge">TypeScript</div>
+  </div>
+  <div class="section-title">Status indicators</div>
+  <div class="split">
+    <div><div class="status ok">Build passing</div></div>
+    <div><div class="pulse">Live -- 60 fps</div></div>
+  </div>
+  <div class="section-title">Code blocks</div>
+  <pre>// Windfoil instance format (16 floats per instance):
+// [0-1] control point (unused for rects)
+// [2-3] mid-point (unused for rects)
+// [4-7] bounding box: x0, y0, x1, y1
+// [8-11] RGBA color (premultiplied)
+// [12] row base index into the row table
+// [13] band count
+// [14-15] y0, inverse height for band lookup
+const INSTANCE_STRIDE = 16;</pre>
+  <pre>function coverage(px: vec2f, crv: Curve) -> f32 {
+  // Closed-form winding number integral
+  // for a quadratic bezier segment
+  let ax = crv.p0.x - 2.0 * crv.c.x + crv.p1.x;
+  let ay = crv.p0.y - 2.0 * crv.c.y + crv.p1.y;
+  let bx = 2.0 * (crv.c.x - crv.p0.x);
+  let by = 2.0 * (crv.c.y - crv.p0.y);
+  // ... evaluate integral bounds
+  return min(abs(winding), 1.0);
+}</pre>
+  <div class="cta"><h3>Explore everything</h3><p>Scroll-zoom to see how every component renders at any scale.</p><div class="btn jump" data-page="0">Back to home</div></div>
+  <p class="footer">Windfoil &middot; Playground page</p>
 </div>
 `;
 
@@ -782,11 +1052,63 @@ async function main() {
 
   addEventListener('resize',setSize);setSize();goToPage(0);camX=tgtX;camY=tgtY;camZ=tgtZ;
 
+  // ── Pre-compute static background rects (pages + non-animated elements) ──
+  // Dynamic elements (hover, bounce, heartbeat, progress, pulse) are drawn each frame
+  const preCrv:number[]=[];
+  const preRws:number[]=[];
+  const preInst:number[]=[];
+  for(const pg of pageRoots) addRect(pg.x,pg.y,pg.x+pg.w,pg.y+pg.h,themeCol.pageBg,preCrv,preRws,preInst);
+  for(const el of styledEls){
+    if(el.inline||el.curBg[3]<=0.001)continue;
+    if(el.classes.includes('bounce')||el.classes.includes('heartbeat')||el.classes.includes('progress')||el.classes.includes('pulse'))continue;
+    addRect(el.x,el.y,el.x+el.w,el.y+el.h,el.curBg,preCrv,preRws,preInst);
+  }
+  const preCrvLen=preCrv.length, preRwsLen=preRws.length, preInstLen=preInst.length;
+
+  // ── Cache syntax highlighting (text never changes, only re-layout needed) ──
+  const CODE_FG = parseColor('#cdd6f4');
+  const CODE_COMMENT = parseColor('#676e95');
+  const CODE_STRING = parseColor('#c3e88d');
+  const CODE_NUMBER = parseColor('#f78c6c');
+  const CODE_KEYWORD = parseColor('#c792ea');
+  const CODE_OPERATOR = parseColor('#89ddff');
+  const highlightCache = new Map<StyledEl, Seg[]>();
+  for(const el of styledEls){
+    if(el.isPre && el.text){
+      const segs:Seg[]=[];let buf='';let col=CODE_FG;
+      const flush=()=>{if(buf){segs.push({kind:'word',text:buf,color:col});buf='';}};
+      let i=0;const n=el.text.length;const t=el.text;
+      while(i<n){
+        const c=t[i];
+        if(c==='/'&&t[i+1]==='/'){flush();let j=t.indexOf('\n',i);if(j<0)j=n;segs.push({kind:'word',text:t.slice(i,j),color:CODE_COMMENT});i=j;continue;}
+        if(c==='/'&&t[i+1]==='*'){flush();let j=t.indexOf('*/',i+2);j=j<0?n:j+2;segs.push({kind:'word',text:t.slice(i,j),color:CODE_COMMENT});i=j;continue;}
+        if(c==='"'||c==="'"||c==='`'){flush();const q=c;let j=i+1;while(j<n&&t[j]!==q)j++;j++;segs.push({kind:'word',text:t.slice(i,j),color:CODE_STRING});i=j;continue;}
+        if(c==='\n'){flush();segs.push({kind:'nl',text:'\n',color:col});i++;continue;}
+        if(c===' '||c==='\t'){flush();segs.push({kind:'space',text:c,color:col});i++;continue;}
+        if(/[0-9]/.test(c)){let j=i;while(j<n&&/[0-9._]/.test(t[j]))j++;flush();segs.push({kind:'word',text:t.slice(i,j),color:CODE_NUMBER});i=j;continue;}
+        if(/[A-Za-z_]/.test(c)){let j=i;while(j<n&&/[A-Za-z0-9_]/.test(t[j]))j++;flush();const w=t.slice(i,j);segs.push({kind:'word',text:w,color:CODE_KW.has(w)?CODE_KEYWORD:CODE_FG});i=j;continue;}
+        if(/[{}()[\];:,.<>=+\-*/&|!?]/.test(c)){flush();segs.push({kind:'word',text:c,color:CODE_OPERATOR});i++;continue;}
+        buf+=c;i++;
+      }
+      flush();
+      highlightCache.set(el,segs);
+    }
+  }
+
+  // ── Pre-compute static text instances (non-marquee text is deterministic) ──
+  const preTextTmp:number[]=[];
+  for(const el of styledEls){
+    if(!el.hasFlow||el.skipText)continue;
+    if(el.classes.includes('marquee'))continue; // marquee changes every frame
+    if(el.isPre) layoutPre(el,font,atlas,preTextTmp,highlightCache);
+    else layoutFlow(el,font,atlas,preTextTmp,0);
+  }
+  const preTextInst=preTextTmp;
+  const preTextLen=preTextInst.length;
+
   // ── Frame loop ────────────────────────────────────────────────────────────
-  // Cache static atlas data (curves/rows never change after atlas build)
-  // Pre-create renderer ONCE — only shader module + pipeline are cached
   const renderer = createGlyphRenderer(device, { code: shaderCode, format: 'rgba8unorm' });
-  // Base glyph atlas data — copied into mutable arrays each frame, then rect geometry appended
+  // Static atlas data (curves/rows never change after atlas build)
   const baseCrv:number[] = Array.from(atlas.curves);
   const baseRws:number[] = Array.from(atlas.rows);
   const baseCrvLen = baseCrv.length;
@@ -821,24 +1143,31 @@ async function main() {
     const hovered=hitTest(mwx,mwy);
     const hoveredSet=new Set<StyledEl>();let cur=hovered;while(cur){hoveredSet.add(cur);cur=cur.parent;}
 
-    // Copy static glyph data, then append rect geometry each frame
-    const crv:number[]=(baseCrv as number[]), rws:number[]=(baseRws as number[]);
-    crv.length=baseCrvLen; rws.length=baseRwsLen;
+    // Build working arrays: base atlas + pre-computed static backgrounds
+    const crv:number[]=(baseCrv as number[]);
+    crv.length=baseCrvLen;
+    for(let i=0;i<preCrvLen;i++) crv.push(preCrv[i]);
+    const rws:number[]=(baseRws as number[]);
+    rws.length=baseRwsLen;
+    for(let i=0;i<preRwsLen;i++) rws.push(preRws[i]);
     instJS.length=0;
     const inst:number[]=instJS;
-    // Pass 1: per-page backgrounds
-    for(const pg of pageRoots) addRect(pg.x, pg.y, pg.x+pg.w, pg.y+pg.h, themeCol.pageBg, crv, rws, inst);
+    // Layer 1: static backgrounds
+    for(let i=0;i<preInstLen;i++) inst.push(preInst[i]);
 
     const k=1-Math.pow(0.0015,dt/1000);
-    // Pass 2: element backgrounds (non-inline only)
-    // Cache: only resolve CSS for hovered/pressed elements; everyone else uses cached bg
+    // Cursor state
+    let cursor='grab';
+    // Layer 2: dynamic backgrounds (hover, bounce, heartbeat, progress, pulse) — BEFORE text
     for(const el of styledEls){
       const isHov=hoveredSet.has(el), isAct=el===pressed;
+      const isHoverable=el.classes.includes('btn')||el.classes.includes('card')||el.classes.includes('feature')||el.classes.includes('tab')||!!el.el.getAttribute('data-page');
       if(isHov||isAct){
         const state=isHov?'hover':'active';
         const st=resolveStyle(el,cssRules,state);
         const hovBg=parseColor(st['background-color']||st.background||'');
         if(hovBg[3]>0.001) for(let i=0;i<4;i++) el.curBg[i]+=(hovBg[i]-el.curBg[i])*k;
+        if(isHov && (isHoverable||el.el.tagName==='A')) cursor='pointer';
       }else{
         for(let i=0;i<4;i++) el.curBg[i]+=(el.bg[i]-el.curBg[i])*k;
       }
@@ -846,19 +1175,18 @@ async function main() {
       const tgtShadow=(el.classes.includes('card')||el.classes.includes('btn')||el.classes.includes('feature'))&&isHov?1:0;
       el.curShadow+=(tgtShadow-el.curShadow)*k;
 
-      if(!el.inline && (el.curBg[3]>0.004 || el.classes.includes('bounce') || el.classes.includes('heartbeat'))){
-        const b=el.curBg;
-        if(el.classes.includes('bounce')){
-          const dy=Math.sin(now/520)*8;
-          addRect(el.x,el.y+dy,el.x+el.w,el.y+el.h+dy,b[3]>0.004?b:[0,0,0,0],crv,rws,inst);
-        }else if(el.classes.includes('heartbeat')){
-          const sc=1+Math.sin(now/380)*0.065;
-          const cx=el.x+el.w/2, cy=el.y+el.h/2, hw=el.w*sc/2, hh=el.h*sc/2;
-          addRect(cx-hw,cy-hh,cx+hw,cy+hh,b[3]>0.004?b:[0,0,0,0],crv,rws,inst);
-        }else{
-          if(el.curShadow>0.01){const g=14*el.curShadow;addRect(el.x-g,el.y-g,el.x+el.w+g,el.y+el.h+g,[themeCol.shadow[0],themeCol.shadow[1],themeCol.shadow[2],themeCol.shadow[3]*el.curShadow],crv,rws,inst);}
-          addRect(el.x,el.y,el.x+el.w,el.y+el.h,el.curBg,crv,rws,inst);
-        }
+      if(el.classes.includes('bounce')){
+        const dy=Math.sin(now/520)*8;
+        addRect(el.x,el.y+dy,el.x+el.w,el.y+el.h+dy,el.curBg[3]>0.004?el.curBg:[0,0,0,0],crv,rws,inst);
+      }else if(el.classes.includes('heartbeat')){
+        const sc=1+Math.sin(now/380)*0.065;
+        const cx=el.x+el.w/2, cy=el.y+el.h/2, hw=el.w*sc/2, hh=el.h*sc/2;
+        addRect(cx-hw,cy-hh,cx+hw,cy+hh,el.curBg[3]>0.004?el.curBg:[0,0,0,0],crv,rws,inst);
+      }
+      if((isHov||isAct) && el.curShadow>0.01){
+        const g=14*el.curShadow;
+        addRect(el.x-g,el.y-g,el.x+el.w+g,el.y+el.h+g,[themeCol.shadow[0],themeCol.shadow[1],themeCol.shadow[2],themeCol.shadow[3]*el.curShadow],crv,rws,inst);
+        addRect(el.x,el.y,el.x+el.w,el.y+el.h,el.curBg,crv,rws,inst);
       }
 
       if(el.classes.includes('progress')){
@@ -871,16 +1199,16 @@ async function main() {
         addRect(el.x+2, el.y+el.h/2-7, el.x+16, el.y+el.h/2+7, [themeCol.pulse[0],themeCol.pulse[1],themeCol.pulse[2],a], crv,rws,inst);
       }
     }
-    // Pass 3: text (all text drawn AFTER all backgrounds for correct z-order)
+    rCanvas.style.cursor=cursor;
+    // Layer 3: ALL text (static pre-computed + marquee dynamic) — on top of all backgrounds
+    for(let i=0;i<preTextLen;i++) inst.push(preTextInst[i]);
     for(const el of styledEls){
-      if(el.hasFlow && !el.skipText){
-        if(el.isPre) layoutPre(el, font, atlas, inst);
-        else layoutFlow(el, font, atlas, inst, now);
+      if(el.hasFlow && !el.skipText && el.classes.includes('marquee')){
+        layoutFlow(el, font, atlas, inst, now);
       }
     }
 
     rCtx.fillStyle=rgb(themeCol.backdrop);rCtx.fillRect(0,0,Cw,Ch);
-    // Convert to typed arrays, reusing buffers when possible
     if (crv.length > crvFA.length) crvFA = new Float32Array(crv.length * 2);
     crvFA.set(crv);
     if (rws.length > rwsUA.length) rwsUA = new Uint32Array(rws.length * 2);
