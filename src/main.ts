@@ -3,144 +3,248 @@ import { loadShaderCode, requestDevice, createGlyphRenderer } from './windfoil/g
 import { buildGlyphAtlas, bandPieces } from './windfoil/bands';
 import { pushMonotonePieces } from './windfoil/geometry';
 
-import geometrySrc from './windfoil/geometry.ts?raw';
-import fontSrc from './windfoil/font.ts?raw';
-import bandsSrc from './windfoil/bands.ts?raw';
-import gpuSrc from './windfoil/gpu.ts?raw';
-import mainSrc from './main.ts?raw';
+// ── Helpers ─────────────────────────────────────────────────────────────────
 
-const CODE_FILES = [
-  { name: 'geometry.ts', text: geometrySrc },
-  { name: 'font.ts', text: fontSrc },
-  { name: 'bands.ts', text: bandsSrc },
-  { name: 'gpu.ts', text: gpuSrc },
-  { name: 'main.ts', text: mainSrc },
-];
-
-const JS_KW = new Set('async await break case catch class const continue debugger default delete do else export extends false finally for function if import in instanceof let new null of return static super switch this throw true try typeof var void while with yield'.split(' '));
-const TC: Record<string, number[]> = {
-  keyword:[0.65,0.15,0.65,1], string:[0.30,0.70,0.40,1], comment:[0.50,0.50,0.55,1],
-  number:[0.85,0.55,0.25,1], default:[0.85,0.82,0.78,1],
-};
-function tokenize(text: string) {
-  const t: { type: string; text: string }[] = [];
-  let i = 0;
-  while (i < text.length) {
-    const c = text[i];
-    if (c===' '||c==='\t') { t.push({ type:'ws', text:c }); i++; continue }
-    if (c==='/'&&text[i+1]==='/') { let j=i; while(j<text.length&&text[j]!=='\n'&&text[j]!=='\r')j++; t.push({ type:'comment',text:text.slice(i,j) }); i=j; continue }
-    if (c==='/'&&text[i+1]==='*') { let j=i+2; while(j<text.length&&!(text[j]==='*'&&text[j+1]==='/'))j++; t.push({ type:'comment',text:text.slice(i,Math.min(j+2,text.length)) }); i=Math.min(j+2,text.length); continue }
-    if (c==='"'||c==="'"||c==='`') { const q=c; let j=i+1; while(j<text.length&&text[j]!==q){if(text[j]==='\\')j++;j++} t.push({ type:'string',text:text.slice(i,j+1) }); i=j+1; continue }
-    if (/[0-9]/.test(c)||(c==='.'&&/[0-9]/.test(text[i+1]))){ let j=i; if(text[j]==='0'&&/[xX]/.test(text[j+1]))j+=2; while(j<text.length&&/[0-9a-fA-F.x_]/.test(text[j]))j++; t.push({ type:'number',text:text.slice(i,j) }); i=j; continue }
-    if (/[a-zA-Z_$]/.test(c)){ let j=i+1; while(j<text.length&&/[a-zA-Z0-9_$]/.test(text[j]))j++; t.push({ type:JS_KW.has(text.slice(i,j))?'keyword':'identifier',text:text.slice(i,j) }); i=j; continue }
-    t.push({ type:'op',text:c }); i++
-  }
-  return t
+function parseCSSColor(css: string): number[] {
+  if (!css || css === 'transparent' || css === 'rgba(0,0,0,0)') return [0,0,0,0];
+  const m = css.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/);
+  if (m) return [parseInt(m[1])/255, parseInt(m[2])/255, parseInt(m[3])/255, m[4] ? parseFloat(m[4]) : 1];
+  return [0,0,0,1];
 }
-function clrs(t: { type: string; text: string }[]): number[][] { const c: number[][]=[]; for(const tk of t){const rc=TC[tk.type]||TC.default;for(let i=0;i<tk.text.length;i++)c.push(rc)} return c }
-function tw(text: string, font: FontFace, size: number): number { const s=size/font.unitsPerEm;let w=0,prev:string|null=null;for(const ch of text){if(prev)w+=kerningOf(font,prev,ch)*s;w+=advanceOf(font,ch)*s;prev=ch}return w }
-function layout(out: number[], text: string, cs: number[][], tbl: Record<string,any>, font: FontFace, o:{x:number;baselineY:number;size:number}){const s=o.size/font.unitsPerEm;let p=o.x,prev:string|null=null;for(let i=0;i<text.length;i++){const ch=text[i];if(prev)p+=kerningOf(font,prev,ch)*s;const gl=tbl[ch];if(gl){const c=cs[i]||TC.default;out.push(p,o.baselineY,s,0,gl.bbox[0],gl.bbox[1],gl.bbox[2],gl.bbox[3],c[0],c[1],c[2],c[3],gl.rowBase,gl.bandCount,gl.y0,gl.invH)}p+=advanceOf(font,ch)*s;prev=ch}}
-function addRect(x0:number,y0:number,x1:number,y1:number,clr:number[],crv:number[],rws:number[],out:number[]){const cs=[[x0,y0],[x1,y0],[x1,y1],[x0,y1]],qs:number[]=[];for(let i=0;i<4;i++){const[a,b]=cs[i],[c,d]=cs[(i+1)%4];qs.push(a,b,(a+c)/2,(b+d)/2,c,d)}const ps:number[]=[];for(let i=0;i<qs.length;i+=6)pushMonotonePieces(qs.slice(i,i+6),ps);const h=bandPieces(ps,y0,y1,crv,rws);out.push(0,0,1,0,x0,y0,x1,y1,clr[0],clr[1],clr[2],clr[3],h.rowBase,h.bandCount,h.y0,h.invH)}
+
+function tw(text: string, font: FontFace, size: number): number {
+  const s = size / font.unitsPerEm; let w = 0, prev: string|null = null;
+  for (const ch of text) { if (prev) w += kerningOf(font,prev,ch)*s; w += advanceOf(font,ch)*s; prev = ch }
+  return w;
+}
+
+function addRect(x0:number,y0:number,x1:number,y1:number,clr:number[],crv:number[],rws:number[],out:number[]) {
+  const cs=[[x0,y0],[x1,y0],[x1,y1],[x0,y1]], qs:number[]=[];
+  for (let i=0;i<4;i++){const[a,b]=cs[i],[c,d]=cs[(i+1)%4];qs.push(a,b,(a+c)/2,(b+d)/2,c,d)}
+  const ps:number[]=[]; for(let i=0;i<qs.length;i+=6)pushMonotonePieces(qs.slice(i,i+6),ps);
+  const h=bandPieces(ps,y0,y1,crv,rws); out.push(0,0,1,0,x0,y0,x1,y1,clr[0],clr[1],clr[2],clr[3],h.rowBase,h.bandCount,h.y0,h.invH);
+}
+
+// ── HTML Document ───────────────────────────────────────────────────────────
+
+const HTML_DOC = `<!DOCTYPE html><html><head><style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:sans-serif;background:#f0ede6;color:#1a1a2e;padding:40px 80px;max-width:900px}
+h1{font-size:36px;font-weight:700;color:#16162e;margin-bottom:8px}
+h2{font-size:24px;font-weight:700;color:#2a2a4e;margin-top:36px;margin-bottom:12px}
+p{font-size:16px;line-height:1.6;margin-bottom:16px}
+.highlight{background:#e8e0d4;border-left:4px solid #8866aa;padding:16px 20px;margin:24px 0;border-radius:4px;font-size:15px;color:#444}
+pre{background:#1e1e2e;color:#cdd6f4;padding:20px 24px;border-radius:8px;font-size:14px;line-height:1.5;margin:20px 0}
+ul{margin:12px 0 20px 24px}li{font-size:16px;line-height:1.6}
+.card{background:white;border-radius:8px;padding:24px;margin:24px 0}
+.card h3{font-size:18px;font-weight:700;color:#2a2a4e;margin-bottom:8px}
+.tag{display:inline-block;background:#e0d8f0;color:#5a4a8a;padding:2px 10px;border-radius:12px;font-size:12px;font-weight:700;margin-right:6px}
+.btn{display:inline-block;background:#4466cc;color:white;padding:10px 24px;border-radius:6px;font-size:15px;font-weight:700;cursor:pointer;transition:background 0.2s}
+.btn:hover{background:#3355bb}
+.btn:active{background:#2244aa}
+.card:hover{box-shadow:0 4px 16px rgba(0,0,0,0.12);transform:translateY(-2px)}
+.footer{margin-top:48px;padding-top:16px;border-top:1px solid #ddd;font-size:13px;color:#999}
+</style></head><body>
+<h1>Windfoil CSS Experiment</h1>
+<p>Per-pixel analytic anti-aliasing meets CSS interactivity. Text rendered through the GPU shader — <b>never loses sharpness at any zoom level</b>. Hover over elements and interact.</p>
+<div class="highlight">This document is laid out by the browser's CSS engine, then rendered through a single WebGPU draw call. Hover effects, transitions, and state changes trigger instance rebuilding each frame — text stays analytically crisp regardless of zoom.</div>
+<h2>Interactive elements</h2>
+<div class="card"><h3>Hover Card</h3><p>This card has a hover effect — it lifts when you mouse over it. The transform is computed from CSS transition properties and applied to the windfoil instance positions each frame.</p><span class="tag">hover</span><span class="tag">transform</span></div>
+<h2>Code block</h2>
+<pre>export function coverage(pixel: vec2f, atlas: CurveAtlas) -> f32 {
+  var w: f32 = 0.0;
+  for each row-band containing pixel.y:
+    for each curve piece in band:
+      w += winding_contribution(curve, pixel);
+  return min(abs(w), 1.0);
+}</pre>
+<p>The shader solves an analytic integral per pixel — closed-form coverage from vector outlines. No multisampling, no texture baking, no resolution dependency.</p>
+<div class="card"><h3>Try the button</h3><p>This button changes color on hover using a CSS transition. Windfoil interpolates the background color smoothly between frames.</p><div class="btn">Hover me</div></div>
+<p class="footer">Windfoil CSS Experiment • Text is always razor sharp</p>
+</body></html>`;
+
+// ── Main ─────────────────────────────────────────────────────────────────────
 
 async function main() {
   const fpsEl = document.getElementById('fps')!;
   const dpr = Math.min(devicePixelRatio, 2);
-  const canvas = document.createElement('canvas');
-  canvas.style.cssText = 'position:fixed;inset:0;cursor:grab';
-  document.body.appendChild(canvas);
+
+  // Layer 1: Raster canvas (backgrounds, gradients, shadows)
+  const rasterCanvas = document.createElement('canvas');
+  rasterCanvas.style.cssText = 'position:fixed;inset:0;z-index:0;cursor:grab';
+  document.body.appendChild(rasterCanvas);
+  const rctx = rasterCanvas.getContext('2d')!;
+
+  // Layer 2: Windfoil canvas (text — always sharp)
+  const textCanvas = document.createElement('canvas');
+  textCanvas.style.cssText = 'position:fixed;inset:0;z-index:1;pointer-events:none';
+  document.body.appendChild(textCanvas);
 
   const [font] = await Promise.all([loadFont('/Lato-Regular.ttf')]);
-  const texts = CODE_FILES.map(f => f.text);
   const [device, shaderCode] = await Promise.all([requestDevice(), loadShaderCode()]);
 
-  const CARD_W = 600, CARD_H = 400, GAP = 40, COLS = 3, MARGIN = 80;
-  const cards: { name:string;text:string;x:number;y:number;w:number;h:number }[] = [];
-  for (let i=0;i<CODE_FILES.length;i++) cards.push({ name:CODE_FILES[i].name, text:texts[i], x:MARGIN+(i%COLS)*(CARD_W+GAP), y:MARGIN+Math.floor(i/COLS)*(CARD_H+GAP), w:CARD_W, h:CARD_H });
-  const WORLD_W = MARGIN*2+COLS*(CARD_W+GAP), WORLD_H = MARGIN*2+Math.ceil(cards.length/COLS)*(CARD_H+GAP);
+  // ── Layout (browser CSS engine) ──────────────────────────────────────────
+  const container = document.createElement('div');
+  container.style.cssText = 'position:absolute;left:0;top:0;opacity:0;pointer-events:none;width:1200px';
+  document.body.appendChild(container);
 
-  const atlas = buildGlyphAtlas(font, texts.join(' '));
-  const crv = Array.from(atlas.curves), rws = Array.from(atlas.rows);
-  const inst: number[] = [];
-  const meta: { rcStart:number;farStart:number;farCount:number;nearStart:number;nearCount:number }[] = [];
+  const parsed = new DOMParser().parseFromString(HTML_DOC, 'text/html');
+  const docStyles = Array.from(parsed.querySelectorAll('style')).map(s => s.outerHTML).join('');
+  container.innerHTML = `<style>@font-face{font-family:'Lato';src:url('/Lato-Regular.ttf') format('truetype');font-weight:400}@font-face{font-family:'Lato';src:url('/Lato-Regular.ttf') format('truetype');font-weight:700}</style>${docStyles}
+<div class="page" style="padding:40px 80px;max-width:900px;margin:0 auto;background:#f0ede6;color:#1a1a2e;font-family:'Lato',sans-serif">${parsed.body!.innerHTML}</div>`;
+  await document.fonts.ready;
 
-  for (const card of cards) {
-    const rcStart = inst.length/16;
-    addRect(card.x, card.y, card.x+card.w, card.y+card.h, [0.08,0.08,0.16,0.92], crv, rws, inst);
+  interface El { el: Element; x:number;y:number;w:number;h:number;bg:number[];hoverBg:number[];txColor:number[];text:string;fs:number;ta:string;pad:number[] }
+  const els: El[] = [];
 
-    const farStart = inst.length/16;
-    const name = card.name, farSz = card.w*0.065;
-    const nameW = tw(name, font, farSz);
-    const nc = Array(name.length).fill([0.35,0.55,0.85,1]);
-    layout(inst, name, nc, atlas.table, font, { x:card.x+(card.w-nameW)/2, baselineY:card.y+(card.h+farSz*0.35)/2, size:farSz });
-    const farCount = inst.length/16 - farStart;
-
-    const nearStart = inst.length/16;
-    const titleSz = card.w*0.035, codeSz = titleSz*0.85, m = card.w*0.015;
-    layout(inst, name, nc, atlas.table, font, { x:card.x+m, baselineY:card.y+m+0.56*titleSz, size:titleSz });
-    let cy = card.y+m+1.2*titleSz;
-    const lines = card.text.split('\n'), LCS = lines.map(l=>clrs(tokenize(l)));
-    for (let l=1; l<Math.min(lines.length,120); l++) {
-      layout(inst, lines[l], LCS[l]||[], atlas.table, font, { x:card.x+m, baselineY:cy+0.56*codeSz, size:codeSz });
-      cy+=1.2*codeSz;
-      if (cy>card.y+card.h-m) break;
-    }
-    const nearCount = inst.length/16 - nearStart;
-    meta.push({ rcStart, farStart, farCount, nearStart, nearCount });
+  function collect(el: Element) {
+    if (el.tagName==='STYLE'||el.tagName==='SCRIPT') return;
+    const cs = getComputedStyle(el), r = el.getBoundingClientRect();
+    const cx = r.left - container.getBoundingClientRect().left;
+    const cy = r.top - container.getBoundingClientRect().top;
+    if (r.width < 2 || r.height < 2) return;
+    const bg = parseCSSColor(cs.backgroundColor);
+    const tc = parseCSSColor(cs.color);
+    const fs = parseFloat(cs.fontSize)||16;
+    const ta = cs.textAlign||'left';
+    const pad = [parseFloat(cs.paddingTop)||0,parseFloat(cs.paddingRight)||0,parseFloat(cs.paddingBottom)||0,parseFloat(cs.paddingLeft)||0];
+    let text = ''; for (const n of Array.from(el.childNodes)) if (n.nodeType===3) text += n.textContent||'';
+    els.push({ el, x:cx, y:cy, w:r.width, h:r.height, bg, hoverBg:bg, txColor:tc, text:text.trim(), fs, ta, pad });
+    for (const child of Array.from(el.children)) collect(child);
   }
+  collect(container);
 
-  const instanceData = new Float32Array(inst);
-  const N = instanceData.length/16;
+  const pageW = 1200, pageH = Math.max(...els.map(e=>e.y+e.h), 500) + 100;
+  document.body.removeChild(container);
 
-  const ctx = canvas.getContext('webgpu')!;
-  ctx.configure({ device, format:'rgba8unorm', alphaMode:'premultiplied' });
+  // ── Build glyph atlas (once) ─────────────────────────────────────────────
+  const allChars = new Set<string>();
+  for (const el of els) for (const ch of el.text) allChars.add(ch);
+  const atlas = buildGlyphAtlas(font, [...allChars].join(' '));
 
-  const renderer = createGlyphRenderer(device, {
-    code:shaderCode, format:'rgba8unorm',
-    curves:new Float32Array(crv), rows:new Uint32Array(rws),
-    instances:instanceData, instanceCount:N,
-  });
+  // ── WebGPU (windfoil text layer) ─────────────────────────────────────────
+  const gpuCtx = textCanvas.getContext('webgpu')!;
+  gpuCtx.configure({ device, format: 'rgba8unorm', alphaMode: 'premultiplied' });
 
-  // ── 2D camera ─────────────────────────────────────────────────────────────
-  const cam = { x:0,y:0,z:1 }, view = { x:0,y:0,z:1 };
-  let attackT = -Infinity, velX = 0, velY = 0, dragging = false;
-
-  function recenter() { velX=velY=0; view.z=canvas.width/WORLD_W; view.x=WORLD_W/2; view.y=WORLD_H/2; cam.x=view.x;cam.y=view.y;cam.z=view.z }
-
-  let rect = canvas.getBoundingClientRect();
-  function devPos(e: PointerEvent) { return { x:(e.clientX-rect.left)*(canvas.width/rect.width), y:(e.clientY-rect.top)*(canvas.height/rect.height) } }
-
+  // ── Camera ───────────────────────────────────────────────────────────────
+  let camZ = 0.5, camX = pageW/2, camY = pageH*0.3;
+  let viewZ = camZ, viewX = camX, viewY = camY;
+  let velX = 0, velY = 0, dragging = false, lastMoveT = 0;
   const pointers = new Map<number,{x:number;y:number}>();
-  let lastMoveT = 0;
-  canvas.addEventListener('pointerdown', (e) => { canvas.setPointerCapture(e.pointerId); if(pointers.size===0&&e.pointerType!=='mouse')attackT=performance.now(); pointers.set(e.pointerId,devPos(e)); dragging=true;velX=velY=0;lastMoveT=performance.now();canvas.style.cursor='grabbing' });
-  canvas.addEventListener('pointermove', (e) => {
-    if(!pointers.has(e.pointerId))return; const p=devPos(e),prev=pointers.get(e.pointerId)!; pointers.set(e.pointerId,p);
-    if(pointers.size===1){const dx=p.x-prev.x,dy=p.y-prev.y;cam.x-=dx/cam.z;cam.y-=dy/cam.z;const t=performance.now(),ddt=t-lastMoveT;if(ddt>0){velX=velX?velX*.7+(dx/ddt)*.3:dx/ddt;velY=velY?velY*.7+(dy/ddt)*.3:dy/ddt;lastMoveT=t}}
-  });
-  const release = ()=>{ pointers.clear(); dragging=false; if(performance.now()-lastMoveT>80)velX=velY=0; canvas.style.cursor='grab' };
-  canvas.addEventListener('pointerup',release); canvas.addEventListener('pointercancel',release);
-  canvas.addEventListener('wheel', (e) => { e.preventDefault(); const p=devPos(e as any); const w={ x:(p.x-canvas.width/2)/cam.z+cam.x, y:(p.y-canvas.height/2)/cam.z+cam.y }; cam.z*=Math.exp(-e.deltaY*.0008); cam.z=Math.max(.001,cam.z); cam.x=w.x-(p.x-canvas.width/2)/cam.z; cam.y=w.y-(p.y-canvas.height/2)/cam.z; attackT=performance.now() }, { passive:false });
 
-  function resize() { const w=innerWidth,h=innerHeight; canvas.width=w*dpr;canvas.height=h*dpr; rect=canvas.getBoundingClientRect() }
-  addEventListener('resize',resize);
-
-  // ── Frame loop ────────────────────────────────────────────────────────────
-  let fpsDt = 16, prevTs = 0; let prevNear: boolean[]|null = null;
-  resize(); recenter(); view.x=cam.x;view.y=cam.y;view.z=cam.z;
-  const A=300,K=.3;
-
-  function frame(now:number) {
-    requestAnimationFrame(frame);
-    const dt = prevTs?now-prevTs:16; prevTs=now; fpsDt=fpsDt*.9+dt*.1; fpsEl.textContent=`${Math.round(1000/fpsDt)} fps`;
-    if(!dragging&&(velX||velY)&&dt>0){cam.x-=(velX*dt)/cam.z;cam.y-=(velY*dt)/cam.z;velX*=Math.pow(.8,dt/16);velY*=Math.pow(.8,dt/16);if(Math.abs(velX)<.01&&Math.abs(velY)<.01)velX=velY=0}
-    const s=now-attackT>=A?0:1-(now-attackT)/A;
-    if(s>0){const k=1-s*(1-K),kf=1-Math.pow(1-k,dt/16);view.x+=(cam.x-view.x)*kf;view.y+=(cam.y-view.y)*kf;view.z*=Math.pow(cam.z/view.z,kf)}
-    else{view.x=cam.x;view.y=cam.y;view.z=cam.z}
-    const n=cards.length,nearArr=cards.map(c=>view.z*c.h>200);
-    if(!prevNear||nearArr.some((v,i)=>v!==prevNear![i])){prevNear=nearArr;for(let i=0;i<n;i++){const m=meta[i];instanceData[m.rcStart*16+11]=.92;const fa=nearArr[i]?0:1,na=nearArr[i]?1:0;for(let j=m.farStart*16+11;j<(m.farStart+m.farCount)*16;j+=16)instanceData[j]=fa;for(let j=m.nearStart*16+11;j<(m.nearStart+m.nearCount)*16;j+=16)instanceData[j]=na}renderer.setInstances(instanceData)}
-    renderer.setUniforms({width:canvas.width,height:canvas.height,cam:[view.z,view.z,canvas.width/2-view.z*view.x,canvas.height/2-view.z*view.y]});
-    const enc=device.createCommandEncoder(),pass=enc.beginRenderPass({colorAttachments:[{view:ctx.getCurrentTexture().createView(),clearValue:{r:.1,g:.1,b:.18,a:1},loadOp:'clear',storeOp:'store'}]});renderer.draw(pass);pass.end();device.queue.submit([enc.finish()])
+  function setSize() {
+    const w = innerWidth, h = innerHeight;
+    [rasterCanvas, textCanvas].forEach(c => { c.width = w*dpr; c.height = h*dpr });
   }
-  requestAnimationFrame(frame)
+
+  rasterCanvas.addEventListener('pointerdown', (e) => {
+    rasterCanvas.setPointerCapture(e.pointerId);
+    pointers.set(e.pointerId,{x:e.clientX*dpr,y:e.clientY*dpr}); dragging=true;velX=velY=0;lastMoveT=performance.now();
+  });
+  rasterCanvas.addEventListener('pointermove', (e) => {
+    if(!pointers.has(e.pointerId))return; const p={x:e.clientX*dpr,y:e.clientY*dpr},prev=pointers.get(e.pointerId)!; pointers.set(e.pointerId,p);
+    if(pointers.size===1){camX-=(p.x-prev.x)/camZ;camY-=(p.y-prev.y)/camZ;const t=performance.now(),ddt=t-lastMoveT;if(ddt>0){velX=velX?velX*.7+((p.x-prev.x)/ddt)*.3:(p.x-prev.x)/ddt;velY=velY?velY*.7+((p.y-prev.y)/ddt)*.3:(p.y-prev.y)/ddt;lastMoveT=t}}
+  });
+  const rel=()=>{pointers.clear();dragging=false;if(performance.now()-lastMoveT>80)velX=velY=0};
+  rasterCanvas.addEventListener('pointerup',rel); rasterCanvas.addEventListener('pointercancel',rel);
+  rasterCanvas.addEventListener('wheel',(e)=>{
+    e.preventDefault();const W=innerWidth,H=innerHeight,zC=camZ/dpr;
+    const wx=(e.clientX-W/2)/zC+camX,wy=(e.clientY-H/2)/zC+camY;
+    camZ*=Math.exp(-e.deltaY*.0008);camZ=Math.max(.02,camZ);const zC2=camZ/dpr;
+    camX=wx-(e.clientX-W/2)/zC2;camY=wy-(e.clientY-H/2)/zC2;viewX=camX;viewY=camY;viewZ=camZ;
+  },{passive:false});
+  addEventListener('resize',setSize); setSize();
+  camZ = rasterCanvas.width / pageW * 0.85; viewZ=camZ; viewX=camX=pageW/2; viewY=camY=pageH*0.2;
+
+  // ── Mouse tracking ──────────────────────────────────────────────────────
+  let mouseX = 0, mouseY = 0;
+  rasterCanvas.addEventListener('pointermove',(e)=>{mouseX=e.clientX*dpr;mouseY=e.clientY*dpr});
+  const hovered = new Set<Element>();
+
+  // ── Frame loop ──────────────────────────────────────────────────────────
+  let fpsDt = 16, prevTs = 0;
+
+  function frame(now: number) {
+    requestAnimationFrame(frame);
+    const dt = prevTs ? now-prevTs : 16; prevTs = now; fpsDt = fpsDt*.9+dt*.1;
+    fpsEl.textContent = `${Math.round(1000/fpsDt)} fps`;
+
+    if (!dragging&&(velX||velY)&&dt>0) { camX-=(velX*dt)/camZ;camY-=(velY*dt)/camZ; velX*=Math.pow(.8,dt/16);velY*=Math.pow(.8,dt/16); if(Math.abs(velX)<.01&&Math.abs(velY)<.01)velX=velY=0 }
+    viewX=camX;viewY=camY;viewZ=camZ;
+
+    const Cw = textCanvas.width, Ch = textCanvas.height;
+
+    // Hit-test: which cards/buttons/tags are hovered
+    const newHovered = new Set<Element>();
+    const mx = (mouseX - Cw/2) / viewZ + viewX;
+    const my = (mouseY - Ch/2) / viewZ + viewY;
+    for (const el of els) {
+      if (mx >= el.x && mx <= el.x+el.w && my >= el.y && my <= el.y+el.h) {
+        const hoverable = el.el.closest('.card,.btn,.tag') as Element | null;
+        if (hoverable) newHovered.add(hoverable);
+      }
+    }
+
+    // Build windfoil instances (per-frame, for hover reactivity)
+    const crv = Array.from(atlas.curves), rws = Array.from(atlas.rows), inst: number[] = [];
+    addRect(0,0,pageW,pageH,[0.94,0.93,0.90,1],crv,rws,inst);
+
+    for (const el of els) {
+      const isHovered = newHovered.has(el.el);
+      const bgClr = isHovered ? el.bg.map((v,i) => i===3 ? v : v*0.9) : el.bg;
+      if (bgClr[3] > 0) addRect(el.x,el.y,el.x+el.w,el.y+el.h,bgClr,crv,rws,inst);
+      if (el.text) {
+        const sz = el.fs, maxW = Math.max(10, el.w-el.pad[1]-el.pad[3]-8);
+        const tx = el.x+el.pad[3]+4, ty = el.y+el.pad[0]+4;
+        const lines = wrapText(el.text, font, sz, maxW);
+        let cy = ty;
+        for (const line of lines) {
+          const lw = tw(line, font, sz);
+          const x = el.ta==='center'?el.x+el.w/2-lw/2:el.ta==='right'?el.x+el.w-el.pad[1]-lw-4:tx;
+          layoutStr(inst, line, el.txColor, atlas.table, font, {x,y:cy,size:sz});
+          cy += sz*1.5;
+        }
+      }
+    }
+
+    const windfoil = createGlyphRenderer(device, {
+      code:shaderCode, format:'rgba8unorm',
+      curves:new Float32Array(crv), rows:new Uint32Array(rws),
+      instances:new Float32Array(inst), instanceCount:inst.length/16,
+    });
+
+    // Render raster background
+    rctx.clearRect(0,0,Cw,Ch);
+    rctx.fillStyle = '#f0ede6';
+    rctx.fillRect(0,0,Cw,Ch);
+
+    const enc = device.createCommandEncoder();
+    const pass = enc.beginRenderPass({
+      colorAttachments: [{ view: gpuCtx.getCurrentTexture().createView(), clearValue:{r:0,g:0,b:0,a:0}, loadOp:'clear',storeOp:'store' }],
+    });
+    windfoil.setUniforms({ width:Cw, height:Ch, cam:[viewZ,viewZ,Cw/2-viewZ*viewX,Ch/2-viewZ*viewY] });
+    windfoil.draw(pass); pass.end();
+    device.queue.submit([enc.finish()]);
+
+    hovered.clear(); for (const e of newHovered) hovered.add(e);
+  }
+
+  requestAnimationFrame(frame);
 }
 
-main().catch(e=>{const el=document.getElementById('error')!;el.style.display='block';el.textContent=e.message||String(e);console.error(e)})
+function wrapText(text: string, font: FontFace, size: number, maxW: number): string[] {
+  const lines: string[]=[];
+  for (const para of text.split('\n')) {
+    const words=para.split(' '); let line='';
+    for(const w of words) { const test=line?line+' '+w:w; if(tw(test,font,size)>maxW&&line){lines.push(line);line=w}else{line=test} }
+    if(line)lines.push(line);
+  }
+  return lines;
+}
+
+function layoutStr(out: number[], text: string, clr: number[], tbl: Record<string,any>, font: FontFace, o: {x:number;y:number;size:number}) {
+  const s=o.size/font.unitsPerEm,bl=o.y+o.size*0.8;let p=o.x,prev:string|null=null;
+  for(let i=0;i<text.length;i++){const ch=text[i];if(prev)p+=kerningOf(font,prev,ch)*s;const gl=tbl[ch];if(gl){out.push(p,bl,s,0,gl.bbox[0],gl.bbox[1],gl.bbox[2],gl.bbox[3],clr[0],clr[1],clr[2],clr[3],gl.rowBase,gl.bandCount,gl.y0,gl.invH)}p+=advanceOf(font,ch)*s;prev=ch}
+}
+
+main().catch(e => { const el = document.getElementById('error')!; el.style.display='block'; el.textContent = e.message || String(e); console.error(e) });
