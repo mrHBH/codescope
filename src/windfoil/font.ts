@@ -27,6 +27,7 @@ function cubicToQuads(x0: number, y0: number, c1x: number, c1y: number, c2x: num
 
 export function glyphQuads(font: FontFace, ch: string) {
   const g = font.charToGlyph(ch);
+  if (g.index === 0) return null; // skip .notdef
   const path = g.getPath(0, 0, font.unitsPerEm);
   const quads: number[] = [];
   const line = (x0: number, y0: number, x1: number, y1: number) => quads.push(x0, y0, (x0 + x1) / 2, (y0 + y1) / 2, x1, y1);

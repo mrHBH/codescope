@@ -49,25 +49,58 @@ function rgb(c: number[]): string { return 'rgb('+Math.round(c[0]*255)+','+Math.
 
 function matchesSelector(el: StyledEl, sel: string): boolean {
   if (!sel) return false;
-  const parts = sel.match(/([.#]?[\w-]+)/g) || [];
-  if (parts.length === 0) return false;
-  const hasTag = parts[0][0] !== '.' && parts[0][0] !== '#';
-  let tagOk = !hasTag || el.tag === parts[0].toUpperCase();
-  if (hasTag) parts.shift();
-  for (const p of parts) {
-    if (p[0]==='.') { if (!el.classes.includes(p.slice(1))) return false }
-    else if (p[0]==='#') { if (el.id !== p.slice(1)) return false }
+  // Split by spaces to handle descendant selectors like ".card h3"
+  const compoundSels = sel.trim().split(/\s+/);
+  if (compoundSels.length === 0) return false;
+
+  // Match the rightmost compound against `el`, then walk up ancestors for the rest
+  function matchCompound(e: StyledEl, cs: string): boolean {
+    const parts = cs.match(/([.#]?[\w-]+)/g) || [];
+    if (parts.length === 0) return false;
+    const hasTag = parts[0][0] !== '.' && parts[0][0] !== '#';
+    let tagOk = !hasTag || e.tag === parts[0].toUpperCase();
+    if (hasTag) parts.shift();
+    for (const p of parts) {
+      if (p[0]==='.') { if (!e.classes.includes(p.slice(1))) return false }
+      else if (p[0]==='#') { if (e.id !== p.slice(1)) return false }
+    }
+    return tagOk;
   }
-  return tagOk;
+
+  // Match rightmost compound against el
+  if (!matchCompound(el, compoundSels[compoundSels.length - 1])) return false;
+
+  // Walk up ancestors for remaining compound selectors (right to left)
+  let cur: StyledEl | null = el;
+  for (let i = compoundSels.length - 2; i >= 0; i--) {
+    let found = false;
+    cur = cur.parent;
+    while (cur) {
+      if (matchCompound(cur, compoundSels[i])) { found = true; break; }
+      cur = cur.parent;
+    }
+    if (!found) return false;
+  }
+  return true;
 }
 
 function resolveStyle(el: StyledEl, rules: CSSRule[], state: string): Record<string,string> {
   const props: Record<string,string> = {};
   for (const rule of rules) {
     const sel = rule.selector;
-    const isState = sel.endsWith(':'+state);
-    const baseSel = isState ? sel.slice(0, -(state.length+1)) : sel;
-    if ((!state || isState) && matchesSelector(el, baseSel)) Object.assign(props, rule.props);
+    const colonIdx = sel.lastIndexOf(':');
+    const hasPseudo = colonIdx > 0 && sel[colonIdx-1] !== ':'; // exclude ::before/::after
+    if (hasPseudo) {
+      // Rule targets a pseudo-class state — only match when that state is active
+      const pseudoSuffix = sel.slice(colonIdx);
+      if (state && pseudoSuffix === ':'+state) {
+        const baseSel = sel.slice(0, colonIdx);
+        if (matchesSelector(el, baseSel)) Object.assign(props, rule.props);
+      }
+    } else {
+      // Normal rule — only match when resolving normal (empty) state
+      if (!state && matchesSelector(el, sel)) Object.assign(props, rule.props);
+    }
   }
   return props;
 }
@@ -251,6 +284,52 @@ li { font-size: 16px; line-height: 1.7; }
 .cta p { color: #e8ecff; margin-bottom: 18px; }
 .divider { height: 1px; background: ${p.border}; margin: 28px 0; }
 .footer { margin-top: 40px; padding-top: 16px; border-top: 1px solid ${p.border}; font-size: 13px; color: ${p.muted}; }
+.tabs { display: flex; gap: 4px; margin: 22px 0; }
+.tab { padding: 10px 22px; border-radius: 8px 8px 0 0; font-size: 14px; font-weight: 700; background: ${p.card}; color: ${p.muted}; cursor: pointer; }
+.tab.active { background: ${p.accent}; color: white; }
+.tab:hover { background: ${p.tagBg}; color: ${p.tagFg}; }
+.tab-content { background: ${p.card}; border-radius: 0 12px 12px 12px; padding: 24px; margin-top: -4px; }
+.btn.pill { padding: 10px 28px; border-radius: 999px; }
+.btn.small { padding: 6px 16px; font-size: 13px; border-radius: 6px; }
+.btn.large { padding: 15px 36px; font-size: 19px; border-radius: 10px; }
+.btn.icon { padding: 10px 14px; gap: 8px; }
+.table { display: flex; flex-direction: column; margin: 20px 0; }
+.row { display: flex; }
+.row.head { background: ${p.accent}; color: white; font-weight: 700; border-radius: 8px 8px 0 0; }
+.row.body { background: ${p.card}; }
+.row.body:last-child { border-radius: 0 0 8px 8px; }
+.cell { flex: 1; padding: 12px 16px; font-size: 14px; }
+.list-desc { margin: 16px 0; }
+.list-desc dt { font-weight: 700; margin-bottom: 4px; font-size: 16px; }
+.list-desc dd { margin-left: 18px; margin-bottom: 14px; font-size: 15px; color: ${p.muted}; }
+.label { display: inline-block; padding: 4px 12px; border-radius: 6px; font-size: 12px; font-weight: 700; margin-right: 6px; }
+.label.accent { background: ${p.accent}; color: white; }
+.label.green { background: ${p.pulse}; color: white; }
+.label.muted { background: ${p.tagBg}; color: ${p.tagFg}; }
+.bounce { width: 64px; height: 64px; background: ${p.accent}; border-radius: 16px; display: inline-block; margin: 10px; }
+.heartbeat { width: 72px; height: 72px; background: ${p.pulse}; border-radius: 50%; display: inline-block; margin: 10px; }
+.check-list { margin: 12px 0 18px; }
+.check-list li { font-size: 16px; line-height: 1.7; }
+.split { display: flex; gap: 24px; margin: 20px 0; }
+.split > * { flex: 1; }
+.text-sm { font-size: 13px; }
+.text-lg { font-size: 20px; line-height: 1.5; }
+.text-xl { font-size: 30px; font-weight: 700; line-height: 1.2; }
+.text-2xl { font-size: 44px; font-weight: 700; line-height: 1.05; }
+.text-muted { color: ${p.muted}; }
+.text-accent { color: ${p.accent}; }
+.uppercase { text-transform: uppercase; letter-spacing: 1px; }
+blockquote { border-left: 4px solid ${p.accent}; padding: 12px 20px; margin: 20px 0; background: ${p.card}; border-radius: 0 8px 8px 0; font-size: 17px; line-height: 1.6; color: ${p.muted}; font-style: italic; }
+code { font-size: 14px; background: ${p.codeBg}; color: ${p.codeFg}; padding: 3px 8px; border-radius: 5px; font-family: monospace; }
+.kbd { display: inline-block; font-size: 12px; font-weight: 700; background: ${p.card}; border: 1px solid ${p.border}; border-radius: 5px; padding: 3px 8px; font-family: monospace; color: ${p.muted}; }
+.chip { display: inline-block; padding: 6px 14px; border-radius: 999px; font-size: 13px; font-weight: 700; background: ${p.tagBg}; color: ${p.tagFg}; margin: 4px; }
+.chip.accent { background: ${p.accent}; color: white; }
+.icon-grid { display: flex; flex-wrap: wrap; gap: 12px; margin: 20px 0; }
+.icon-item { text-align: center; width: 72px; padding: 12px 6px; border-radius: 8px; background: ${p.card}; }
+.icon-item .glyph { font-size: 28px; }
+.icon-item .name { font-size: 10px; color: ${p.muted}; margin-top: 6px; text-transform: uppercase; letter-spacing: 0.5px; }
+.well { background: ${p.card}; border-radius: 12px; padding: 24px; margin: 20px 0; }
+.section-title { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px; color: ${p.kicker}; margin-bottom: 8px; }
 `;
 }
 
@@ -274,7 +353,7 @@ const HTML_SRC = `
     <div class="progress"></div>
     <div class="pulse">Live &mdash; 60 fps</div>
   </div>
-  <div class="alert"><span>&#9888;</span><div>Everything you see &mdash; every box, every glyph &mdash; is one GPU draw call, shaded analytically.</div></div>
+  <div class="alert"><div>Everything you see &mdash; every box, every glyph &mdash; is one GPU draw call, shaded analytically.</div></div>
   <h2>Hover effects</h2>
   <div class="card"><h3>Hover Card</h3><p>Move your mouse over this card. The box-shadow interpolates smoothly. Hover state is detected by hit-testing the cursor's world position against element bounds.</p><span class="tag">hover</span><span class="tag">transition</span></div>
   <h2>Features</h2>
@@ -357,15 +436,182 @@ const HTML_SRC = `
   <div class="cta"><h3>Ready to render?</h3><p>Bring your own stylesheet &mdash; windfoil will parse it.</p><div class="btn jump" data-page="0">Back to home</div></div>
   <p class="footer">Windfoil &middot; Showcase page</p>
 </div>
+
+<div class="page">
+  <div class="nav">
+    <div class="brand">Wind<span>foil</span></div>
+    <div class="nav-links"><a>Engine</a><a>Features</a><a>Showcase</a></div>
+    <div class="btn jump" data-page="0">Home</div>
+  </div>
+  <div class="hero">
+    <div class="kicker">Design tokens</div>
+    <h1>Tabs, buttons, lists, tables.</h1>
+  </div>
+  <div class="tabs">
+    <div class="tab active">Overview</div>
+    <div class="tab">Details</div>
+    <div class="tab">Settings</div>
+  </div>
+  <div class="tab-content"><p>This tab panel shows content for the active tab. In a real app clicking a tab would switch panels.</p></div>
+  <h2>Button sizes</h2>
+  <div class="btn-row">
+    <div class="btn large">Large</div>
+    <div class="btn">Default</div>
+    <div class="btn small">Small</div>
+    <div class="btn pill">Pill</div>
+    <div class="btn ghost">Ghost</div>
+    <div class="btn icon"><span>></span> Play</div>
+  </div>
+  <h2>Labels</h2>
+  <div><span class="label accent">New</span><span class="label green">Success</span><span class="label muted">Draft</span></div>
+  <h2>Table</h2>
+  <div class="table">
+    <div class="row head"><div class="cell">Name</div><div class="cell">Role</div><div class="cell">Status</div></div>
+    <div class="row body"><div class="cell">Coverage shader</div><div class="cell">Fragment</div><div class="cell"><span class="label green">Active</span></div></div>
+    <div class="row body"><div class="cell">Glyph bander</div><div class="cell">CPU pre-pass</div><div class="cell"><span class="label accent">Beta</span></div></div>
+    <div class="row body"><div class="cell">CSS engine</div><div class="cell">Runtime</div><div class="cell"><span class="label green">Active</span></div></div>
+  </div>
+  <h2>Description list</h2>
+  <dl class="list-desc"><dt>Analytic coverage</dt><dd>Closed-form winding number per pixel; zero aliasing at any zoom.</dd><dt>GPU instance batch</dt><dd>Every rect and glyph in one draw call; sorted for closest-hit early-out.</dd></dl>
+  <h2>Split layout</h2>
+  <div class="split"><div class="card"><h3>Left panel</h3><p>Flex-based side-by-side with equal-width boxes.</p></div><div class="card"><h3>Right panel</h3><p>Both children share space equally; great for comparisons.</p></div></div>
+  <div class="btn-row"><div class="btn jump" data-page="4">Next: Animations</div></div>
+  <p class="footer">Windfoil &middot; Design System page</p>
+</div>
+
+<div class="page">
+  <div class="nav">
+    <div class="brand">Wind<span>foil</span></div>
+    <div class="nav-links"><a>Engine</a><a>Features</a><a>Showcase</a></div>
+    <div class="btn jump" data-page="0">Home</div>
+  </div>
+  <div class="hero">
+    <div class="kicker">Motion</div>
+    <h1>Time-driven animations.</h1>
+  </div>
+  <h2>Bounce &amp; heartbeat</h2>
+  <div style="display:flex;align-items:center;gap:24px;margin:20px 0;">
+    <div class="bounce"></div>
+    <div class="heartbeat"></div>
+    <div class="bounce"></div>
+    <div class="heartbeat"></div>
+  </div>
+  <h2>Check list</h2>
+  <ul class="check-list"><li>v Full CSS selector matching</li><li>v :hover and :active pseudo-classes</li><li>v CSS transition interpolation</li><li>v Per-pixel analytic AA</li><li>v One GPU draw call</li></ul>
+  <h2>Progress &amp; pulse</h2>
+  <div class="progress"></div>
+  <div class="pulse">Live &mdash; 60 fps</div>
+  <div class="marquee">bounce | heartbeat | progress | pulse | marquee | tabs | table | badges | avatars | icons | </div>
+  <h2>More cards</h2>
+  <div class="grid">
+    <div class="feature"><h3>Progress</h3><p>Bar fills automatically using a fraction of the frame timestamp.</p></div>
+    <div class="feature"><h3>Bounce</h3><p>Rectangle oscillates vertically on a sine wave.</p></div>
+    <div class="feature"><h3>Heartbeat</h3><p>Square pulses around its center point.</p></div>
+  </div>
+  <div class="btn-row"><div class="btn jump" data-page="0">Back to home</div></div>
+  <p class="footer">Windfoil &middot; Animations page</p>
+</div>
+
+<div class="page">
+  <div class="nav">
+    <div class="brand">Wind<span>foil</span></div>
+    <div class="nav-links"><a>Engine</a><a>Features</a><a>Design</a></div>
+    <div class="btn jump" data-page="0">Home</div>
+  </div>
+  <div class="hero">
+    <div class="kicker">Typography</div>
+    <h1>Every scale, every weight.</h1>
+  </div>
+  <div class="section-title">Hero heading</div>
+  <div class="text-2xl">The quick brown fox jumps over the lazy dog.</div>
+  <div class="section-title">XL heading</div>
+  <div class="text-xl">Analytic coverage integrates over pixel footprints.</div>
+  <div class="section-title">Large text</div>
+  <div class="text-lg">Full CSS rule parsing, selector matching, pseudo-class state machine.</div>
+  <div class="section-title">Body text</div>
+  <p>A <code>const</code> binding inside the fragment shader captures the winding number. Use <span class="text-accent">coloured accents</span> and <span class="text-muted">muted text</span> to build <code>inline code</code> with emphasis.</p>
+  <div class="section-title">Blockquote</div>
+  <blockquote>"The shader integrates a closed-form winding number per pixel for perfect edges at any font size." &mdash; Windfoil docs</blockquote>
+  <div class="section-title">Keyboard shortcuts</div>
+  <p>Press <span class="kbd">Ctrl</span> <span class="kbd">N</span> for a new document, or <span class="kbd">Opt</span> <span class="kbd">Cmd</span> <span class="kbd">K</span> to open the palette.</p>
+  <div class="section-title">Chips / tags</div>
+  <div><span class="chip">CSS engine</span><span class="chip accent">GPU backend</span><span class="chip">Closed form</span><span class="chip accent">Analytic AA</span><span class="chip">Type rendering</span></div>
+  <div class="section-title">Uppercase</div>
+  <div class="uppercase" style="font-size:14px;color:#8866aa;">System operational &middot; zero errors detected</div>
+  <div class="well">
+    <div class="section-title">Well / inset card</div>
+    <p>Use wells to group secondary content or show contextual panels.</p>
+    <div class="btn-row"><div class="btn small">Action</div><div class="btn small ghost">Cancel</div></div>
+  </div>
+  <div class="btn-row"><div class="btn jump" data-page="6">Next: Components</div></div>
+  <p class="footer">Windfoil &middot; Typography page</p>
+</div>
+
+<div class="page">
+  <div class="nav">
+    <div class="brand">Wind<span>foil</span></div>
+    <div class="nav-links"><a>Engine</a><a>Features</a><a>Design</a></div>
+    <div class="btn jump" data-page="0">Home</div>
+  </div>
+  <div class="hero">
+    <div class="kicker">Components</div>
+    <h1>Icons, chips, keys, wells.</h1>
+  </div>
+  <div class="section-title">Icon gallery</div>
+  <div class="icon-grid">
+    <div class="icon-item"><div class="glyph">></div><div class="name">play</div></div>
+    <div class="icon-item"><div class="glyph">*</div><div class="name">star</div></div>
+    <div class="icon-item"><div class="glyph">v</div><div class="name">check</div></div>
+    <div class="icon-item"><div class="glyph">x</div><div class="name">cross</div></div>
+    <div class="icon-item"><div class="glyph">&lt;3</div><div class="name">heart</div></div>
+    <div class="icon-item"><div class="glyph">^</div><div class="name">up</div></div>
+    <div class="icon-item"><div class="glyph">v</div><div class="name">down</div></div>
+    <div class="icon-item"><div class="glyph">&lt;</div><div class="name">left</div></div>
+    <div class="icon-item"><div class="glyph">#</div><div class="name">block</div></div>
+    <div class="icon-item"><div class="glyph">*</div><div class="name">diamond</div></div>
+    <div class="icon-item"><div class="glyph">*</div><div class="name">lozenge</div></div>
+    <div class="icon-item"><div class="glyph">*</div><div class="name">snow</div></div>
+  </div>
+  <div class="section-title">More chips</div>
+  <div>
+    <span class="chip accent">&gt; Play</span>
+    <span class="chip accent">* Star</span>
+    <span class="chip"># Edit</span>
+    <span class="chip">v Done</span>
+    <span class="chip accent">x Close</span>
+  </div>
+  <div class="section-title">Button variants</div>
+  <div class="btn-row">
+    <div class="btn pill">Pill</div>
+    <div class="btn pill ghost">Ghost Pill</div>
+  </div>
+  <div class="btn-row">
+    <div class="btn large">Large CTA</div>
+    <div class="btn icon"><span>--></span> Next</div>
+  </div>
+  <h2>Status cards</h2>
+  <div class="grid">
+    <div class="card"><h3>v Done</h3><p>This card has a check icon in its heading. The check glyph is part of the text flow and renders via windfoil.</p><span class="label green">Complete</span></div>
+    <div class="card"><h3>* Starred</h3><p>Icon + text combos work because icons are regular characters in the glyph atlas.</p><span class="label accent">Featured</span></div>
+  </div>
+  <h2>Inline code + keys</h2>
+  <p>Type <code>npm run dev</code> and press <span class="kbd">F5</span> to reload. The <code>buildCSS</code> function generates a full stylesheet from a <span class="text-accent">palette object</span>.</p>
+  <div class="well">
+    <div class="section-title">Tip</div>
+    <p>Any Unicode character added to the atlas renders via windfoil. Characters missing from the font will simply not draw &mdash; no errors, no fallback.</p>
+  </div>
+  <div class="btn-row"><div class="btn jump" data-page="0">Back to home</div></div>
+  <p class="footer">Windfoil &middot; Components page</p>
+</div>
 `;
 
 // ── Main ─────────────────────────────────────────────────────────────────────
 
 async function main() {
   const fpsEl = document.getElementById('fps')!;
+  fpsEl.style.cssText = 'position:fixed;top:8px;left:8px;z-index:100;font:13px/1 monospace;color:#ccc;background:rgba(14,14,18,0.8);padding:4px 8px;border-radius:5px;pointer-events:none;';
   const dpr = Math.min(devicePixelRatio, 2);
   const PAGE_W = 1040;
-  const MAXZOOM = 6;
 
   const rCanvas = document.createElement('canvas');
   rCanvas.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;z-index:0;cursor:grab';
@@ -436,7 +682,6 @@ async function main() {
 
   const allChars=new Set<string>();
   for(const el of styledEls) for(const ch of el.text) allChars.add(ch);
-  for(const ch of '●∞→★✓—⚠') allChars.add(ch);
   const atlas=buildGlyphAtlas(font,[...allChars].join(' '));
 
   // ── Theme state ─────────────────────────────────────────────────────────────
@@ -457,7 +702,6 @@ async function main() {
   let viewZ=camZ,viewX=camX,viewY=camY;
   let tgtX=camX,tgtY=camY,tgtZ=camZ;
   let velX=0,velY=0,dragging=false,lastMoveT=0;
-  let zoomAnchor:{wx:number;wy:number;sx:number;sy:number}|null=null;
   const pointers=new Map<number,{x:number;y:number}>();
   let mx=innerWidth*dpr/2, my=innerHeight*dpr/2, mwx=0, mwy=0;
   let minZoom=0.02;
@@ -465,7 +709,7 @@ async function main() {
   function setSize(){
     const w=innerWidth,h=innerHeight;
     [rCanvas,tCanvas].forEach(c=>{c.width=w*dpr;c.height=h*dpr;c.style.width=w+'px';c.style.height=h+'px';});
-    if(pages.length){const allH=Math.max(...pages.map(p=>p.y+p.h))+60;minZoom=Math.min(tCanvas.width/PAGE_W,tCanvas.height/allH)*0.95;}
+    if(pages.length){const allH=Math.max(...pages.map(p=>p.y+p.h))+60;minZoom=Math.min(tCanvas.width/PAGE_W,tCanvas.height/allH)*0.95;} else minZoom=0.002;
   }
   function bufCoords(clientX:number,clientY:number){
     const rc=rCanvas.getBoundingClientRect();
@@ -476,7 +720,7 @@ async function main() {
     const p=pages[i]; if(!p) return;
     tgtZ=(tCanvas.width/PAGE_W)*0.96;
     tgtX=p.x+p.w/2; tgtY=p.y+p.h/2;
-    velX=velY=0; zoomAnchor=null;
+    velX=velY=0;
   }
 
   const docRoot: StyledEl = {
@@ -499,7 +743,7 @@ async function main() {
 
   let pressed:StyledEl|null=null;
   rCanvas.addEventListener('pointerdown',e=>{
-    rCanvas.setPointerCapture(e.pointerId); zoomAnchor=null;
+    rCanvas.setPointerCapture(e.pointerId);
     const b=bufCoords(e.clientX,e.clientY);
     pointers.set(e.pointerId,{x:b.x,y:b.y});dragging=true;velX=velY=0;lastMoveT=performance.now();
     const w=scrToWorld(b.x,b.y);
@@ -512,20 +756,19 @@ async function main() {
     const b=bufCoords(e.clientX,e.clientY); mx=b.x; my=b.y;
     if(!pointers.has(e.pointerId))return;
     const prev=pointers.get(e.pointerId)!;pointers.set(e.pointerId,{x:b.x,y:b.y});
-    if(pointers.size===1){camX-=(b.x-prev.x)/camZ;camY-=(b.y-prev.y)/camZ;tgtX=camX;tgtY=camY;tgtZ=camZ;zoomAnchor=null;const t=performance.now(),ddt=t-lastMoveT;if(ddt>0){velX=velX?velX*.7+((b.x-prev.x)/ddt)*.3:(b.x-prev.x)/ddt;velY=velY?velY*.7+((b.y-prev.y)/ddt)*.3:(b.y-prev.y)/ddt;lastMoveT=t}}
+    if(pointers.size===1){camX-=(b.x-prev.x)/camZ;camY-=(b.y-prev.y)/camZ;tgtX=camX;tgtY=camY;tgtZ=camZ;const t=performance.now(),ddt=t-lastMoveT;if(ddt>0){velX=velX?velX*.7+((b.x-prev.x)/ddt)*.3:(b.x-prev.x)/ddt;velY=velY?velY*.7+((b.y-prev.y)/ddt)*.3:(b.y-prev.y)/ddt;lastMoveT=t}}
   });
   const rel=()=>{pointers.clear();dragging=false;pressed=null;if(performance.now()-lastMoveT>80)velX=velY=0;};
   rCanvas.addEventListener('pointerup',rel);rCanvas.addEventListener('pointercancel',rel);
-  // Continuous, smooth, zoom-to-cursor: set a target zoom and anchor, ease every frame.
+  // Direct, fast zoom-to-cursor (no easing — continuous deltaY, no steps)
   rCanvas.addEventListener('wheel',e=>{
     e.preventDefault();
     const b=bufCoords(e.clientX,e.clientY);
     const Cw=tCanvas.width, Ch=tCanvas.height;
     const wx=(b.x-Cw/2)/camZ+camX, wy=(b.y-Ch/2)/camZ+camY;
-    const newZ=Math.max(minZoom, Math.min(MAXZOOM, camZ*Math.exp(-e.deltaY*.0008)));
-    tgtZ=newZ; tgtX=wx-(b.x-Cw/2)/newZ; tgtY=wy-(b.y-Ch/2)/newZ;
-    zoomAnchor={wx,wy,sx:b.x,sy:b.y};
-    if(newZ<=minZoom*1.02){ camX=PAGE_W/2; camY=docH/2; camZ=minZoom; tgtX=PAGE_W/2; tgtY=docH/2; tgtZ=minZoom; zoomAnchor=null; }
+    camZ*=Math.exp(-e.deltaY*.0008);
+    if(camZ<minZoom){ camZ=minZoom; camX=PAGE_W/2; camY=docH/2; tgtX=camX; tgtY=camY; tgtZ=camZ; }
+    else { camX=wx-(b.x-Cw/2)/camZ; camY=wy-(b.y-Ch/2)/camZ; tgtX=camX; tgtY=camY; tgtZ=camZ; }
     viewX=camX;viewY=camY;viewZ=camZ;
   },{passive:false});
 
@@ -540,6 +783,19 @@ async function main() {
   addEventListener('resize',setSize);setSize();goToPage(0);camX=tgtX;camY=tgtY;camZ=tgtZ;
 
   // ── Frame loop ────────────────────────────────────────────────────────────
+  // Cache static atlas data (curves/rows never change after atlas build)
+  // Pre-create renderer ONCE — only shader module + pipeline are cached
+  const renderer = createGlyphRenderer(device, { code: shaderCode, format: 'rgba8unorm' });
+  // Base glyph atlas data — copied into mutable arrays each frame, then rect geometry appended
+  const baseCrv:number[] = Array.from(atlas.curves);
+  const baseRws:number[] = Array.from(atlas.rows);
+  const baseCrvLen = baseCrv.length;
+  const baseRwsLen = baseRws.length;
+  // Reusable typed array buffers (grow on demand, never shrink)
+  let crvFA = new Float32Array(Math.max(baseCrvLen * 2, 4096));
+  let rwsUA = new Uint32Array(Math.max(baseRwsLen * 2, 1024));
+  let instFA = new Float32Array(16384);
+  let instJS:number[] = [];
   let fpsDt=16, prevTs=0;
   function frame(now:number){
     requestAnimationFrame(frame);
@@ -549,16 +805,14 @@ async function main() {
     const e=1-Math.pow(0.01,dt/1000); // smooth easing factor
     if(!dragging){
       if(Math.abs(velX)>0.01||Math.abs(velY)>0.01){
-        camX-=(velX*dt)/camZ;camY-=(velY*dt)/camZ;tgtX=camX;tgtY=camY;tgtZ=camZ;zoomAnchor=null;
+        camX-=(velX*dt)/camZ;camY-=(velY*dt)/camZ;tgtX=camX;tgtY=camY;tgtZ=camZ;
         velX*=Math.pow(.85,dt/16);velY*=Math.pow(.85,dt/16);
         if(Math.abs(velX)<.01&&Math.abs(velY)<.01)velX=velY=0;
       } else {
-        camZ+=(tgtZ-camZ)*e;
-        if(zoomAnchor){ const Cw=tCanvas.width,Ch=tCanvas.height; camX=zoomAnchor.wx-(zoomAnchor.sx-Cw/2)/camZ; camY=zoomAnchor.wy-(zoomAnchor.sy-Ch/2)/camZ; if(Math.abs(camZ-tgtZ)<0.0008)zoomAnchor=null; }
-        else { camX+=(tgtX-camX)*e; camY+=(tgtY-camY)*e; }
+        camX+=(tgtX-camX)*e; camY+=(tgtY-camY)*e; camZ+=(tgtZ-camZ)*e;
       }
     }
-    camZ=Math.max(minZoom,Math.min(MAXZOOM,camZ));
+    camZ=Math.max(minZoom,camZ);
     viewX=camX;viewY=camY;viewZ=camZ;
     const Cw=tCanvas.width,Ch=tCanvas.height;
 
@@ -567,28 +821,44 @@ async function main() {
     const hovered=hitTest(mwx,mwy);
     const hoveredSet=new Set<StyledEl>();let cur=hovered;while(cur){hoveredSet.add(cur);cur=cur.parent;}
 
-    const crv=Array.from(atlas.curves),rws=Array.from(atlas.rows),inst:number[]=[];
-    addRect(0,0,PAGE_W,docH,themeCol.pageBg,crv,rws,inst);
+    // Copy static glyph data, then append rect geometry each frame
+    const crv:number[]=(baseCrv as number[]), rws:number[]=(baseRws as number[]);
+    crv.length=baseCrvLen; rws.length=baseRwsLen;
+    instJS.length=0;
+    const inst:number[]=instJS;
+    // Pass 1: per-page backgrounds
+    for(const pg of pageRoots) addRect(pg.x, pg.y, pg.x+pg.w, pg.y+pg.h, themeCol.pageBg, crv, rws, inst);
 
     const k=1-Math.pow(0.0015,dt/1000);
+    // Pass 2: element backgrounds (non-inline only)
+    // Cache: only resolve CSS for hovered/pressed elements; everyone else uses cached bg
     for(const el of styledEls){
-      const state=hoveredSet.has(el)?'hover':(el===pressed?'active':'');
-      const st=resolveStyle(el,cssRules,state);
-      const nrm=resolveStyle(el,cssRules,'');
-      const tgtBg=parseColor(st['background-color']||st.background||nrm['background-color']||nrm.background||'transparent');
-      for(let i=0;i<4;i++) el.curBg[i]+=(tgtBg[i]-el.curBg[i])*k;
-
-      const tgtShadow=(el.classes.includes('card')||el.classes.includes('btn')||el.classes.includes('feature'))&&hoveredSet.has(el)?1:0;
-      el.curShadow+=(tgtShadow-el.curShadow)*k;
-
-      if(el.curBg[3]>0.004){
-        if(el.curShadow>0.01){const g=14*el.curShadow;addRect(el.x-g,el.y-g,el.x+el.w+g,el.y+el.h+g,[themeCol.shadow[0],themeCol.shadow[1],themeCol.shadow[2],themeCol.shadow[3]*el.curShadow],crv,rws,inst);}
-        addRect(el.x,el.y,el.x+el.w,el.y+el.h,el.curBg,crv,rws,inst);
+      const isHov=hoveredSet.has(el), isAct=el===pressed;
+      if(isHov||isAct){
+        const state=isHov?'hover':'active';
+        const st=resolveStyle(el,cssRules,state);
+        const hovBg=parseColor(st['background-color']||st.background||'');
+        if(hovBg[3]>0.001) for(let i=0;i<4;i++) el.curBg[i]+=(hovBg[i]-el.curBg[i])*k;
+      }else{
+        for(let i=0;i<4;i++) el.curBg[i]+=(el.bg[i]-el.curBg[i])*k;
       }
 
-      if(el.hasFlow && !el.skipText){
-        if(el.isPre) layoutPre(el, font, atlas, inst);
-        else layoutFlow(el, font, atlas, inst, now);
+      const tgtShadow=(el.classes.includes('card')||el.classes.includes('btn')||el.classes.includes('feature'))&&isHov?1:0;
+      el.curShadow+=(tgtShadow-el.curShadow)*k;
+
+      if(!el.inline && (el.curBg[3]>0.004 || el.classes.includes('bounce') || el.classes.includes('heartbeat'))){
+        const b=el.curBg;
+        if(el.classes.includes('bounce')){
+          const dy=Math.sin(now/520)*8;
+          addRect(el.x,el.y+dy,el.x+el.w,el.y+el.h+dy,b[3]>0.004?b:[0,0,0,0],crv,rws,inst);
+        }else if(el.classes.includes('heartbeat')){
+          const sc=1+Math.sin(now/380)*0.065;
+          const cx=el.x+el.w/2, cy=el.y+el.h/2, hw=el.w*sc/2, hh=el.h*sc/2;
+          addRect(cx-hw,cy-hh,cx+hw,cy+hh,b[3]>0.004?b:[0,0,0,0],crv,rws,inst);
+        }else{
+          if(el.curShadow>0.01){const g=14*el.curShadow;addRect(el.x-g,el.y-g,el.x+el.w+g,el.y+el.h+g,[themeCol.shadow[0],themeCol.shadow[1],themeCol.shadow[2],themeCol.shadow[3]*el.curShadow],crv,rws,inst);}
+          addRect(el.x,el.y,el.x+el.w,el.y+el.h,el.curBg,crv,rws,inst);
+        }
       }
 
       if(el.classes.includes('progress')){
@@ -601,12 +871,27 @@ async function main() {
         addRect(el.x+2, el.y+el.h/2-7, el.x+16, el.y+el.h/2+7, [themeCol.pulse[0],themeCol.pulse[1],themeCol.pulse[2],a], crv,rws,inst);
       }
     }
+    // Pass 3: text (all text drawn AFTER all backgrounds for correct z-order)
+    for(const el of styledEls){
+      if(el.hasFlow && !el.skipText){
+        if(el.isPre) layoutPre(el, font, atlas, inst);
+        else layoutFlow(el, font, atlas, inst, now);
+      }
+    }
 
     rCtx.fillStyle=rgb(themeCol.backdrop);rCtx.fillRect(0,0,Cw,Ch);
-    const wf=createGlyphRenderer(device,{code:shaderCode,format:'rgba8unorm',curves:new Float32Array(crv),rows:new Uint32Array(rws),instances:new Float32Array(inst),instanceCount:inst.length/16});
+    // Convert to typed arrays, reusing buffers when possible
+    if (crv.length > crvFA.length) crvFA = new Float32Array(crv.length * 2);
+    crvFA.set(crv);
+    if (rws.length > rwsUA.length) rwsUA = new Uint32Array(rws.length * 2);
+    rwsUA.set(rws);
+    if (inst.length > instFA.length) instFA = new Float32Array(inst.length * 2);
+    instFA.set(inst);
     const enc=device.createCommandEncoder();
     const pass=enc.beginRenderPass({colorAttachments:[{view:gpuCtx.getCurrentTexture().createView(),clearValue:{r:0,g:0,b:0,a:0},loadOp:'clear',storeOp:'store'}]});
-    wf.setUniforms({width:Cw,height:Ch,cam:[viewZ,viewZ,Cw/2-viewZ*viewX,Ch/2-viewZ*viewY]});wf.draw(pass);pass.end();device.queue.submit([enc.finish()]);
+    renderer.setUniforms({width:Cw,height:Ch,cam:[viewZ,viewZ,Cw/2-viewZ*viewX,Ch/2-viewZ*viewY]});
+    renderer.draw(pass, crvFA.subarray(0,crv.length), rwsUA.subarray(0,rws.length), instFA.subarray(0,inst.length), inst.length/16);
+    pass.end();device.queue.submit([enc.finish()]);
   }
   requestAnimationFrame(frame);
 }
