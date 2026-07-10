@@ -244,14 +244,14 @@ const palettes: Record<string,Palette> = {
     timeline:'#d8d2c6', statusOk:'#2f9e54', shadow:'rgba(0,0,0,0.12)',
   },
   dark: {
-    backdrop:'#0c0e14', pageBg:'#161922', fg:'#e6e6ef', muted:'#9aa0b5',
-    card:'#1f2330', accent:'#6f8bff', accentDark:'#5a76f0', accentActive:'#3f57d0',
-    codeBg:'#0a0c12', codeFg:'#cdd6f4', tagBg:'#2a2f45', tagFg:'#aab4ff',
-    callout:'#3a4db0', cta:'#4a5bbf', border:'#262b3a', kicker:'#9a8cff', link:'#aab4ff',
-    progress:'#2a2f40', progFill:'#6f8bff', pulse:'#4fd07a',
-    badgeBg:'#1f2330', badgeBorder:'#2a2f45', badgeFg:'#cfd3e6',
-    alertBg:'#16223c', alertFg:'#8fb4ff', avatarBg:'#6f8bff',
-    timeline:'#262b3a', statusOk:'#4fd07a', shadow:'rgba(0,0,0,0.45)',
+    backdrop:'#0b0d12', pageBg:'#14171f', fg:'#dfe2ea', muted:'#8890a4',
+    card:'#222738', accent:'#7b9aff', accentDark:'#6586f0', accentActive:'#4a6ad0',
+    codeBg:'#0e1018', codeFg:'#cdd6f4', tagBg:'#2e3450', tagFg:'#b4beff',
+    callout:'#3d52c0', cta:'#4e60c8', border:'#353b50', kicker:'#a798ff', link:'#b4beff',
+    progress:'#2e3450', progFill:'#7b9aff', pulse:'#52d680',
+    badgeBg:'#222738', badgeBorder:'#3a4060', badgeFg:'#d0d5e5',
+    alertBg:'#1a2540', alertFg:'#92b0ff', avatarBg:'#7b9aff',
+    timeline:'#353b50', statusOk:'#52d680', shadow:'rgba(0,0,0,0.55)',
   },
 };
 
@@ -278,7 +278,7 @@ p { font-size: 16px; line-height: 1.6; margin-bottom: 16px; }
 .alert { display: flex; gap: 12px; align-items: center; background: ${p.alertBg}; color: ${p.alertFg}; padding: 14px 18px; border-radius: 10px; margin: 22px 0; font-size: 15px; }
 pre { background: ${p.codeBg}; color: ${p.codeFg}; padding: 20px 24px; border-radius: 8px; font-size: 14px; line-height: 1.5; margin: 20px 0; }
 .grid { display: flex; gap: 20px; margin: 24px 0; }
-.feature { flex: 1; background: ${p.card}; border-radius: 12px; padding: 24px; box-shadow: 0 0 0 rgba(0,0,0,0); }
+.feature { flex: 1; background: ${p.card}; border-radius: 12px; padding: 24px; box-shadow: 0 0 0 rgba(0,0,0,0); border: 1px solid ${p.border}; }
 .feature:hover { box-shadow: 0 8px 24px ${p.shadow}; }
 .feature h3 { font-size: 19px; font-weight: 700; color: ${p.fg}; margin-bottom: 8px; }
 .callout { background: ${p.callout}; color: white; padding: 28px 32px; border-radius: 14px; margin: 24px 0; display: flex; align-items: center; gap: 24px; }
@@ -286,7 +286,7 @@ pre { background: ${p.codeBg}; color: ${p.codeFg}; padding: 20px 24px; border-ra
 .callout p { color: #e8ecff; margin-bottom: 0; }
 ul { margin: 12px 0 20px 22px; }
 li { font-size: 16px; line-height: 1.7; }
-.card { background: ${p.card}; border-radius: 12px; padding: 24px; margin: 24px 0; box-shadow: 0 0 0 rgba(0,0,0,0); }
+.card { background: ${p.card}; border-radius: 12px; padding: 24px; margin: 24px 0; box-shadow: 0 0 0 rgba(0,0,0,0); border: 1px solid ${p.border}; }
 .card:hover { box-shadow: 0 8px 24px ${p.shadow}; }
 .card h3 { font-size: 19px; font-weight: 700; color: ${p.fg}; margin-bottom: 8px; }
 .tag { display: inline-block; background: ${p.tagBg}; color: ${p.tagFg}; padding: 3px 11px; border-radius: 12px; font-size: 12px; font-weight: 700; margin-right: 6px; }
@@ -341,6 +341,10 @@ li { font-size: 16px; line-height: 1.7; }
 .label.muted { background: ${p.tagBg}; color: ${p.tagFg}; }
 .bounce { width: 64px; height: 64px; background: ${p.accent}; border-radius: 16px; display: inline-block; margin: 10px; }
 .heartbeat { width: 72px; height: 72px; background: ${p.pulse}; border-radius: 50%; display: inline-block; margin: 10px; }
+.glow { width: 64px; height: 64px; background: ${p.accent}; border-radius: 50%; display: inline-block; margin: 10px; }
+.float { width: 64px; height: 64px; background: ${p.callout}; border-radius: 16px; display: inline-block; margin: 10px; }
+.spin { width: 64px; height: 64px; background: ${p.pulse}; border-radius: 12px; display: inline-block; margin: 10px; }
+.shimmer { width: 200px; height: 64px; background: ${p.card}; border-radius: 12px; display: inline-block; margin: 10px; border: 1px solid ${p.border}; }
 .check-list { margin: 12px 0 18px; }
 .check-list li { font-size: 16px; line-height: 1.7; }
 .split { display: flex; gap: 24px; margin: 20px 0; }
@@ -392,7 +396,14 @@ const HTML_SRC = `
     <div class="progress"></div>
     <div class="pulse">Live &mdash; 60 fps</div>
   </div>
-  <div class="alert"><div>Everything you see &mdash; every box, every glyph &mdash; is one GPU draw call, shaded analytically.</div></div>
+    <div class="alert"><div>Everything you see &mdash; every box, every glyph &mdash; is one GPU draw call, shaded analytically.</div></div>
+    <div style="display:flex;align-items:center;gap:16px;margin:20px 0;">
+      <div class="glow"></div>
+      <div class="float"></div>
+      <div class="spin"></div>
+      <div class="bounce"></div>
+      <div class="heartbeat"></div>
+    </div>
   <h2>Hover effects</h2>
   <div class="card"><h3>Hover Card</h3><p>Move your mouse over this card. The box-shadow interpolates smoothly. Hover state is detected by hit-testing the cursor's world position against element bounds.</p><span class="tag">hover</span><span class="tag">transition</span></div>
   <h2>Features</h2>
@@ -535,17 +546,40 @@ const HTML_SRC = `
     <div class="bounce"></div>
     <div class="heartbeat"></div>
   </div>
+  <h2>Glow &amp; float</h2>
+  <div style="display:flex;align-items:center;gap:24px;margin:20px 0;">
+    <div class="glow"></div>
+    <div class="float"></div>
+    <div class="glow"></div>
+    <div class="float"></div>
+  </div>
+  <h2>Spin &amp; shimmer</h2>
+  <div style="display:flex;align-items:center;gap:24px;margin:20px 0;">
+    <div class="spin"></div>
+    <div class="shimmer"><span class="text-sm">Loading content...</span></div>
+    <div class="spin"></div>
+  </div>
   <h2>Check list</h2>
   <ul class="check-list"><li>v Full CSS selector matching</li><li>v :hover and :active pseudo-classes</li><li>v CSS transition interpolation</li><li>v Per-pixel analytic AA</li><li>v One GPU draw call</li></ul>
   <h2>Progress &amp; pulse</h2>
   <div class="progress"></div>
   <div class="pulse">Live &mdash; 60 fps</div>
   <div class="marquee">bounce | heartbeat | progress | pulse | marquee | tabs | table | badges | avatars | icons | </div>
-  <h2>More cards</h2>
+  <h2>Animation cards</h2>
   <div class="grid">
     <div class="feature"><h3>Progress</h3><p>Bar fills automatically using a fraction of the frame timestamp.</p></div>
     <div class="feature"><h3>Bounce</h3><p>Rectangle oscillates vertically on a sine wave.</p></div>
     <div class="feature"><h3>Heartbeat</h3><p>Square pulses around its center point.</p></div>
+  </div>
+  <div class="grid">
+    <div class="feature"><h3>Glow</h3><p>Pulsing luminous halo around a circle, breathing in and out.</p></div>
+    <div class="feature"><h3>Float</h3><p>Gentle vertical drift on a slow sine wave, like a balloon.</p></div>
+    <div class="feature"><h3>Spin</h3><p>Scale pulsing that simulates rotation foreshortening.</p></div>
+  </div>
+  <div class="grid">
+    <div class="feature"><h3>Shimmer</h3><p>A highlight bar sweeps across the surface repeatedly.</p></div>
+    <div class="feature"><h3>Pulse</h3><p>Dot indicator pulses with opacity oscillation.</p></div>
+    <div class="feature"><h3>Marquee</h3><p>Text scrolls horizontally at constant speed.</p></div>
   </div>
   <div class="btn-row"><div class="btn jump" data-page="0">Back to home</div></div>
   <p class="footer">Windfoil &middot; Animations page</p>
@@ -989,7 +1023,10 @@ async function main() {
   function goToPage(i:number){
     const p=pages[i]; if(!p) return;
     tgtZ=(tCanvas.width/PAGE_W)*0.96;
-    tgtX=p.x+p.w/2; tgtY=p.y+p.h/2;
+    tgtX=p.x+p.w/2;
+    // Position so page top appears ~40px from top of viewport
+    const halfViewH=tCanvas.height/(2*tgtZ);
+    tgtY=p.y+40+halfViewH;
     velX=velY=0;
   }
 
@@ -1030,16 +1067,31 @@ async function main() {
   });
   const rel=()=>{pointers.clear();dragging=false;pressed=null;if(performance.now()-lastMoveT>80)velX=velY=0;};
   rCanvas.addEventListener('pointerup',rel);rCanvas.addEventListener('pointercancel',rel);
-  // Direct, fast zoom-to-cursor (no easing — continuous deltaY, no steps)
+  let lastWheelT=0;
+  let rightDown=false;
+  rCanvas.addEventListener('pointerdown',e=>{if(e.button===2)rightDown=true;});
+  rCanvas.addEventListener('pointerup',e=>{if(e.button===2)rightDown=false;});
+  rCanvas.addEventListener('pointercancel',()=>{rightDown=false;});
+  rCanvas.addEventListener('contextmenu',e=>e.preventDefault());
+  // Wheel: normal = smooth scroll, right-click held = zoom
   rCanvas.addEventListener('wheel',e=>{
     e.preventDefault();
-    const b=bufCoords(e.clientX,e.clientY);
-    const Cw=tCanvas.width, Ch=tCanvas.height;
-    const wx=(b.x-Cw/2)/camZ+camX, wy=(b.y-Ch/2)/camZ+camY;
-    camZ*=Math.exp(-e.deltaY*.0008);
-    if(camZ<minZoom){ camZ=minZoom; camX=PAGE_W/2; camY=docH/2; tgtX=camX; tgtY=camY; tgtZ=camZ; }
-    else { camX=wx-(b.x-Cw/2)/camZ; camY=wy-(b.y-Ch/2)/camZ; tgtX=camX; tgtY=camY; tgtZ=camZ; }
-    viewX=camX;viewY=camY;viewZ=camZ;
+    lastWheelT=performance.now();
+    if(rightDown){
+      // Zoom to cursor
+      const b=bufCoords(e.clientX,e.clientY);
+      const Cw=tCanvas.width, Ch=tCanvas.height;
+      const wx=(b.x-Cw/2)/camZ+camX, wy=(b.y-Ch/2)/camZ+camY;
+      camZ*=Math.exp(-e.deltaY*.0008);
+      if(camZ<minZoom){ camZ=minZoom; camX=PAGE_W/2; camY=docH/2; tgtX=camX; tgtY=camY; tgtZ=camZ; }
+      else { camX=wx-(b.x-Cw/2)/camZ; camY=wy-(b.y-Ch/2)/camZ; tgtX=camX; tgtY=camY; tgtZ=camZ; }
+      viewX=camX;viewY=camY;viewZ=camZ;
+    }else{
+      // Smooth scroll — add velocity for momentum feel
+      velY-=e.deltaY/camZ*0.05;
+      velX=0;
+      tgtX=camX; tgtY=camY; tgtZ=camZ;
+    }
   },{passive:false});
 
   // Dark-mode toggle (fixed DOM control, never affected by zoom)
@@ -1060,7 +1112,7 @@ async function main() {
   for(const pg of pageRoots) addRect(pg.x,pg.y,pg.x+pg.w,pg.y+pg.h,themeCol.pageBg,preCrv,preRws,preInst);
   for(const el of styledEls){
     if(el.inline||el.curBg[3]<=0.001)continue;
-    if(el.classes.includes('bounce')||el.classes.includes('heartbeat')||el.classes.includes('progress')||el.classes.includes('pulse'))continue;
+    if(el.classes.includes('bounce')||el.classes.includes('heartbeat')||el.classes.includes('progress')||el.classes.includes('pulse')||el.classes.includes('glow')||el.classes.includes('float')||el.classes.includes('spin')||el.classes.includes('shimmer'))continue;
     addRect(el.x,el.y,el.x+el.w,el.y+el.h,el.curBg,preCrv,preRws,preInst);
   }
   const preCrvLen=preCrv.length, preRwsLen=preRws.length, preInstLen=preInst.length;
@@ -1140,8 +1192,10 @@ async function main() {
 
     mwx=(mx-Cw/2)/viewZ+viewX;
     mwy=(my-Ch/2)/viewZ+viewY;
-    const hovered=hitTest(mwx,mwy);
-    const hoveredSet=new Set<StyledEl>();let cur=hovered;while(cur){hoveredSet.add(cur);cur=cur.parent;}
+    // Skip expensive hit-test + resolveStyle during wheel zoom (200ms cooldown)
+    const wheelCool=(performance.now()-lastWheelT)<200;
+    const hovered=wheelCool?null:hitTest(mwx,mwy);
+    const hoveredSet=new Set<StyledEl>();if(hovered){let cur=hovered;while(cur){hoveredSet.add(cur);cur=cur.parent;}}
 
     // Build working arrays: base atlas + pre-computed static backgrounds
     const crv:number[]=(baseCrv as number[]);
@@ -1182,6 +1236,22 @@ async function main() {
         const sc=1+Math.sin(now/380)*0.065;
         const cx=el.x+el.w/2, cy=el.y+el.h/2, hw=el.w*sc/2, hh=el.h*sc/2;
         addRect(cx-hw,cy-hh,cx+hw,cy+hh,el.curBg[3]>0.004?el.curBg:[0,0,0,0],crv,rws,inst);
+      }else if(el.classes.includes('glow')){
+        const pulse=0.3+0.7*Math.abs(Math.sin(now/600));
+        const g=18*pulse;
+        addRect(el.x-g,el.y-g,el.x+el.w+g,el.y+el.h+g,[el.curBg[0],el.curBg[1],el.curBg[2],0.35*pulse],crv,rws,inst);
+        addRect(el.x,el.y,el.x+el.w,el.y+el.h,el.curBg[3]>0.004?el.curBg:[0,0,0,0],crv,rws,inst);
+      }else if(el.classes.includes('float')){
+        const dy=Math.sin(now/900)*12;
+        addRect(el.x,el.y+dy,el.x+el.w,el.y+el.h+dy,el.curBg[3]>0.004?el.curBg:[0,0,0,0],crv,rws,inst);
+      }else if(el.classes.includes('spin')){
+        const sc=0.85+0.15*Math.sin(now/450);
+        const cx=el.x+el.w/2, cy=el.y+el.h/2, hw=el.w*sc/2, hh=el.h*sc/2;
+        addRect(cx-hw,cy-hh,cx+hw,cy+hh,el.curBg[3]>0.004?el.curBg:[0,0,0,0],crv,rws,inst);
+      }else if(el.classes.includes('shimmer')){
+        addRect(el.x,el.y,el.x+el.w,el.y+el.h,el.curBg[3]>0.004?el.curBg:[0,0,0,0],crv,rws,inst);
+        const shimX=el.x+((now*0.12)%(el.w+60))-30;
+        addRect(shimX,el.y,shimX+30,el.y+el.h,[1,1,1,0.12],crv,rws,inst);
       }
       if((isHov||isAct) && el.curShadow>0.01){
         const g=14*el.curShadow;
