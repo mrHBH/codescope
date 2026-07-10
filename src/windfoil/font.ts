@@ -49,7 +49,7 @@ export function glyphQuads(font: FontFace, ch: string) {
 }
 
 export function advanceOf(font: FontFace, ch: string): number {
-  return font.charToGlyph(ch).advanceWidth;
+  return font.charToGlyph(ch).advanceWidth || 0;
 }
 
 export function kerningOf(font: FontFace, a: string, b: string): number {

@@ -71,7 +71,7 @@ export function createGlyphRenderer(
   }
 
   return {
-    setUniforms({ width, height, cam = [1, 1, 0, 0] as number[] }) {
+    setUniforms({ width, height, cam = [1, 1, 0, 0] as number[] }: { width: number; height: number; cam?: number[] }) {
       uniformData[0] = width; uniformData[1] = height;
       uniformData[2] = 1; uniformData[3] = 1; // style: (gamma=1, sharp=1) = exact coverage
       uniformData[4] = cam[0]; uniformData[5] = cam[1]; uniformData[6] = cam[2]; uniformData[7] = cam[3];
