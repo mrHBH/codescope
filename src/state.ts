@@ -5,6 +5,7 @@
 
 import type { FontFace } from './windfoil/font';
 import type { StyledEl, PageRect, Seg } from './layout/types';
+import type { CodeEditor } from './editor/editor';
 
 export interface ThemeCol {
   backdrop: number[]; pageBg: number[]; prog: number[]; pulse: number[];
@@ -31,6 +32,8 @@ export interface AppState {
   styledEls: StyledEl[];
   pageRoots: StyledEl[];
   editableEls: StyledEl[];
+  dynamicEls: StyledEl[];
+  marqueeEls: StyledEl[];
   pages: PageRect[];
   docH: number;
   docRoot: StyledEl;
@@ -38,6 +41,8 @@ export interface AppState {
   // theme
   cssRules: { selector: string; props: Record<string,string> }[];
   isDark: boolean;
+  themeMode: string;
+  cycleTheme?: () => void;
   themeCol: ThemeCol;
   themeBtn: HTMLButtonElement | null;
   fpsEl: HTMLElement;
@@ -56,10 +61,11 @@ export interface AppState {
   rightDown: boolean;
 
   // precomputed static buffers
-  preCrv: number[]; preRws: number[]; preInst: number[];
-  preCrvLen: number; preRwsLen: number; preInstLen: number;
+  preCrv: number[]; preRws: number[];
+  preCrvLen: number; preRwsLen: number;
   highlightCache: Map<StyledEl, Seg[]>;
-  preTextInst: number[]; preTextLen: number;
+  bgByPage: number[][]; textByPage: number[][];
+  pageVisible: boolean[];
   baseCrv: number[]; baseRws: number[];
   baseCrvLen: number; baseRwsLen: number;
 
@@ -70,6 +76,12 @@ export interface AppState {
   // editing + press tracking
   activeEdit: StyledEl | null;
   pressed: StyledEl | null;
+  selecting: boolean;
+
+  // code editor
+  editor: CodeEditor | null;
+  editorMode: boolean;
+  editorSelecting: boolean;
 }
 
 export function createAppState(partial: Partial<AppState>): AppState {
@@ -78,8 +90,8 @@ export function createAppState(partial: Partial<AppState>): AppState {
     rCanvas: null as any, tCanvas: null as any, rCtx: null as any, gpuCtx: null as any,
     device: null as any, shaderCode: '', renderer: null, font: null as any, atlas: null,
     container: null as any, themeStyle: null as any,
-    styledEls: [], pageRoots: [], editableEls: [], pages: [], docH: 0, docRoot: null as any,
-    cssRules: [], isDark: false, themeCol: {
+    styledEls: [], pageRoots: [], editableEls: [], dynamicEls: [], marqueeEls: [], pages: [], docH: 0, docRoot: null as any,
+    cssRules: [], isDark: false, themeMode: 'light', themeCol: {
       backdrop: [0,0,0,0], pageBg: [0,0,0,0], prog: [0,0,0,0], pulse: [0,0,0,0],
       shadow: [0,0,0,0], caret: [0,0,0,0], sel: [0,0,0,0],
     }, themeBtn: null, fpsEl: null as any,
@@ -87,11 +99,13 @@ export function createAppState(partial: Partial<AppState>): AppState {
     tgtX: 0, tgtY: 0, tgtZ: 0.5, velX: 0, velY: 0,
     dragging: false, lastMoveT: 0, minZoom: 0.02,
     pointers: new Map(), mx: 0, my: 0, mwx: 0, mwy: 0, lastWheelT: 0, rightDown: false,
-    preCrv: [], preRws: [], preInst: [], preCrvLen: 0, preRwsLen: 0, preInstLen: 0,
-    highlightCache: new Map(), preTextInst: [], preTextLen: 0,
+    preCrv: [], preRws: [], preCrvLen: 0, preRwsLen: 0,
+    highlightCache: new Map(),
+    bgByPage: [], textByPage: [], pageVisible: [],
     baseCrv: [], baseRws: [], baseCrvLen: 0, baseRwsLen: 0,
     crvFA: new Float32Array(4096), rwsUA: new Uint32Array(1024), instFA: new Float32Array(16384),
-    instJS: [], activeEdit: null, pressed: null,
+    instJS: [], activeEdit: null, pressed: null, selecting: false,
+    editor: null, editorMode: false, editorSelecting: false,
     ...partial,
   } as AppState;
 }

@@ -32,6 +32,14 @@ export function goToPage(s: AppState, i: number) {
   s.velX = s.velY = 0;
 }
 
+// Frame the whole document within the viewport (used by the context menu).
+export function fitDocument(s: AppState) {
+  s.tgtZ = Math.max(s.minZoom, (s.tCanvas.height / s.docH) * 0.94);
+  s.tgtX = s.PAGE_W / 2;
+  s.tgtY = s.docH / 2;
+  s.velX = s.velY = 0;
+}
+
 // Per-frame camera integration: momentum, easing toward target, zoom clamp.
 export function stepCamera(s: AppState, dt: number, now: number) {
   if (!s.dragging) {

@@ -11,6 +11,22 @@ import { layoutFlow } from './layout/flow';
 import { layoutEditable } from './layout/editable';
 import { hitTest } from './layout/walk';
 import { stepCamera } from './camera/camera';
+import type { EditorTheme } from './editor/editor';
+
+function editorTheme(s: AppState): EditorTheme {
+  const c = s.themeCol;
+  const dark = s.isDark;
+  return {
+    bg: dark ? [0.06, 0.07, 0.10, 1] : [0.117, 0.117, 0.17, 1],
+    gutterBg: dark ? [0.04, 0.05, 0.08, 1] : [0.09, 0.09, 0.14, 1],
+    gutterFg: [0.42, 0.45, 0.58, 1],
+    curLineFg: [0.85, 0.88, 0.96, 1],
+    curLineBg: [1, 1, 1, 0.04],
+    text: [0.804, 0.839, 0.957, 1],
+    caret: [0.95, 0.96, 1, 1],
+    sel: [c.sel[0], c.sel[1], c.sel[2], 0.4],
+  };
+}
 
 export function runFrame(s: AppState) {
   let prevTs = 0, fpsDt = 16;
@@ -25,6 +41,19 @@ export function runFrame(s: AppState) {
     const Cw = s.tCanvas.width, Ch = s.tCanvas.height;
     s.mwx = (s.mx - Cw / 2) / s.viewZ + s.viewX;
     s.mwy = (s.my - Ch / 2) / s.viewZ + s.viewY;
+
+    // Viewport bounds in world space (+margin) → which pages are on screen. Off-screen
+    // pages contribute no instances, so we skip their (large) static text/bg buffers.
+    const marginX = 200 / s.viewZ, marginY = 200 / s.viewZ;
+    const vL = (0 - Cw / 2) / s.viewZ + s.viewX - marginX;
+    const vR = (Cw - Cw / 2) / s.viewZ + s.viewX + marginX;
+    const vT = (0 - Ch / 2) / s.viewZ + s.viewY - marginY;
+    const vB = (Ch - Ch / 2) / s.viewZ + s.viewY + marginY;
+    const visible = s.pageVisible;
+    for (let p = 0; p < s.pageRoots.length; p++) {
+      const pg = s.pageRoots[p];
+      visible[p] = pg.x <= vR && pg.x + pg.w >= vL && pg.y <= vB && pg.y + pg.h >= vT;
+    }
 
     // Skip expensive hit-test + resolveStyle during wheel zoom (200ms cooldown)
     const wheelCool = (performance.now() - s.lastWheelT) < 200;
@@ -41,48 +70,55 @@ export function runFrame(s: AppState) {
     for (let i = 0; i < s.preRwsLen; i++) rws.push(s.preRws[i]);
     s.instJS.length = 0;
     const inst: number[] = s.instJS;
-    // Layer 1: static backgrounds
-    for (let i = 0; i < s.preInstLen; i++) inst.push(s.preInst[i]);
+    // Layer 1: static backgrounds (visible pages only)
+    for (let p = 0; p < s.bgByPage.length; p++) {
+      if (!visible[p]) continue;
+      const buf = s.bgByPage[p];
+      for (let i = 0; i < buf.length; i++) inst.push(buf[i]);
+    }
 
     const k = 1 - Math.pow(0.0015, dt / 1000);
     let cursor = 'grab';
-    // Layer 2: dynamic backgrounds (hover, bounce, heartbeat, progress, pulse) — BEFORE text
-    for (const el of s.styledEls) {
+    // Layer 2: dynamic backgrounds (hover, bounce, heartbeat, progress, pulse) — BEFORE text.
+    // Only elements flagged `dynamic` in walkDOM reach this loop; static text/boxes
+    // are already baked into the precomputed buffers.
+    for (const el of s.dynamicEls) {
+      if (el.ownerPage >= 0 && !visible[el.ownerPage]) continue;
       const isHov = hoveredSet.has(el), isAct = el === s.pressed;
-      const isHoverable = el.classes.includes('btn') || el.classes.includes('card') || el.classes.includes('feature') || el.classes.includes('tab') || !!el.el.getAttribute('data-page');
       if (isHov || isAct) {
         const state = isHov ? 'hover' : 'active';
         const st = resolveStyle(el, s.cssRules, state);
         const hovBg = parseColor(st['background-color'] || st.background || '');
         if (hovBg[3] > 0.001) for (let i = 0; i < 4; i++) el.curBg[i] += (hovBg[i] - el.curBg[i]) * k;
-        if (isHov && (isHoverable || el.el.tagName === 'A')) cursor = 'pointer';
+        if (isHov && el.hoverable) cursor = 'pointer';
       } else {
         for (let i = 0; i < 4; i++) el.curBg[i] += (el.bg[i] - el.curBg[i]) * k;
       }
 
-      const tgtShadow = (el.classes.includes('card') || el.classes.includes('btn') || el.classes.includes('feature')) && isHov ? 1 : 0;
+      const tgtShadow = el.shadowable && isHov ? 1 : 0;
       el.curShadow += (tgtShadow - el.curShadow) * k;
 
-      if (el.classes.includes('bounce')) {
+      const anim = el.anim;
+      if (anim === 'bounce') {
         const dy = Math.sin(now / 520) * 8;
         addRect(el.x, el.y + dy, el.x + el.w, el.y + el.h + dy, el.curBg[3] > 0.004 ? el.curBg : [0, 0, 0, 0], crv, rws, inst);
-      } else if (el.classes.includes('heartbeat')) {
+      } else if (anim === 'heartbeat') {
         const sc = 1 + Math.sin(now / 380) * 0.065;
         const cx = el.x + el.w / 2, cy = el.y + el.h / 2, hw = el.w * sc / 2, hh = el.h * sc / 2;
         addRect(cx - hw, cy - hh, cx + hw, cy + hh, el.curBg[3] > 0.004 ? el.curBg : [0, 0, 0, 0], crv, rws, inst);
-      } else if (el.classes.includes('glow')) {
+      } else if (anim === 'glow') {
         const pulse = 0.3 + 0.7 * Math.abs(Math.sin(now / 600));
         const g = 18 * pulse;
         addRect(el.x - g, el.y - g, el.x + el.w + g, el.y + el.h + g, [el.curBg[0], el.curBg[1], el.curBg[2], 0.35 * pulse], crv, rws, inst);
         addRect(el.x, el.y, el.x + el.w, el.y + el.h, el.curBg[3] > 0.004 ? el.curBg : [0, 0, 0, 0], crv, rws, inst);
-      } else if (el.classes.includes('float')) {
+      } else if (anim === 'float') {
         const dy = Math.sin(now / 900) * 12;
         addRect(el.x, el.y + dy, el.x + el.w, el.y + el.h + dy, el.curBg[3] > 0.004 ? el.curBg : [0, 0, 0, 0], crv, rws, inst);
-      } else if (el.classes.includes('spin')) {
+      } else if (anim === 'spin') {
         const sc = 0.85 + 0.15 * Math.sin(now / 450);
         const cx = el.x + el.w / 2, cy = el.y + el.h / 2, hw = el.w * sc / 2, hh = el.h * sc / 2;
         addRect(cx - hw, cy - hh, cx + hw, cy + hh, el.curBg[3] > 0.004 ? el.curBg : [0, 0, 0, 0], crv, rws, inst);
-      } else if (el.classes.includes('shimmer')) {
+      } else if (anim === 'shimmer') {
         addRect(el.x, el.y, el.x + el.w, el.y + el.h, el.curBg[3] > 0.004 ? el.curBg : [0, 0, 0, 0], crv, rws, inst);
         const shimX = el.x + ((now * 0.12) % (el.w + 60)) - 30;
         addRect(shimX, el.y, shimX + 30, el.y + el.h, [1, 1, 1, 0.12], crv, rws, inst);
@@ -93,12 +129,11 @@ export function runFrame(s: AppState) {
         addRect(el.x, el.y, el.x + el.w, el.y + el.h, el.curBg, crv, rws, inst);
       }
 
-      if (el.classes.includes('progress')) {
+      if (anim === 'progress') {
         const frac = ((now % 3200) / 3200);
         const fw = (el.w - el.pad[3] - el.pad[1]) * frac;
         addRect(el.x + el.pad[3], el.y + el.h / 2 - 5, el.x + el.pad[3] + fw, el.y + el.h / 2 + 5, s.themeCol.prog, crv, rws, inst);
-      }
-      if (el.classes.includes('pulse')) {
+      } else if (anim === 'pulse') {
         const a = 0.45 + 0.55 * Math.sin(now / 280);
         addRect(el.x + 2, el.y + el.h / 2 - 7, el.x + 16, el.y + el.h / 2 + 7, [s.themeCol.pulse[0], s.themeCol.pulse[1], s.themeCol.pulse[2], a], crv, rws, inst);
       }
@@ -111,15 +146,28 @@ export function runFrame(s: AppState) {
     s.rCanvas.style.cursor = cursor;
 
     // Layer 3: ALL text (static pre-computed + marquee dynamic + editable) — on top of all backgrounds
-    for (let i = 0; i < s.preTextLen; i++) inst.push(s.preTextInst[i]);
-    for (const el of s.styledEls) {
-      if (el.hasFlow && !el.skipText && el.classes.includes('marquee')) {
-        layoutFlow(el, s.font, s.atlas, inst, now);
-      }
+    for (let p = 0; p < s.textByPage.length; p++) {
+      if (!visible[p]) continue;
+      const buf = s.textByPage[p];
+      for (let i = 0; i < buf.length; i++) inst.push(buf[i]);
+    }
+    for (const el of s.marqueeEls) {
+      if (el.ownerPage >= 0 && !visible[el.ownerPage]) continue;
+      layoutFlow(el, s.font, s.atlas, inst, now);
     }
     const caretW = 2 / s.viewZ;
     for (const el of s.editableEls) {
+      if (el.ownerPage >= 0 && !visible[el.ownerPage] && el !== s.activeEdit) continue;
       layoutEditable(el, s.font, s.atlas, inst, crv, rws, caretW, now, el === s.activeEdit, s.themeCol.caret, s.themeCol.sel);
+    }
+
+    // Code editor (world-space panel). Rendered when it intersects the viewport.
+    if (s.editor) {
+      const ed = s.editor;
+      const edR = ed.x0 + ed.contentWidth(), edB = ed.y0 + ed.contentHeight();
+      if (ed.x0 <= vR && edR >= vL && ed.y0 <= vB && edB >= vT) {
+        ed.render(s.font, s.atlas, inst, crv, rws, vT, vB, now, editorTheme(s), caretW);
+      }
     }
 
     s.rCtx.fillStyle = rgb(s.themeCol.backdrop);

@@ -4,9 +4,10 @@
 
 import type { AppState } from '../state';
 import type { StyledEl } from '../layout/types';
-import { bufCoords, scrToWorld, goToPage } from './camera';
+import { bufCoords, scrToWorld, goToPage, fitDocument } from './camera';
 import { hitTest, findEditableAncestor } from '../layout/walk';
-import { layoutEditable, placeCaretAtPoint } from '../layout/editable';
+import { layoutEditable, placeCaretAtPoint, caretIndexAtPoint } from '../layout/editable';
+import { ContextMenu, type MenuItem } from '../ui/contextMenu';
 
 const _editTmp: number[] = [], _editTmpCrv: number[] = [], _editTmpRws: number[] = [];
 
@@ -16,15 +17,86 @@ function deleteSelection(el: StyledEl) {
   el.caret = a; el.selAnchor = -1;
 }
 
+// ── Shared edit actions ──────────────────────────────────────────────────────
+// Used by both the keyboard handler and the context menu so behaviour stays in
+// one place.
+function hasSelection(el: StyledEl) { return el.selAnchor >= 0 && el.selAnchor !== el.caret; }
+
+function selectedText(el: StyledEl) {
+  const a = Math.min(el.caret, el.selAnchor), b = Math.max(el.caret, el.selAnchor);
+  return el.editText.slice(a, b);
+}
+
+function copySelection(el: StyledEl) {
+  if (!hasSelection(el) || !navigator.clipboard) return;
+  navigator.clipboard.writeText(selectedText(el)).catch(() => {});
+}
+
+function cutSelection(el: StyledEl) {
+  if (!hasSelection(el)) return;
+  copySelection(el);
+  deleteSelection(el);
+}
+
+function pasteClipboard(el: StyledEl) {
+  if (!navigator.clipboard) return;
+  navigator.clipboard.readText().then((text) => {
+    if (!text) return;
+    text = text.replace(/\r\n/g, '\n');
+    if (hasSelection(el)) deleteSelection(el);
+    el.editText = el.editText.slice(0, el.caret) + text + el.editText.slice(el.caret);
+    el.caret += text.length; el.selAnchor = -1;
+  }).catch(() => {});
+}
+
+function selectAll(el: StyledEl) { el.selAnchor = 0; el.caret = el.editText.length; }
+
 export function attachInput(s: AppState) {
   const { rCanvas } = s;
+  const menu = new ContextMenu();
+
+  // Build the menu items for the current context (editing vs. canvas).
+  function buildMenuItems(): MenuItem[] {
+    const el = s.activeEdit;
+    if (el) {
+      return [
+        { id: 'cut', label: 'Cut', icon: 'cut', shortcut: 'Ctrl+X', enabled: () => hasSelection(el), action: () => cutSelection(el) },
+        { id: 'copy', label: 'Copy', icon: 'copy', shortcut: 'Ctrl+C', enabled: () => hasSelection(el), action: () => copySelection(el) },
+        { id: 'paste', label: 'Paste', icon: 'paste', shortcut: 'Ctrl+V', enabled: () => !!navigator.clipboard, action: () => pasteClipboard(el) },
+        { id: 'sep1', separator: true },
+        { id: 'selectAll', label: 'Select All', icon: 'selectAll', shortcut: 'Ctrl+A', action: () => selectAll(el) },
+      ];
+    }
+    return [
+      { id: 'fit', label: 'Fit to Screen', icon: 'fit', action: () => fitDocument(s) },
+      { id: 'reset', label: 'Reset View', icon: 'reset', action: () => goToPage(s, 0) },
+      { id: 'sep1', separator: true },
+      { id: 'theme', label: 'Cycle Theme', icon: 'theme', action: () => s.cycleTheme?.() },
+    ];
+  }
 
   rCanvas.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return; // only the primary (left) button drives editing/nav
     rCanvas.setPointerCapture(e.pointerId);
     const b = bufCoords(s, e.clientX, e.clientY);
     s.pointers.set(e.pointerId, { x: b.x, y: b.y });
     s.dragging = true; s.velX = s.velY = 0; s.lastMoveT = performance.now();
     const w = scrToWorld(s, b.x, b.y);
+
+    // Editor mode: click inside the panel places the caret + starts a selection.
+    if (s.editorMode && s.editor) {
+      const ed = s.editor;
+      const inPanel = w.x >= ed.x0 && w.x <= ed.x0 + ed.contentWidth() && w.y >= ed.y0 && w.y <= ed.y0 + ed.contentHeight();
+      if (inPanel) {
+        ed.focused = true;
+        ed.placeCursor(w.x, w.y, e.shiftKey);
+        if (!e.shiftKey) ed.anchor = { line: ed.cursor.line, col: ed.cursor.col };
+        s.editorSelecting = true;
+        return;
+      }
+      // click outside the panel → pan the canvas (fall through)
+    }
+
     const hit = hitTest(s.docRoot, w.x, w.y);
 
     // Editing: click inside an editable element places the caret and enters edit mode
@@ -34,14 +106,17 @@ export function attachInput(s: AppState) {
       _editTmp.length = 0; _editTmpCrv.length = 0; _editTmpRws.length = 0;
       layoutEditable(ed, s.font, s.atlas, _editTmp, _editTmpCrv, _editTmpRws, 2 / s.camZ, performance.now(), false, s.themeCol.caret, s.themeCol.sel);
       placeCaretAtPoint(ed, w.x, w.y);
+      ed.selAnchor = ed.caret; // begin a drag-selection anchored at the click
+      s.selecting = true;
       s.pressed = null;
       return;
     }
     s.activeEdit = null;
-    s.pressed = (hit && (hit.classes.includes('btn') || hit.classes.includes('card') || hit.classes.includes('feature'))) ? hit : null;
+    s.selecting = false;
+    s.pressed = (hit && hit.shadowable) ? hit : null;
     let nav: StyledEl | null = hit;
-    while (nav && !nav.el.getAttribute('data-page')) nav = nav.parent;
-    if (nav) goToPage(s, parseInt(nav.el.getAttribute('data-page') || '0', 10));
+    while (nav && nav.pageIdx < 0) nav = nav.parent;
+    if (nav) goToPage(s, nav.pageIdx);
   });
 
   rCanvas.addEventListener('pointermove', (e) => {
@@ -50,7 +125,20 @@ export function attachInput(s: AppState) {
     if (!s.pointers.has(e.pointerId)) return;
     const prev = s.pointers.get(e.pointerId)!;
     s.pointers.set(e.pointerId, { x: b.x, y: b.y });
-    if (s.activeEdit) return; // don't pan the camera while editing text
+    if (s.editorMode && s.editorSelecting && s.editor) {
+      const w = scrToWorld(s, b.x, b.y);
+      s.editor.placeCursor(w.x, w.y, true);
+      return;
+    }
+    if (s.activeEdit) {
+      // Drag-selection: move the caret end while keeping the anchor fixed.
+      if (s.selecting) {
+        const w = scrToWorld(s, b.x, b.y);
+        const idx = caretIndexAtPoint(s.activeEdit, w.x, w.y);
+        if (idx >= 0) s.activeEdit.caret = idx;
+      }
+      return; // don't pan the camera while editing text
+    }
     if (s.pointers.size === 1) {
       s.camX -= (b.x - prev.x) / s.camZ; s.camY -= (b.y - prev.y) / s.camZ;
       s.tgtX = s.camX; s.tgtY = s.camY; s.tgtZ = s.camZ;
@@ -59,14 +147,43 @@ export function attachInput(s: AppState) {
     }
   });
 
-  const rel = () => { s.pointers.clear(); s.dragging = false; s.pressed = null; if (performance.now() - s.lastMoveT > 80) s.velX = s.velY = 0; };
+  const rel = () => {
+    if (s.selecting && s.activeEdit && s.activeEdit.selAnchor === s.activeEdit.caret) s.activeEdit.selAnchor = -1;
+    s.selecting = false;
+    s.editorSelecting = false;
+    s.pointers.clear(); s.dragging = false; s.pressed = null; if (performance.now() - s.lastMoveT > 80) s.velX = s.velY = 0;
+  };
   rCanvas.addEventListener('pointerup', rel);
   rCanvas.addEventListener('pointercancel', rel);
 
   s.lastWheelT = 0;
   s.rightDown = false;
-  rCanvas.addEventListener('pointerdown', (e) => { if (e.button === 2) s.rightDown = true; });
-  rCanvas.addEventListener('pointerup', (e) => { if (e.button === 2) s.rightDown = false; });
+  // Right-click gesture: a *short* press with no wheel motion opens the context
+  // menu on release; a *long* press or any wheel event during the press is the
+  // zoom gesture, which suppresses the menu.
+  let rightDownT = 0, rightWheeled = false, rightMoved = false;
+  let rightStart = { x: 0, y: 0 };
+  const LONG_PRESS_MS = 350, MOVE_TOL = 6;
+  rCanvas.addEventListener('pointerdown', (e) => {
+    if (e.button !== 2) return;
+    s.rightDown = true;
+    rightDownT = performance.now();
+    rightWheeled = false; rightMoved = false;
+    rightStart = { x: e.clientX, y: e.clientY };
+    menu.hide();
+  });
+  rCanvas.addEventListener('pointermove', (e) => {
+    if (!s.rightDown) return;
+    if (Math.abs(e.clientX - rightStart.x) > MOVE_TOL || Math.abs(e.clientY - rightStart.y) > MOVE_TOL) rightMoved = true;
+  });
+  rCanvas.addEventListener('pointerup', (e) => {
+    if (e.button !== 2) return;
+    s.rightDown = false;
+    const shortPress = performance.now() - rightDownT < LONG_PRESS_MS;
+    if (shortPress && !rightWheeled && !rightMoved) {
+      menu.show(e.clientX, e.clientY, buildMenuItems());
+    }
+  });
   rCanvas.addEventListener('pointercancel', () => { s.rightDown = false; });
   rCanvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
@@ -79,6 +196,7 @@ export function attachInput(s: AppState) {
     const b = bufCoords(s, e.clientX, e.clientY);
     const Cw = s.tCanvas.width, Ch = s.tCanvas.height;
     if (s.rightDown || e.ctrlKey) {
+      if (s.rightDown) rightWheeled = true;
       const wx = (b.x - Cw / 2) / s.camZ + s.camX, wy = (b.y - Ch / 2) / s.camZ + s.camY;
       s.camZ *= Math.exp(-e.deltaY * .0022);
       if (s.camZ < s.minZoom) { s.camZ = s.minZoom; s.camX = s.PAGE_W / 2; s.camY = s.docH / 2; s.tgtX = s.camX; s.tgtY = s.camY; s.tgtZ = s.camZ; }
@@ -93,12 +211,19 @@ export function attachInput(s: AppState) {
 
   // ── Text editing ────────────────────────────────────────────────────────
   addEventListener('keydown', (e) => {
+    // Code editor takes precedence when active.
+    if (s.editorMode && s.editor) { handleEditorKey(s, e); return; }
     if (!s.activeEdit) return;
     const el = s.activeEdit, t = el.editText;
     const hasSel = el.selAnchor >= 0 && el.selAnchor !== el.caret;
     const meta = e.ctrlKey || e.metaKey;
     const lineOf = (idx: number) => el.caretLines ? el.caretLines[idx] : 0;
-    if (meta && e.key.toLowerCase() === 'a') { el.selAnchor = 0; el.caret = t.length; e.preventDefault(); return; }
+    if (meta && e.key.toLowerCase() === 'a') { selectAll(el); e.preventDefault(); return; }
+    if (meta && (e.key.toLowerCase() === 'c' || e.key.toLowerCase() === 'x')) {
+      if (e.key.toLowerCase() === 'x') cutSelection(el); else copySelection(el);
+      e.preventDefault(); return;
+    }
+    if (meta && e.key.toLowerCase() === 'v') { pasteClipboard(el); e.preventDefault(); return; }
     if (e.key === 'Escape') { el.editText = el.originText; el.caret = el.editText.length; el.selAnchor = -1; s.activeEdit = null; e.preventDefault(); return; }
     if (e.key === 'Tab') {
       const i = s.editableEls.indexOf(el);
@@ -145,4 +270,56 @@ export function attachInput(s: AppState) {
       e.preventDefault(); return;
     }
   });
+}
+
+// ── Code-editor key handling ────────────────────────────────────────────────
+// Maps a keydown to the CodeEditor's command surface, then keeps the caret in
+// view by nudging the camera when it drifts off-screen.
+function handleEditorKey(s: AppState, e: KeyboardEvent) {
+  const ed = s.editor!;
+  const meta = e.ctrlKey || e.metaKey;
+  const shift = e.shiftKey;
+  const k = e.key;
+
+  if (meta && k.toLowerCase() === 'a') { ed.selectAll(); e.preventDefault(); return; }
+  if (meta && k.toLowerCase() === 'c') { const t = ed.selectedText(); if (t && navigator.clipboard) navigator.clipboard.writeText(t).catch(() => {}); e.preventDefault(); return; }
+  if (meta && k.toLowerCase() === 'x') { const t = ed.selectedText(); if (t && navigator.clipboard) { navigator.clipboard.writeText(t).catch(() => {}); ed.insertText(''); } e.preventDefault(); return; }
+  if (meta && k.toLowerCase() === 'v') { if (navigator.clipboard) navigator.clipboard.readText().then((t) => { if (t) { ed.insertText(t.replace(/\r\n/g, '\n')); ensureCaretVisible(s); } }).catch(() => {}); e.preventDefault(); return; }
+  if (meta && k.toLowerCase() === 'z' && !shift) { ed.undo(); e.preventDefault(); ensureCaretVisible(s); return; }
+  if (meta && (k.toLowerCase() === 'y' || (k.toLowerCase() === 'z' && shift))) { ed.redo(); e.preventDefault(); ensureCaretVisible(s); return; }
+
+  switch (k) {
+    case 'ArrowLeft': meta ? ed.moveHome(shift) : ed.moveLeft(shift); break;
+    case 'ArrowRight': meta ? ed.moveEnd(shift) : ed.moveRight(shift); break;
+    case 'ArrowUp': ed.moveVert(-1, shift); break;
+    case 'ArrowDown': ed.moveVert(1, shift); break;
+    case 'Home': meta ? ed.moveDocStart(shift) : ed.moveHome(shift); break;
+    case 'End': meta ? ed.moveDocEnd(shift) : ed.moveEnd(shift); break;
+    case 'Backspace': ed.backspace(); break;
+    case 'Delete': ed.del(); break;
+    case 'Enter': ed.newline(); break;
+    case 'Tab': ed.indent(); break;
+    case 'Escape': return; // let default focus handling be
+    default:
+      if (k.length === 1 && !meta && !e.altKey) ed.insertText(k);
+      else return; // unhandled — don't preventDefault
+  }
+  e.preventDefault();
+  ensureCaretVisible(s);
+}
+
+// Nudge the camera so the caret stays within a comfortable margin of the view.
+function ensureCaretVisible(s: AppState) {
+  const ed = s.editor!;
+  const p = ed.posToWorld(ed.cursor);
+  const halfW = s.tCanvas.width / (2 * s.camZ), halfH = s.tCanvas.height / (2 * s.camZ);
+  const mX = 60 / s.camZ, mY = ed.lineHeight * 1.5;
+  const left = s.camX - halfW + mX, right = s.camX + halfW - mX;
+  const top = s.camY - halfH + mY, bot = s.camY + halfH - mY;
+  if (p.x < left) s.camX -= (left - p.x);
+  else if (p.x > right) s.camX += (p.x - right);
+  if (p.y < top) s.camY -= (top - p.y);
+  else if (p.y + ed.lineHeight > bot) s.camY += (p.y + ed.lineHeight - bot);
+  s.tgtX = s.camX; s.tgtY = s.camY; s.tgtZ = s.camZ;
+  s.viewX = s.camX; s.viewY = s.camY; s.viewZ = s.camZ;
 }

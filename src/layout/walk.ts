@@ -19,6 +19,21 @@ export function walkDOM(el: Element, parent: StyledEl | null, styledEls: StyledE
   const isPre=el.tagName==='PRE';
   const upper=cs.textTransform==='uppercase';
   const editable=el.classList.contains('editable') && !isPre;
+  const cl = el.classList;
+  const dataPage = el.getAttribute('data-page');
+  const pageIdx = dataPage != null ? parseInt(dataPage, 10) : -1;
+  const ANIM = ['bounce','heartbeat','progress','pulse','glow','float','spin','shimmer'];
+  let anim = '';
+  for (const a of ANIM) if (cl.contains(a)) { anim = a; break; }
+  const hoverable = cl.contains('btn') || cl.contains('card') || cl.contains('feature') || cl.contains('tab') || pageIdx >= 0 || el.tagName === 'A';
+  const shadowable = cl.contains('card') || cl.contains('btn') || cl.contains('feature');
+  // An element only needs per-frame dynamic-background work if it can hover,
+  // cast a shadow, or run an animation. Everything else is baked into the static
+  // buffers and skipped entirely by the frame loop.
+  const dynamic = hoverable || shadowable || anim !== '';
+  const iconName = el.getAttribute('data-icon');
+  const artName = el.getAttribute('data-art');
+  const icon = iconName ? 'icon:' + iconName : artName ? 'art:' + artName : '';
   const se: StyledEl = {
     tag: el.tagName, classes: Array.from(el.classList), id: el.id,
     x:cx, y:cy, w:r.width, h:r.height, pad,
@@ -33,6 +48,7 @@ export function walkDOM(el: Element, parent: StyledEl | null, styledEls: StyledE
     inline, skipText: false, hasFlow: false, isPre,
     editable, editText: editable?text.trim():'', caret: editable?text.trim().length:0, selAnchor: -1, originText: editable?text.trim():'',
     caretXs: null, caretLines: null, lineTops: null,
+    pageIdx, hoverable, shadowable, anim, dynamic, ownerPage: -1, icon,
   };
   styledEls.push(se);
   for(const child of Array.from(el.children)) {
@@ -47,8 +63,15 @@ export function buildStyledEls(container: HTMLElement): { styledEls: StyledEl[];
   const styledEls: StyledEl[] = [];
   const pageRoots: StyledEl[] = [];
   for (const rootEl of Array.from(container.querySelectorAll('.page'))) {
+    const before = styledEls.length;
     const r = walkDOM(rootEl, null, styledEls);
-    if (r) pageRoots.push(r);
+    if (r) {
+      const pageNo = pageRoots.length;
+      pageRoots.push(r);
+      // Tag every element produced by this page walk with its owning page index,
+      // so the frame loop can cull whole off-screen pages cheaply.
+      for (let i = before; i < styledEls.length; i++) styledEls[i].ownerPage = pageNo;
+    }
   }
   return { styledEls, pageRoots };
 }

@@ -17,15 +17,26 @@ export const palettes: Record<string,Palette> = {
     caret:'#1a1a2e', sel:'#9db4ff',
   },
   dark: {
-    backdrop:'#0b0d12', pageBg:'#14171f', fg:'#dfe2ea', muted:'#8890a4',
-    card:'#222738', accent:'#7b9aff', accentDark:'#6586f0', accentActive:'#4a6ad0',
-    codeBg:'#0e1018', codeFg:'#cdd6f4', tagBg:'#2e3450', tagFg:'#b4beff',
-    callout:'#3d52c0', cta:'#4e60c8', border:'#353b50', kicker:'#a798ff', link:'#b4beff',
-    progress:'#2e3450', progFill:'#7b9aff', pulse:'#52d680',
-    badgeBg:'#222738', badgeBorder:'#3a4060', badgeFg:'#d0d5e5',
-    alertBg:'#1a2540', alertFg:'#92b0ff', avatarBg:'#7b9aff',
-    timeline:'#353b50', statusOk:'#52d680', shadow:'rgba(0,0,0,0.55)',
-    caret:'#dfe2ea', sel:'#3a4a8a',
+    backdrop:'#090b10', pageBg:'#12151d', fg:'#eef1f7', muted:'#a6adc0',
+    card:'#2a3048', accent:'#8fa8ff', accentDark:'#7089f4', accentActive:'#5570dc',
+    codeBg:'#0b0d14', codeFg:'#cdd6f4', tagBg:'#38406a', tagFg:'#cdd4ff',
+    callout:'#4358cc', cta:'#5568d4', border:'#414a6b', kicker:'#b6a8ff', link:'#c2c9ff',
+    progress:'#38406a', progFill:'#8fa8ff', pulse:'#5fe28c',
+    badgeBg:'#2a3048', badgeBorder:'#4a5480', badgeFg:'#e2e6f2',
+    alertBg:'#1f2b4d', alertFg:'#a6c0ff', avatarBg:'#8fa8ff',
+    timeline:'#414a6b', statusOk:'#5fe28c', shadow:'rgba(0,0,0,0.6)',
+    caret:'#eef1f7', sel:'#4a5da0',
+  },
+  highContrast: {
+    backdrop:'#000000', pageBg:'#0a0c12', fg:'#ffffff', muted:'#c8cfe0',
+    card:'#323a58', accent:'#a6bbff', accentDark:'#8ba3ff', accentActive:'#6f8bf5',
+    codeBg:'#05060a', codeFg:'#e6ecff', tagBg:'#454f80', tagFg:'#e0e6ff',
+    callout:'#4d63e0', cta:'#5f74e8', border:'#5a6698', kicker:'#c8bcff', link:'#d4d9ff',
+    progress:'#454f80', progFill:'#a6bbff', pulse:'#6fff9c',
+    badgeBg:'#323a58', badgeBorder:'#5a6698', badgeFg:'#ffffff',
+    alertBg:'#243468', alertFg:'#c2d4ff', avatarBg:'#a6bbff',
+    timeline:'#5a6698', statusOk:'#6fff9c', shadow:'rgba(0,0,0,0.7)',
+    caret:'#ffffff', sel:'#5a70c0',
   },
 };
 
@@ -141,5 +152,17 @@ code { font-size: 14px; background: ${p.codeBg}; color: ${p.codeFg}; padding: 3p
 .icon-item .name { font-size: 10px; color: ${p.muted}; margin-top: 6px; text-transform: uppercase; letter-spacing: 0.5px; }
 .well { background: ${p.card}; border-radius: 12px; padding: 24px; margin: 20px 0; }
 .section-title { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px; color: ${p.kicker}; margin-bottom: 8px; }
+.vec-icon { display: inline-block; width: 28px; height: 28px; color: ${p.accent}; vertical-align: middle; }
+.vec-grid { display: flex; flex-wrap: wrap; gap: 14px; margin: 22px 0; }
+.vec-card { width: 96px; padding: 18px 10px 12px; border-radius: 14px; background: ${p.card}; border: 1px solid ${p.border}; text-align: center; }
+.vec-card .vec-icon { width: 40px; height: 40px; }
+.vec-card .cap { display: block; margin-top: 10px; font-size: 11px; color: ${p.muted}; text-transform: uppercase; letter-spacing: 0.6px; }
+.vec-feature { display: flex; align-items: center; gap: 18px; background: ${p.card}; border: 1px solid ${p.border}; border-radius: 14px; padding: 20px 24px; margin: 16px 0; }
+.vec-feature .vec-icon { width: 48px; height: 48px; flex: 0 0 48px; color: ${p.kicker}; }
+.vec-feature .vec-body h3 { font-size: 18px; font-weight: 700; color: ${p.fg}; margin-bottom: 4px; }
+.vec-feature .vec-body p { margin: 0; color: ${p.muted}; font-size: 15px; }
+.illus { width: 320px; height: 200px; border-radius: 16px; background: ${p.tagBg}; color: ${p.accent}; margin: 22px 0; }
+.illus-row { display: flex; gap: 20px; flex-wrap: wrap; margin: 22px 0; }
+.illus-sm { width: 200px; height: 150px; border-radius: 14px; background: ${p.card}; border: 1px solid ${p.border}; color: ${p.kicker}; }
 `;
 }

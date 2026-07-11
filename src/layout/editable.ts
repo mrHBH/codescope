@@ -44,24 +44,32 @@ export function layoutEditable(el: StyledEl, font: FontFace, atlas: any, inst: n
   }
   for (const g of glyphs) { const gl = g.gl; inst.push(g.x, g.bl, s, 0, gl.bbox[0], gl.bbox[1], gl.bbox[2], gl.bbox[3], el.color[0], el.color[1], el.color[2], el.color[3], gl.rowBase, gl.bandCount, gl.y0, gl.invH); }
 
-  // Caret: a thin bar, vertically centered on the text line. Height tracks the
-  // element font size so it lines up with the glyphs at any zoom.
+  // Caret: a thin bar aligned to the glyph em-box (not the line box). The text
+  // baseline is at lineTops[ln] + size*0.8, so the visual glyph span is
+  // [lineTops, lineTops + size]; centering there keeps the caret matched to the
+  // text regardless of line-height. A little padding above/below feels natural.
   if (showCaret && (now % 1060) < 530) {
     const ci = Math.max(0, Math.min(n, el.caret)), ln = cline[ci], x = cx0[ci];
-    const caretH = el.fs;
-    const yc = lineTops[ln] + el.lh / 2;
-    const y0 = yc - caretH / 2, y1 = yc + caretH / 2;
+    const baseline = lineTops[ln] + size * 0.8;
+    const y0 = baseline - size * 0.82, y1 = baseline + size * 0.20;
     addRect(x, y0, x + caretW, y1, caretColor, crv, rws, inst);
   }
 }
 
 // Place the caret at the character boundary nearest to a world-space point.
 export function placeCaretAtPoint(el: StyledEl, wx: number, wy: number) {
-  if (!el.caretXs || !el.caretLines || !el.lineTops) return;
+  const idx = caretIndexAtPoint(el, wx, wy);
+  if (idx < 0) return;
+  el.caret = idx; el.selAnchor = -1;
+}
+
+// Return the caret index nearest a world-space point (−1 if not yet laid out).
+export function caretIndexAtPoint(el: StyledEl, wx: number, wy: number): number {
+  if (!el.caretXs || !el.caretLines || !el.lineTops) return -1;
   const cx0 = el.caretXs, cline = el.caretLines, lineTops = el.lineTops;
   let bestLn = 0, bestD = Infinity;
   for (let ln = 0; ln < lineTops.length; ln++) { const d = Math.abs(wy - (lineTops[ln] + el.lh / 2)); if (d < bestD) { bestD = d; bestLn = ln; } }
   let bestIdx = 0, bestDist = Infinity;
   for (let i = 0; i <= el.editText.length; i++) { if (cline[i] !== bestLn) continue; const d = Math.abs(cx0[i] - wx); if (d < bestDist) { bestDist = d; bestIdx = i; } }
-  el.caret = bestIdx; el.selAnchor = -1;
+  return bestIdx;
 }

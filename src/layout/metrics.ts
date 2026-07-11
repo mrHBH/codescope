@@ -18,6 +18,24 @@ export function layoutStr(out:number[],text:string,clr:number[],tbl:Record<strin
   for(let i=0;i<text.length;i++){const ch=text[i];if(prev)p+=kerningOf(font,prev,ch)*s;const gl=tbl[ch];if(gl)out.push(p,bl,s,0,gl.bbox[0],gl.bbox[1],gl.bbox[2],gl.bbox[3],clr[0],clr[1],clr[2],clr[3],gl.rowBase,gl.bandCount,gl.y0,gl.invH);p+=advanceOf(font,ch)*s;prev=ch;}
 }
 
+// Place a baked vector shape (icon/illustration) scaled to fit `box` while keeping
+// aspect ratio, centered. The atlas entry stores the shape in its own coordinate
+// space (e.g. a 24×24 grid); `place` = (originX, originY, unitsToPx) maps shape
+// units → world px exactly as glyphs do, so it renders through the fill pipeline.
+export function layoutIcon(out:number[], gl:any, box:{x:number;y:number;w:number;h:number}, clr:number[]){
+  if(!gl) return;
+  const sw = gl.bbox[2]-gl.bbox[0], sh = gl.bbox[3]-gl.bbox[1];
+  if(sw<=0||sh<=0) return;
+  const scale = Math.min(box.w/sw, box.h/sh);
+  const drawW = sw*scale, drawH = sh*scale;
+  // Top-left of the shape's bbox in world px, so the shape sits centered in box.
+  const ox = box.x + (box.w-drawW)/2 - gl.bbox[0]*scale;
+  const oy = box.y + (box.h-drawH)/2 - gl.bbox[1]*scale;
+  // fillRule = 1 (even-odd) so counter-wound holes render regardless of contour
+  // orientation — hand-authored icon paths don't guarantee nonzero winding.
+  out.push(ox, oy, scale, 1, gl.bbox[0], gl.bbox[1], gl.bbox[2], gl.bbox[3], clr[0], clr[1], clr[2], clr[3], gl.rowBase, gl.bandCount, gl.y0, gl.invH);
+}
+
 // Pre-allocated scratch arrays for addRect (avoid per-call allocation)
 const _csScratch = [[0,0],[0,0],[0,0],[0,0]];
 const _qsScratch:number[] = new Array(24); // 4 corners × 6 values

@@ -1,6 +1,6 @@
 # Windfoil — Progress & Project State
 
-_Last updated: 2026-07-10_
+_Last updated: 2026-07-11_
 
 This document tracks the current state of the Windfoil codebase against the
 roadmap in `VISION.md`. It supersedes the "what's done" mental model — read this
@@ -42,8 +42,19 @@ src/
     camera.ts        Pan/zoom transform, goToPage, stepCamera
     input.ts         Pointer/wheel/keyboard → camera + editing + navigation
   content/
-    pages.ts         Document HTML split into 11 independent page strings
+    pages.ts         Ordered list; imports the 11 raw .html page files below
+    pages/           00-home.html … 10-playground.html (one file per page, ?raw)
+    art.ts           Filled SVG path data: ICONS + ILLUSTRATIONS (24×24 grid)
+  ui/
+    icons.ts         Inline SVG line-icons (currentColor, 24×24 grid)
+    contextMenu.ts   Modular, data-driven right-click menu (themed via CSS vars)
   windfoil/          (render core) gpu.ts, font.ts, bands.ts, geometry.ts, windfoil.wgsl
+                     svg.ts — SVG path `d` → quad pieces (shared with the font path)
+  editor/            The code editor (own model, not DOM-derived)
+    document.ts      TextDocument: line buffer, {line,col} positions, edit ops, undo/redo
+    highlight.ts     Incremental line tokenizer (carry state for block comments)
+    editor.ts        CodeEditor: monospace layout, gutter, caret, selection, viewport cull
+    sample.ts        Sample source shown on open
 ```
 
 **Design decision:** a single `AppState` object is threaded through `camera`,
@@ -58,8 +69,10 @@ tangle and avoids circular imports (modules import only types or leaf modules).
 - [x] **Split `main.ts` into modules** — done. `main.ts` is now ~95 lines of wiring.
 - [x] **Extract HTML content** — done (`content/pages.ts`, 11 page strings).
 - [x] **Extract CSS into a module** — done (`css/theme.ts` owns palettes + `buildCSS`).
-- [ ] **Dark-mode contrast for cards** (`VISION` §1) — **NOT done**. Card/inline
-      contrast and the "high contrast" theme option are still pending.
+- [x] **Dark-mode contrast for cards** (`VISION` §1) — **done**. Dark palette
+      redesigned: cards `#2a3048` vs page `#12151d` (clear separation), brighter
+      borders (`#414a6b`), muted text lifted to `#a6adc0`. A third **high-contrast**
+      theme was added; the top-right button now cycles light → dark → high-contrast.
 
 ### Phase 2 — Basic Editing ✅
 - [x] Blinking caret (vertical bar, ~2px on screen at any zoom)
@@ -69,18 +82,32 @@ tangle and avoids circular imports (modules import only types or leaf modules).
 - [x] Basic text reflow after edits (live, every frame)
 - [x] **Caret is vertically centered on the text line** (fixed during Phase 1 work)
 
-### Phase 3 — Selection & Clipboard 🟡 (partial)
+### Phase 3 — Selection & Clipboard ✅
 - [x] Shift+arrow selection
 - [x] Selection highlight rendering (translucent, behind glyphs)
 - [x] `Ctrl/Cmd+A` select-all
-- [ ] Click-and-drag selection
-- [ ] `Ctrl+C` / `Ctrl+V` clipboard
-- [ ] `Tab` cycles editable fields (implemented as a navigation aid)
+- [x] Click-and-drag selection
+- [x] `Ctrl+C` / `Ctrl+X` / `Ctrl+V` clipboard (async `navigator.clipboard`)
+- [x] `Tab` cycles editable fields
 
 ### Phase 4+ — Multi-file editor, Code Intelligence, Advanced
-- [ ] File tab bar, side-by-side columns, line numbers
+- [x] **Real code editor** (`editor/`) — a proper line-based editor, separate from
+      the DOM/`StyledEl` system, rendered through the same analytic GPU pipeline.
+      Toggle with the ⌨️ button (top-right). Features:
+  - `TextDocument` line-buffer model with `{line,col}` positions and range-replace
+    primitive; full **undo/redo** stack.
+  - Monospace cell layout with **tab expansion**, **line-number gutter**, and
+    **current-line highlight**.
+  - Caret + click-to-place, **mouse drag-select**, **Shift+arrow selection**,
+    select-all, Home/End (smart + doc-level via Ctrl), PageUp/word moves TBD.
+  - **Incremental syntax highlighting** — per-line tokenizer with carry state so
+    multi-line block comments work; only lines from the first edit are re-tokenized.
+  - Clipboard (Ctrl+C/X/V), auto-indent on Enter, Tab insert.
+  - **Viewport line culling** — only lines intersecting the camera are laid out;
+    caret auto-scrolls the camera to stay in view.
+- [ ] File tab bar, side-by-side columns (multi-file)
 - [ ] Extended syntax highlighting (more languages)
-- [ ] Code folding, bracket matching, auto-indent
+- [ ] Code folding, bracket matching
 - [ ] Minimap, search & replace, multi-cursor, LSP, autocomplete
 
 ### Input / camera (added during refactor)
@@ -88,6 +115,11 @@ tangle and avoids circular imports (modules import only types or leaf modules).
 - [x] Right-drag + wheel = zoom to cursor
 - [x] **Trackpad pinch-to-zoom** (wheel event with `ctrlKey`) — added
 - [x] Pinch/zoom sensitivity increased (coefficient `0.0008 → 0.0022`)
+- [x] **Right-click context menu** — a *short* right-click (<350ms, no wheel/move)
+      opens a modular, SVG-iconed context menu; a *long* press or any wheel during
+      the press stays the zoom gesture and suppresses the menu. Menu items are
+      context-aware (Cut/Copy/Paste/Select-All when editing; Fit/Reset/Theme on the
+      canvas) and defined declaratively in `ui/contextMenu.ts`.
 
 ---
 
@@ -98,8 +130,9 @@ tangle and avoids circular imports (modules import only types or leaf modules).
    The VISION suggested moving static classes to a `.css` file; this is a clean
    follow-up, not required for modularity.
 
-2. **HTML content is in `content/pages.ts` as 11 strings**, not 11 raw `.html`
-   files. Switching to per-file `?raw` imports is trivial from here if desired.
+2. **HTML content is now 11 per-file `.html` imports** under `content/pages/`,
+   loaded via Vite `?raw` and assembled in `content/pages.ts`. (Previously a
+   single strings array.)
 
 3. **`src/windfoil/` kept as-is** rather than renamed to `render/` as the VISION
    sketch suggested — it was already a clean, self-contained module, so renaming
@@ -109,6 +142,26 @@ tangle and avoids circular imports (modules import only types or leaf modules).
    *before* `buildStyledEls` measures boxes; otherwise elements collapse to
    default browser styling and the whole layout breaks (cards lost, boxes wrong).
    `main.ts` now sets `themeStyle.textContent = buildCSS(...)` before measuring.
+
+---
+
+## 4b. Performance (frame loop)
+
+The per-frame instance build was tightened:
+
+- **Precomputed dispatch flags** — `walkDOM` now bakes `hoverable`,
+  `shadowable`, `anim`, `dynamic`, `pageIdx`, and `ownerPage` onto each
+  `StyledEl`. The frame loop no longer does `classes.includes(...)` scans or
+  `getAttribute('data-page')` DOM reads in hot paths.
+- **Dynamic subset** — only elements flagged `dynamic` (hover/shadow/animated)
+  are walked in Layer 2; static paragraphs/headings are skipped entirely.
+  `dynamicEls`, `marqueeEls`, and `editableEls` are precomputed subsets.
+- **Per-page viewport culling** — static backgrounds and static text are baked
+  into per-page instance buffers (`bgByPage`, `textByPage`). Each frame computes
+  which pages intersect the viewport (+margin) and only those pages' instances
+  are pushed / uploaded / rasterized. With 11 pages and one on screen, this cuts
+  the instance buffer ~10×. The curve/row atlas stays global so band indices
+  remain valid. Runtime theme changes rebuild the baked buffers via `buildStatic`.
 
 ---
 
@@ -125,11 +178,19 @@ To test editing: click the editable elements (home hero paragraph, the "Hover
 Card" title, the typography sample line) and type. Click elsewhere to commit,
 `Esc` to revert, `Tab` to move between editable fields.
 
+To test the **code editor**: click the ⌨️ button (top-right) to open it. Click to
+place the caret, drag or Shift+arrow to select, type to edit, `Ctrl+Z`/`Ctrl+Y`
+to undo/redo, and scroll/zoom the wheel — glyphs stay razor-sharp at any zoom.
+Click 📄 to return to the document.
+
 ---
 
 ## 6. Suggested next steps
 
-1. Dark-mode card contrast pass (`VISION` §1) — highest visual-impact gap.
-2. Clipboard (copy/paste) + click-drag selection to finish Phase 3.
-3. (Optional) migrate `buildCSS` → CSS variables + static stylesheet.
-4. (Optional) split `content/pages.ts` into per-file `.html` imports.
+1. **Editor polish**: word-wise motion (Ctrl+arrow), PageUp/Down, double-click word
+   select / triple-click line select, bracket matching, auto-close brackets.
+2. **Multi-file**: a file tab bar + multiple `CodeEditor` panels side by side
+   (each is already a self-contained world-space panel).
+3. Minimap (scaled second render of the doc), search & replace, multi-cursor.
+4. Extend the tokenizer to more languages / pull in a real grammar.
+5. (Optional) migrate `buildCSS` → CSS variables + static stylesheet.

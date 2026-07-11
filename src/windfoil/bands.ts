@@ -109,7 +109,11 @@ export interface GlyphAtlas {
   stats: { uniqueGlyphs: number; monotonePieces: number; bandCount: number; bandedPieces: number; duplication: number };
 }
 
-export function buildGlyphAtlas(font: FontFace, text: string): GlyphAtlas {
+// Extra vector shapes (icons/illustrations) baked into the same atlas as glyphs.
+// Keyed by an arbitrary name; `quads`/`bbox` come from svgPathToQuads.
+export interface VectorShape { quads: number[]; bbox: number[]; }
+
+export function buildGlyphAtlas(font: FontFace, text: string, shapes?: Record<string, VectorShape>): GlyphAtlas {
   const chars = [...new Set([...text])].filter((ch) => ch !== ' ');
   const curves: number[] = [];
   const rows: number[] = [];
@@ -124,6 +128,18 @@ export function buildGlyphAtlas(font: FontFace, text: string): GlyphAtlas {
     const [, y0, , y1] = g.bbox;
     const header = bandPieces(pieces, y0, y1, curves, rows);
     table[ch] = { ...header, advance: g.advance, bbox: g.bbox };
+  }
+  if (shapes) {
+    for (const name in shapes) {
+      const sh = shapes[name];
+      if (!sh.quads.length) continue;
+      const pieces: number[] = [];
+      for (let i = 0; i < sh.quads.length; i += 6) pushMonotonePieces(sh.quads.slice(i, i + 6), pieces);
+      monotoneTotal += pieces.length / 6;
+      const [, y0, , y1] = sh.bbox;
+      const header = bandPieces(pieces, y0, y1, curves, rows);
+      table[name] = { ...header, advance: sh.bbox[2] - sh.bbox[0], bbox: sh.bbox };
+    }
   }
   const bandedPieces = curves.length / 6;
   return {
