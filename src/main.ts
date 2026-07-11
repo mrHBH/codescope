@@ -127,6 +127,7 @@ async function main() {
   // Lives in world space to the right of the document, so panning/zooming reach
   // it too. Toggling editor mode just re-frames the camera onto it.
   const editor = new CodeEditor(SAMPLE_CODE);
+  editor.font = font;
   editor.x0 = PAGE_W + 160;
   editor.y0 = 0;
   s.editor = editor;

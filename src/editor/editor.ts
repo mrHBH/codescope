@@ -1,12 +1,17 @@
 // ── Code editor ──────────────────────────────────────────────────────────────
 // A line-based, viewport-culled code editor that renders through windfoil's
 // analytic pipeline. It lives in WORLD space (like a page), so the existing
-// camera gives infinite-zoom + pan-scroll for free. Layout uses a MONOSPACE cell
-// model: every column is a fixed width, so caret math is exact and tabs align —
-// the standard code-editor contract. Only lines intersecting the viewport are
-// laid out each frame; syntax tokens come from the incremental Highlighter.
+// camera gives infinite-zoom + pan-scroll for free.
+//
+// Layout is ADVANCE-BASED (proportional): the shipped font (Lato) is not
+// monospace, so every glyph is positioned by its real advance width. Caret,
+// selection, hit-testing, and vertical movement all measure through the same
+// cached per-line x-offset table, so columns stay perfectly aligned with the ink.
+// Tabs advance to the next tab stop (measured in space-widths). Line numbers use
+// the digit advance (Lato digits are tabular, so they align).
 
 import type { FontFace } from '../windfoil/font';
+import { advanceOf } from '../windfoil/font';
 import { addRect } from '../layout/metrics';
 import { TextDocument, type Pos, type Range, posMin, posMax, clonePos } from './document';
 import { Highlighter } from './highlight';
@@ -23,63 +28,83 @@ export class CodeEditor {
   hl = new Highlighter();
   cursor: Pos = { line: 0, col: 0 };
   anchor: Pos | null = null;    // selection anchor (null = no selection)
-  desiredCol = 0;                // sticky column for vertical movement
+  desiredX = 0;                  // sticky x (world px, rel. to textLeft) for vertical moves
   focused = true;
+  font: FontFace | null = null;  // set once by main.ts; drives all metrics
 
   // World-space geometry
   x0 = 0; y0 = 0;
   fontSize = 20;
   get lineHeight() { return this.fontSize * 1.5; }
-  get cellW() { return this.fontSize * 0.62; }        // monospace cell width
-  gutterPad = 12;
+  gutterPad = 14;
   textPad = 16;
 
+  // Per-line cumulative x-offset cache (rel. to textLeft), invalidated by version.
+  private offsetCache = new Map<number, number[]>();
+  private offsetVersion = -1;
+
   constructor(text: string) { this.doc = new TextDocument(text); }
+
+  private get scale() { return this.font ? this.fontSize / (this.font as any).unitsPerEm : this.fontSize / 2048; }
+  private advance(ch: string): number { return this.font ? advanceOf(this.font, ch) * this.scale : this.fontSize * 0.5; }
+  private get spaceW(): number { return this.advance(' ') || this.fontSize * 0.3; }
+  private get tabW(): number { return this.spaceW * TAB; }
+  private get digitW(): number { return this.advance('0') || this.fontSize * 0.55; }
 
   // ── Geometry ───────────────────────────────────────────────────────────────
   get gutterW(): number {
     const digits = Math.max(2, String(this.doc.lineCount).length);
-    return this.gutterPad * 2 + digits * this.cellW;
+    return this.gutterPad * 2 + digits * this.digitW;
   }
   get textLeft(): number { return this.x0 + this.gutterW + this.textPad; }
   contentHeight(): number { return this.doc.lineCount * this.lineHeight + this.lineHeight; }
   contentWidth(): number {
     let max = 0;
-    for (const l of this.doc.lines) max = Math.max(max, this.displayCols(l));
-    return this.gutterW + this.textPad * 2 + max * this.cellW;
+    for (let i = 0; i < this.doc.lineCount; i++) {
+      const off = this.xOffsets(i);
+      max = Math.max(max, off[off.length - 1]);
+    }
+    return this.gutterW + this.textPad * 2 + max;
   }
 
-  // Visual column count of a line (tabs expand to TAB stops).
-  private displayCols(line: string): number {
-    let c = 0;
-    for (const ch of line) c += ch === '\t' ? TAB - (c % TAB) : 1;
-    return c;
-  }
-  // Map a character column → display column (tab expansion).
-  private dispCol(line: string, col: number): number {
-    let c = 0;
-    for (let i = 0; i < col && i < line.length; i++) c += line[i] === '\t' ? TAB - (c % TAB) : 1;
-    return c;
+  // Cumulative x-offset (rel. to textLeft) for each character boundary [0..len].
+  private xOffsets(line: number): number[] {
+    if (this.offsetVersion !== this.doc.version) { this.offsetCache.clear(); this.offsetVersion = this.doc.version; }
+    const cached = this.offsetCache.get(line);
+    if (cached) return cached;
+    const text = this.doc.lineText(line);
+    const off = new Array(text.length + 1);
+    let x = 0;
+    for (let i = 0; i < text.length; i++) {
+      off[i] = x;
+      const ch = text[i];
+      if (ch === '\t') x = (Math.floor(x / this.tabW) + 1) * this.tabW;
+      else x += this.advance(ch);
+    }
+    off[text.length] = x;
+    this.offsetCache.set(line, off);
+    return off;
   }
 
   lineTop(line: number): number { return this.y0 + line * this.lineHeight; }
-  colToX(line: number, col: number): number { return this.textLeft + this.dispCol(this.doc.lineText(line), col) * this.cellW; }
+  colToX(line: number, col: number): number {
+    const off = this.xOffsets(line);
+    return this.textLeft + off[Math.max(0, Math.min(col, off.length - 1))];
+  }
 
   posToWorld(p: Pos): { x: number; y: number } { return { x: this.colToX(p.line, p.col), y: this.lineTop(p.line) }; }
 
   worldToPos(wx: number, wy: number): Pos {
     let line = Math.floor((wy - this.y0) / this.lineHeight);
     line = Math.max(0, Math.min(line, this.doc.lineCount - 1));
-    const text = this.doc.lineText(line);
-    const targetDisp = Math.round((wx - this.textLeft) / this.cellW);
-    // Convert display column back to a character column, honoring tabs.
-    let c = 0, col = 0;
-    for (col = 0; col < text.length; col++) {
-      const w = text[col] === '\t' ? TAB - (c % TAB) : 1;
-      if (c + w / 2 > targetDisp) break;
-      c += w;
+    const off = this.xOffsets(line);
+    const target = wx - this.textLeft;
+    // Nearest character boundary to the click x.
+    let col = off.length - 1;
+    for (let i = 0; i < off.length - 1; i++) {
+      if (target < (off[i] + off[i + 1]) / 2) { col = i; break; }
     }
-    return { line, col: Math.max(0, Math.min(col, text.length)) };
+    return { line, col };
   }
 
   // ── Selection helpers ────────────────────────────────────────────────────
@@ -106,12 +131,22 @@ export class CodeEditor {
     return true;
   }
 
+  // Sticky-x helper: world x of the cursor relative to textLeft.
+  private cursorX(): number { return this.colToX(this.cursor.line, this.cursor.col) - this.textLeft; }
+  // Nearest column on `line` to a target x (rel. to textLeft).
+  private xToCol(line: number, x: number): number {
+    const off = this.xOffsets(line);
+    let col = off.length - 1;
+    for (let i = 0; i < off.length - 1; i++) { if (x < (off[i] + off[i + 1]) / 2) { col = i; break; } }
+    return col;
+  }
+
   insertText(text: string) {
     if (this.hasSelection()) this.deleteSelectionInternal();
     const end = this.doc.insert(this.cursor, text, this.cursor);
     this.hl.invalidateFrom(this.cursor.line);
     this.cursor = end; this.anchor = null;
-    this.desiredCol = this.dispCol(this.doc.lineText(end.line), end.col);
+    this.desiredX = this.cursorX();
   }
 
   newline() {
@@ -133,7 +168,7 @@ export class CodeEditor {
       this.cursor = this.doc.delete({ start: { line: line - 1, col: prevLen }, end: { line, col: 0 } }, this.cursor);
     }
     this.hl.invalidateFrom(this.cursor.line);
-    this.desiredCol = this.dispCol(this.doc.lineText(this.cursor.line), this.cursor.col);
+    this.desiredX = this.cursorX();
   }
 
   del() {
@@ -158,7 +193,7 @@ export class CodeEditor {
       if (col > 0) col--; else if (line > 0) { line--; col = this.doc.lineLen(line); }
       this.setCursor({ line, col }, extend);
     }
-    this.desiredCol = this.dispCol(this.doc.lineText(this.cursor.line), this.cursor.col);
+    this.desiredX = this.cursorX();
   }
   moveRight(extend: boolean) {
     if (this.hasSelection() && !extend) { this.cursor = posMax(this.anchor!, this.cursor); this.anchor = null; }
@@ -167,39 +202,33 @@ export class CodeEditor {
       if (col < this.doc.lineLen(line)) col++; else if (line < this.doc.lineCount - 1) { line++; col = 0; }
       this.setCursor({ line, col }, extend);
     }
-    this.desiredCol = this.dispCol(this.doc.lineText(this.cursor.line), this.cursor.col);
+    this.desiredX = this.cursorX();
   }
   moveVert(dir: number, extend: boolean) {
     const line = this.cursor.line + dir;
     if (line < 0 || line >= this.doc.lineCount) return;
-    const col = this.dispToCol(line, this.desiredCol);
+    const col = this.xToCol(line, this.desiredX);
     this.setCursor({ line, col }, extend);
-  }
-  private dispToCol(line: number, disp: number): number {
-    const text = this.doc.lineText(line);
-    let c = 0, i = 0;
-    for (; i < text.length; i++) { const w = text[i] === '\t' ? TAB - (c % TAB) : 1; if (c + w > disp) break; c += w; }
-    return i;
   }
   moveHome(extend: boolean) {
     const text = this.doc.lineText(this.cursor.line);
     const firstNW = text.length - text.replace(/^[ \t]+/, '').length;
     const col = this.cursor.col === firstNW ? 0 : firstNW;
     this.setCursor({ line: this.cursor.line, col }, extend);
-    this.desiredCol = this.dispCol(text, col);
+    this.desiredX = this.cursorX();
   }
   moveEnd(extend: boolean) {
     const col = this.doc.lineLen(this.cursor.line);
     this.setCursor({ line: this.cursor.line, col }, extend);
-    this.desiredCol = this.dispCol(this.doc.lineText(this.cursor.line), col);
+    this.desiredX = this.cursorX();
   }
-  moveDocStart(extend: boolean) { this.setCursor({ line: 0, col: 0 }, extend); this.desiredCol = 0; }
-  moveDocEnd(extend: boolean) { this.setCursor(this.doc.end(), extend); this.desiredCol = this.dispCol(this.doc.lineText(this.cursor.line), this.cursor.col); }
+  moveDocStart(extend: boolean) { this.setCursor({ line: 0, col: 0 }, extend); this.desiredX = 0; }
+  moveDocEnd(extend: boolean) { this.setCursor(this.doc.end(), extend); this.desiredX = this.cursorX(); }
   selectAll() { this.anchor = { line: 0, col: 0 }; this.cursor = this.doc.end(); }
 
   placeCursor(wx: number, wy: number, extend: boolean) {
     this.setCursor(this.worldToPos(wx, wy), extend);
-    this.desiredCol = this.dispCol(this.doc.lineText(this.cursor.line), this.cursor.col);
+    this.desiredX = this.cursorX();
   }
 
   // ── Render ──────────────────────────────────────────────────────────────────
@@ -208,7 +237,8 @@ export class CodeEditor {
   // [worldTop, worldBottom] are laid out.
   render(font: FontFace, atlas: any, inst: number[], crv: number[], rws: number[],
          worldTop: number, worldBottom: number, now: number, th: EditorTheme, caretW: number) {
-    const lh = this.lineHeight, s = this.fontSize / font.unitsPerEm;
+    if (!this.font) this.font = font;
+    const lh = this.lineHeight, s = this.fontSize / (font as any).unitsPerEm;
     const totalH = this.contentHeight(), totalW = Math.max(this.contentWidth(), 600);
 
     // Panel + gutter backgrounds (whole editor).
@@ -224,6 +254,7 @@ export class CodeEditor {
     for (let i = first; i <= last; i++) {
       const top = this.lineTop(i);
       const text = this.doc.lineText(i);
+      const off = this.xOffsets(i);
 
       // Current-line highlight
       if (this.focused && i === this.cursor.line && !this.hasSelection()) {
@@ -236,29 +267,25 @@ export class CodeEditor {
         const endCol = i === sel.end.line ? sel.end.col : text.length;
         const xs = this.colToX(i, startCol);
         let xe = this.colToX(i, endCol);
-        if (i < sel.end.line) xe += this.cellW * 0.5; // show trailing newline selected
+        if (i < sel.end.line) xe += this.spaceW * 0.5; // show trailing newline selected
         addRect(xs, top, Math.max(xe, xs + 1), top + lh, th.sel, crv, rws, inst);
       }
 
       // Line number (right-aligned in gutter), dim unless current line
       const num = String(i + 1);
       const numColor = i === this.cursor.line ? th.curLineFg : th.gutterFg;
-      const numX = this.x0 + this.gutterW - this.gutterPad - num.length * this.cellW;
+      const numX = this.x0 + this.gutterW - this.gutterPad - num.length * this.digitW;
       const baseline = top + this.fontSize * 0.9;
-      this.emitMono(inst, num, numColor, atlas, font, numX, baseline, s);
+      this.emitDigits(inst, num, numColor, atlas, numX, baseline, s);
 
-      // Syntax-colored glyphs
+      // Syntax-colored glyphs, positioned by real advance (off[] is per-char x).
       const tokens = this.hl.tokensFor(this.doc.lines, i);
-      let disp = 0;
       const emitSlice = (from: number, to: number, color: number[]) => {
         for (let c = from; c < to; c++) {
           const ch = text[c];
-          if (ch === '\t') { disp += TAB - (disp % TAB); continue; }
-          if (ch !== ' ') {
-            const gl = atlas.table[ch];
-            if (gl) inst.push(this.textLeft + disp * this.cellW, baseline, s, 0, gl.bbox[0], gl.bbox[1], gl.bbox[2], gl.bbox[3], color[0], color[1], color[2], color[3], gl.rowBase, gl.bandCount, gl.y0, gl.invH);
-          }
-          disp++;
+          if (ch === ' ' || ch === '\t') continue;
+          const gl = atlas.table[ch];
+          if (gl) inst.push(this.textLeft + off[c], baseline, s, 0, gl.bbox[0], gl.bbox[1], gl.bbox[2], gl.bbox[3], color[0], color[1], color[2], color[3], gl.rowBase, gl.bandCount, gl.y0, gl.invH);
         }
       };
       let cursorCol = 0;
@@ -277,12 +304,12 @@ export class CodeEditor {
     }
   }
 
-  // Left-aligned monospace glyph run (for gutter line numbers).
-  private emitMono(inst: number[], text: string, color: number[], atlas: any, font: FontFace, x: number, baseline: number, s: number) {
+  // Tabular digit run (line numbers): fixed digit-width cells so numbers align.
+  private emitDigits(inst: number[], text: string, color: number[], atlas: any, x: number, baseline: number, s: number) {
     for (let i = 0; i < text.length; i++) {
       const ch = text[i];
       const gl = atlas.table[ch];
-      if (gl && ch !== ' ') inst.push(x + i * this.cellW, baseline, s, 0, gl.bbox[0], gl.bbox[1], gl.bbox[2], gl.bbox[3], color[0], color[1], color[2], color[3], gl.rowBase, gl.bandCount, gl.y0, gl.invH);
+      if (gl && ch !== ' ') inst.push(x + i * this.digitW, baseline, s, 0, gl.bbox[0], gl.bbox[1], gl.bbox[2], gl.bbox[3], color[0], color[1], color[2], color[3], gl.rowBase, gl.bandCount, gl.y0, gl.invH);
     }
   }
 }
