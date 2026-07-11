@@ -32,10 +32,11 @@ src/
   css/
     engine.ts        parseColor, parseCSS, matchesSelector, resolveStyle
     theme.ts         palettes + buildCSS(palette)
+    themeController.ts  createThemeController — runtime theme switching + cycle
   layout/
     types.ts         StyledEl, Seg
     walk.ts          walkDOM, buildStyledEls, hitTest, findEditableAncestor
-    metrics.ts       tw (text width), layoutStr, addRect, highlightCode
+    metrics.ts       tw (text width), layoutStr, layoutIcon, addRect, highlightCode
     flow.ts          layoutFlow (inline text), layoutPre (code blocks)
     editable.ts      layoutEditable, placeCaretAtPoint
   camera/
@@ -48,12 +49,16 @@ src/
   ui/
     icons.ts         Inline SVG line-icons (currentColor, 24×24 grid)
     contextMenu.ts   Modular, data-driven right-click menu (themed via CSS vars)
-  windfoil/          (render core) gpu.ts, font.ts, bands.ts, geometry.ts, windfoil.wgsl
-                     svg.ts — SVG path `d` → quad pieces (shared with the font path)
+    toolbar.ts       createToolbar — fixed top-right DOM buttons
+  windfoil/          (render core) gpu.ts, font.ts, bands.ts, windfoil.wgsl
+    geometry.ts      shared quad primitives: cubicToQuads, lineToQuad, quadsBBox,
+                     pushMonotonePieces (used by font.ts + svg.ts)
+    svg.ts           SVG path `d` → quad pieces (shared with the font path)
   editor/            The code editor (own model, not DOM-derived)
     document.ts      TextDocument: line buffer, {line,col} positions, edit ops, undo/redo
     highlight.ts     Incremental line tokenizer (carry state for block comments)
-    editor.ts        CodeEditor: monospace layout, gutter, caret, selection, viewport cull
+    editor.ts        CodeEditor: proportional layout, gutter, caret, selection, viewport cull
+    editorInput.ts   handleEditorKey + ensureCaretVisible (keyboard → editor commands)
     sample.ts        Sample source shown on open
 ```
 
@@ -162,6 +167,25 @@ The per-frame instance build was tightened:
   are pushed / uploaded / rasterized. With 11 pages and one on screen, this cuts
   the instance buffer ~10×. The curve/row atlas stays global so band indices
   remain valid. Runtime theme changes rebuild the baked buffers via `buildStatic`.
+
+---
+
+## 4c. Cleanup pass (pre-merge)
+
+A structure/modularity pass before merging:
+
+- **De-duplicated geometry** — `cubicToQuads`, `lineToQuad`, and the bbox sweep
+  were copy-pasted in `font.ts` and `svg.ts`; now shared from `windfoil/geometry.ts`.
+- **Removed dead code** — `renderToRGBA` (unused headless path), dead `AppState`
+  fields (`shaderCode`, `container`, `themeStyle` — bootstrap artifacts never read
+  back), and unused exports (`SYNTAX_COLORS`, `ICON_VIEWBOX`, `posEq`, the
+  `FontFace` re-export in `layout/types.ts`), plus unused `opentype.js` imports.
+- **Slimmed `main.ts`** (172 → 117 lines) — theme switching moved to
+  `css/themeController.ts`, toolbar buttons to `ui/toolbar.ts`.
+- **Focused `camera/input.ts`** — editor keyboard handling moved to
+  `editor/editorInput.ts`, so `input.ts` is document/camera interaction only.
+
+Type-check and production build pass clean.
 
 ---
 

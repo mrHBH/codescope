@@ -1,7 +1,4 @@
 // ── Layout types ──────────────────────────────────────────────────────────
-import type { FontFace } from '../windfoil/font';
-
-export type { FontFace };
 
 export interface Seg { kind:'word'|'space'|'nl'; text:string; color:number[]; }
 

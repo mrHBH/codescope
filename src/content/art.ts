@@ -8,8 +8,6 @@
 // because the winding integral handles overlap; where a hole is needed the inner
 // contour is wound opposite to the outer.
 
-export const ICON_VIEWBOX = 24;
-
 // Solid, single-color glyph-style icons (Material-ish silhouettes).
 export const ICONS: Record<string, string | string[]> = {
   star: 'M12 2l2.9 6.2 6.8.8-5 4.6 1.3 6.7L12 17.8 5.9 20.9 7.3 14.2 2.3 9.6l6.8-.8z',

@@ -8,7 +8,6 @@
 export interface Pos { line: number; col: number; }
 export interface Range { start: Pos; end: Pos; }
 
-export function posEq(a: Pos, b: Pos): boolean { return a.line === b.line && a.col === b.col; }
 export function posLt(a: Pos, b: Pos): boolean { return a.line < b.line || (a.line === b.line && a.col < b.col); }
 export function posMin(a: Pos, b: Pos): Pos { return posLt(a, b) ? a : b; }
 export function posMax(a: Pos, b: Pos): Pos { return posLt(a, b) ? b : a; }

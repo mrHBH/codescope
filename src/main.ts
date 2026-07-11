@@ -6,8 +6,8 @@
 import { loadFont } from './windfoil/font';
 import { loadShaderCode, requestDevice, createGlyphRenderer } from './windfoil/gpu';
 import { buildGlyphAtlas } from './windfoil/bands';
-import { parseCSS, parseColor } from './css/engine';
 import { palettes, buildCSS } from './css/theme';
+import { createThemeController } from './css/themeController';
 import { buildStyledEls } from './layout/walk';
 import type { StyledEl } from './layout/types';
 import { createAppState } from './state';
@@ -20,6 +20,7 @@ import { ICONS, ILLUSTRATIONS } from './content/art';
 import { svgPathToQuads } from './windfoil/svg';
 import { CodeEditor, editorAtlasChars } from './editor/editor';
 import { SAMPLE_CODE } from './editor/sample';
+import { createToolbar } from './ui/toolbar';
 
 async function main() {
   const fpsEl = document.getElementById('fps')!;
@@ -75,50 +76,18 @@ async function main() {
   const atlas = buildGlyphAtlas(font, [...allChars].join(' '), shapes);
 
   const s = createAppState({
-    dpr, PAGE_W, rCanvas, tCanvas, rCtx, gpuCtx, device, shaderCode,
+    dpr, PAGE_W, rCanvas, tCanvas, rCtx, gpuCtx, device,
     renderer: createGlyphRenderer(device, { code: shaderCode, format: 'rgba8unorm' }),
-    font, atlas, container, themeStyle,
+    font, atlas,
     styledEls, pageRoots, editableEls: styledEls.filter(e => e.editable),
     dynamicEls: styledEls.filter(e => e.dynamic),
     marqueeEls: styledEls.filter(e => e.hasFlow && !e.skipText && e.classes.includes('marquee')),
     pages, docH, docRoot, fpsEl,
   });
 
-  const THEME_CYCLE = ['light', 'dark', 'highContrast'] as const;
-  const THEME_ICON: Record<string, string> = { light: '🌙', dark: '🔆', highContrast: '☀️' };
-  function applyTheme(mode: string) {
-    s.themeMode = mode;
-    s.isDark = mode !== 'light';
-    const p = palettes[mode] || palettes.light;
-    themeStyle.textContent = buildCSS(p);
-    s.cssRules = parseCSS(themeStyle.textContent);
-    s.themeCol = {
-      backdrop: parseColor(p.backdrop), pageBg: parseColor(p.pageBg), prog: parseColor(p.progFill),
-      pulse: parseColor(p.pulse), shadow: parseColor(p.shadow), caret: parseColor(p.caret), sel: parseColor(p.sel),
-    };
-    for (const el of s.styledEls) {
-      const cs = getComputedStyle(el.el);
-      el.color = parseColor(cs.color);
-      el.bg = parseColor(cs.backgroundColor);
-      el.curBg = parseColor(cs.backgroundColor);
-      el.upper = cs.textTransform === 'uppercase';
-      el.textAlign = cs.textAlign || 'left';
-    }
-    if (s.themeBtn) s.themeBtn.textContent = THEME_ICON[mode] || '🌙';
-    // Feed the context menu's CSS variables so it tracks the active theme.
-    const rs = document.documentElement.style;
-    rs.setProperty('--ctx-bg', mode === 'light' ? 'rgba(250,249,245,0.98)' : 'rgba(28,32,48,0.98)');
-    rs.setProperty('--ctx-fg', p.fg);
-    rs.setProperty('--ctx-border', p.border);
-    rs.setProperty('--ctx-accent', p.accent);
-    rs.setProperty('--ctx-hover', mode === 'light' ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.09)');
-    // Static bg/text colors are baked into the precomputed buffers; rebuild them
-    // when the theme changes at runtime (skipped on the very first call, before
-    // buildStatic has ever run).
-    if (s.bgByPage.length) buildStatic(s);
-  }
-  applyTheme('light');
-  s.cycleTheme = () => { const i = THEME_CYCLE.indexOf(s.themeMode as any); applyTheme(THEME_CYCLE[(i + 1) % THEME_CYCLE.length]); };
+  const theme = createThemeController(s, themeStyle, buildStatic);
+  theme.apply('light');
+  s.cycleTheme = theme.cycle;
 
   buildStatic(s);
   s.pageVisible = new Array(s.pageRoots.length).fill(true);
@@ -139,6 +108,7 @@ async function main() {
     s.tgtY = editor.y0 + s.tCanvas.height / (2 * s.tgtZ) - 20;
     s.velX = s.velY = 0;
   }
+  let edBtn: HTMLButtonElement | null = null;
   function setEditorMode(on: boolean) {
     s.editorMode = on;
     if (on) { editor.focused = true; s.activeEdit = null; frameEditor(); }
@@ -146,19 +116,11 @@ async function main() {
     if (edBtn) edBtn.textContent = on ? '📄' : '⌨️';
   }
 
-  // Dark-mode toggle (fixed DOM control, never affected by zoom)
-  const tb = document.createElement('button');
-  tb.textContent = '🌙'; tb.title = 'Cycle theme: light → dark → high contrast';
-  tb.style.cssText = 'position:fixed;top:14px;right:14px;z-index:10;width:42px;height:42px;border-radius:10px;border:none;cursor:pointer;font-size:18px;background:rgba(22,22,46,0.85);color:#fff;';
-  tb.onclick = () => s.cycleTheme!();
-  document.body.appendChild(tb); s.themeBtn = tb;
-
-  // Editor-mode toggle
-  const edBtn = document.createElement('button');
-  edBtn.textContent = '⌨️'; edBtn.title = 'Toggle code editor';
-  edBtn.style.cssText = 'position:fixed;top:14px;right:64px;z-index:10;width:42px;height:42px;border-radius:10px;border:none;cursor:pointer;font-size:18px;background:rgba(22,22,46,0.85);color:#fff;';
-  edBtn.onclick = () => setEditorMode(!s.editorMode);
-  document.body.appendChild(edBtn);
+  // Fixed toolbar (top-right): editor toggle + theme cycle.
+  createToolbar([
+    { icon: '⌨️', title: 'Toggle code editor', onClick: () => setEditorMode(!s.editorMode), ref: (el) => { edBtn = el; } },
+    { icon: '🌙', title: 'Cycle theme: light → dark → high contrast', onClick: () => s.cycleTheme!(), ref: (el) => { s.themeBtn = el; } },
+  ]);
 
   addEventListener('resize', () => setSize(s));
   setSize(s); goToPage(s, 0);

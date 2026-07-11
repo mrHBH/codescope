@@ -1,24 +1,15 @@
 // ── SVG path → quads ─────────────────────────────────────────────────────────
 // Parses a filled SVG path `d` string into the same quadratic-piece format the
 // font pipeline uses (each piece is x0,y0, cx,cy, x1,y1). Lines are encoded as
-// degenerate quads (control point at the midpoint). Cubics are split into two
-// quads with the same midpoint approximation as font.ts's cubicToQuads. Arcs are
-// flattened to cubics. Coordinates stay in the path's own (Y-down) space, which
-// matches the renderer's world convention, so no axis flip is needed.
+// degenerate quads, cubics split into two quads, and arcs flattened to cubics —
+// all via the shared helpers in geometry.ts. Coordinates stay in the path's own
+// (Y-down) space, which matches the renderer's world convention (no axis flip).
 
-function cubicToQuads(x0: number, y0: number, c1x: number, c1y: number, c2x: number, c2y: number, x1: number, y1: number, out: number[]) {
-  const m = (a: number, b: number) => (a + b) / 2;
-  const ax = m(x0, c1x), ay = m(y0, c1y), bx = m(c1x, c2x), by = m(c1y, c2y);
-  const cx = m(c2x, x1), cy = m(c2y, y1), dx = m(ax, bx), dy = m(ay, by), ex = m(bx, cx), ey = m(by, cy);
-  const mx = m(dx, ex), my = m(dy, ey);
-  out.push(x0, y0, 1.5 * dx - 0.25 * (x0 + mx), 1.5 * dy - 0.25 * (y0 + my), mx, my);
-  out.push(mx, my, 1.5 * ex - 0.25 * (mx + x1), 1.5 * ey - 0.25 * (my + y1), x1, y1);
-}
+import { cubicToQuads, lineToQuad, quadsBBox } from './geometry';
 
 // Endpoint-parameterised elliptical arc → a chain of cubic beziers.
 function arcToCubics(x0: number, y0: number, rx: number, ry: number, phi: number, largeArc: number, sweep: number, x1: number, y1: number, out: number[]) {
-  if (rx === 0 || ry === 0) { line(x0, y0, x1, y1, out); return; }
-  const rad = (phi * Math.PI) / 180;
+  if (rx === 0 || ry === 0) { lineToQuad(x0, y0, x1, y1, out); return; }  const rad = (phi * Math.PI) / 180;
   const cosp = Math.cos(rad), sinp = Math.sin(rad);
   const dx2 = (x0 - x1) / 2, dy2 = (y0 - y1) / 2;
   const x1p = cosp * dx2 + sinp * dy2, y1p = -sinp * dx2 + cosp * dy2;
@@ -64,9 +55,8 @@ function arcToCubics(x0: number, y0: number, rx: number, ry: number, phi: number
   }
 }
 
-function line(x0: number, y0: number, x1: number, y1: number, out: number[]) {
-  out.push(x0, y0, (x0 + x1) / 2, (y0 + y1) / 2, x1, y1);
-}
+// Local alias for the shared line-quad emitter (used heavily by parseOne).
+const line = lineToQuad;
 
 function tokenize(d: string): (number | string)[] {
   const tokens: (number | string)[] = [];
@@ -83,12 +73,7 @@ export function svgPathToQuads(dStrings: string | string[]): PathGeometry {
   const list = Array.isArray(dStrings) ? dStrings : [dStrings];
   const quads: number[] = [];
   for (const d of list) parseOne(d, quads);
-  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
-  for (let i = 0; i < quads.length; i += 2) {
-    x0 = Math.min(x0, quads[i]); x1 = Math.max(x1, quads[i]);
-    y0 = Math.min(y0, quads[i + 1]); y1 = Math.max(y1, quads[i + 1]);
-  }
-  return { quads, bbox: [x0, y0, x1, y1] };
+  return { quads, bbox: quadsBBox(quads) ?? [0, 0, 0, 0] };
 }
 
 function parseOne(d: string, out: number[]) {

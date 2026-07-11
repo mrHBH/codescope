@@ -21,14 +21,11 @@ export interface AppState {
   rCtx: CanvasRenderingContext2D;
   gpuCtx: GPUCanvasContext;
   device: GPUDevice;
-  shaderCode: string;
   renderer: any;
   font: FontFace;
   atlas: any;
 
   // DOM + layout tree
-  container: HTMLDivElement;
-  themeStyle: HTMLStyleElement;
   styledEls: StyledEl[];
   pageRoots: StyledEl[];
   editableEls: StyledEl[];
@@ -88,8 +85,7 @@ export function createAppState(partial: Partial<AppState>): AppState {
   return {
     dpr: 1, PAGE_W: 1040,
     rCanvas: null as any, tCanvas: null as any, rCtx: null as any, gpuCtx: null as any,
-    device: null as any, shaderCode: '', renderer: null, font: null as any, atlas: null,
-    container: null as any, themeStyle: null as any,
+    device: null as any, renderer: null, font: null as any, atlas: null,
     styledEls: [], pageRoots: [], editableEls: [], dynamicEls: [], marqueeEls: [], pages: [], docH: 0, docRoot: null as any,
     cssRules: [], isDark: false, themeMode: 'light', themeCol: {
       backdrop: [0,0,0,0], pageBg: [0,0,0,0], prog: [0,0,0,0], pulse: [0,0,0,0],

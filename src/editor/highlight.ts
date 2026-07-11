@@ -126,5 +126,3 @@ function tokenizeLine(text: string, entry: number): { tokens: Token[]; exit: num
   }
   return { tokens, exit: inBlock ? 1 : 0 };
 }
-
-export { COLORS as SYNTAX_COLORS };

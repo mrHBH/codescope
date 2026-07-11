@@ -8,6 +8,7 @@ import { bufCoords, scrToWorld, goToPage, fitDocument } from './camera';
 import { hitTest, findEditableAncestor } from '../layout/walk';
 import { layoutEditable, placeCaretAtPoint, caretIndexAtPoint } from '../layout/editable';
 import { ContextMenu, type MenuItem } from '../ui/contextMenu';
+import { handleEditorKey } from '../editor/editorInput';
 
 const _editTmp: number[] = [], _editTmpCrv: number[] = [], _editTmpRws: number[] = [];
 
@@ -270,56 +271,4 @@ export function attachInput(s: AppState) {
       e.preventDefault(); return;
     }
   });
-}
-
-// ── Code-editor key handling ────────────────────────────────────────────────
-// Maps a keydown to the CodeEditor's command surface, then keeps the caret in
-// view by nudging the camera when it drifts off-screen.
-function handleEditorKey(s: AppState, e: KeyboardEvent) {
-  const ed = s.editor!;
-  const meta = e.ctrlKey || e.metaKey;
-  const shift = e.shiftKey;
-  const k = e.key;
-
-  if (meta && k.toLowerCase() === 'a') { ed.selectAll(); e.preventDefault(); return; }
-  if (meta && k.toLowerCase() === 'c') { const t = ed.selectedText(); if (t && navigator.clipboard) navigator.clipboard.writeText(t).catch(() => {}); e.preventDefault(); return; }
-  if (meta && k.toLowerCase() === 'x') { const t = ed.selectedText(); if (t && navigator.clipboard) { navigator.clipboard.writeText(t).catch(() => {}); ed.insertText(''); } e.preventDefault(); return; }
-  if (meta && k.toLowerCase() === 'v') { if (navigator.clipboard) navigator.clipboard.readText().then((t) => { if (t) { ed.insertText(t.replace(/\r\n/g, '\n')); ensureCaretVisible(s); } }).catch(() => {}); e.preventDefault(); return; }
-  if (meta && k.toLowerCase() === 'z' && !shift) { ed.undo(); e.preventDefault(); ensureCaretVisible(s); return; }
-  if (meta && (k.toLowerCase() === 'y' || (k.toLowerCase() === 'z' && shift))) { ed.redo(); e.preventDefault(); ensureCaretVisible(s); return; }
-
-  switch (k) {
-    case 'ArrowLeft': meta ? ed.moveHome(shift) : ed.moveLeft(shift); break;
-    case 'ArrowRight': meta ? ed.moveEnd(shift) : ed.moveRight(shift); break;
-    case 'ArrowUp': ed.moveVert(-1, shift); break;
-    case 'ArrowDown': ed.moveVert(1, shift); break;
-    case 'Home': meta ? ed.moveDocStart(shift) : ed.moveHome(shift); break;
-    case 'End': meta ? ed.moveDocEnd(shift) : ed.moveEnd(shift); break;
-    case 'Backspace': ed.backspace(); break;
-    case 'Delete': ed.del(); break;
-    case 'Enter': ed.newline(); break;
-    case 'Tab': ed.indent(); break;
-    case 'Escape': return; // let default focus handling be
-    default:
-      if (k.length === 1 && !meta && !e.altKey) ed.insertText(k);
-      else return; // unhandled — don't preventDefault
-  }
-  e.preventDefault();
-  ensureCaretVisible(s);
-}
-
-// Nudge the camera so the caret stays within a comfortable margin of the view.
-function ensureCaretVisible(s: AppState) {
-  const ed = s.editor!;
-  const p = ed.posToWorld(ed.cursor);
-  const halfW = s.tCanvas.width / (2 * s.camZ), halfH = s.tCanvas.height / (2 * s.camZ);
-  const mX = 60 / s.camZ, mY = ed.lineHeight * 1.5;
-  const left = s.camX - halfW + mX, right = s.camX + halfW - mX;
-  const top = s.camY - halfH + mY, bot = s.camY + halfH - mY;
-  if (p.x < left) s.camX -= (left - p.x);
-  else if (p.x > right) s.camX += (p.x - right);
-  if (p.y < top) s.camY -= (top - p.y);
-  else if (p.y + ed.lineHeight > bot) s.camY += (p.y + ed.lineHeight - bot);
-  s.tgtX = s.camX; s.tgtY = s.camY; s.tgtZ = s.camZ;
-  s.viewX = s.camX; s.viewY = s.camY; s.viewZ = s.camZ;
 }
