@@ -296,10 +296,12 @@ export class CodeEditor {
       }
       if (cursorCol < text.length) emitSlice(cursorCol, text.length, th.text);
 
-      // Caret
+      // Caret — full line height, thickness scales with font size (min the
+      // passed-in screen-space width so it stays visible when zoomed out).
       if (this.focused && i === this.cursor.line && (now % 1060) < 530) {
         const cx = this.colToX(i, this.cursor.col);
-        addRect(cx, top + lh * 0.12, cx + caretW, top + lh * 0.9, th.caret, crv, rws, inst);
+        const cw = Math.max(caretW, this.fontSize * 0.12);
+        addRect(cx, top, cx + cw, top + lh, th.caret, crv, rws, inst);
       }
     }
   }
