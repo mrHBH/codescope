@@ -19,7 +19,9 @@ entirely through the analytic pipeline. Four pages:
 2. **Data & Status** — cards, stats grid, entity grid, progress, badges, LEDs, logs, test runner
 3. **Layout & Content** — separators, header+logo, controls bar, article blocks, viewport slot
 
-Two supporting capabilities were added for fidelity:- **Border rendering** — `StyledEl` now carries per-side border widths/colors
+Two supporting capabilities were added for fidelity:
+
+- **Border rendering** — `StyledEl` now carries per-side border widths/colors
   (`borderW`/`borderC`), read in `walk.ts`, re-read on theme change, and baked as
   thin edge rects in `precompute.ts` (independent of background alpha). This makes
   the design's crisp 1px dividers, card outlines, inputs, and left-accent bars
@@ -32,14 +34,14 @@ Two supporting capabilities were added for fidelity:- **Border rendering** — `
 
 ## 1. What Windfoil is
 
-A GPU text renderer that draws a full multi-page, CSS-styled document through an
-**analytic WebGPU pipeline** (one draw call, zero aliasing at any zoom). Text is
-shaded via a closed-form winding-number integral per pixel — no bitmaps, no SDF.
+An analytic WebGPU renderer that draws everything — a multi-page CSS-styled
+document, filled SVG icons/illustrations, a code editor, and a terminal — through
+a **single draw call**, shading each pixel via a closed-form winding-number
+integral. Zero aliasing, razor-sharp at any zoom; no bitmaps, no SDF.
 
 - Stack: TypeScript, WebGPU, WGSL, opentype.js, custom CSS engine.
-- The render core lives in `src/windfoil/` (unchanged, already modular).
-- The app/orchestration layer was refactored out of a 1400-line `main.ts` into
-  focused modules (see §3).
+- The render core lives in `src/windfoil/`.
+- The app/orchestration layer is split into focused modules (see §2).
 
 ---
 
@@ -53,7 +55,7 @@ src/
   frame.ts           The per-frame render loop (single GPU draw call)
   css/
     engine.ts        parseColor, parseCSS, matchesSelector, resolveStyle
-    theme.ts         palettes + buildCSS(palette)
+    theme.ts         reference design-system palettes + buildCSS(palette)
     themeController.ts  createThemeController — runtime theme switching + cycle
   layout/
     types.ts         StyledEl, Seg
@@ -95,8 +97,10 @@ tangle and avoids circular imports (modules import only types or leaf modules).
 ## 3. Feature status
 
 ### Phase 1 — Foundation ✅ (mostly)
-- [x] **Split `main.ts` into modules** — done. `main.ts` is now ~95 lines of wiring.
-- [x] **Extract HTML content** — done (`content/pages.ts`, 11 page strings).
+- [x] **Split `main.ts` into modules** — done. `main.ts` is a thin wiring layer
+      (~120 lines); logic lives in css/, layout/, camera/, editor/, ui/, and frame.ts.
+- [x] **Extract HTML content** — done. Now 4 per-file `.html` pages under
+      `content/pages/`, imported via Vite `?raw` and assembled in `content/pages.ts`.
 - [x] **Extract CSS into a module** — done (`css/theme.ts` owns palettes + `buildCSS`).
 - [x] **Dark-mode contrast for cards** (`VISION` §1) — **done**. Dark palette
       redesigned: cards `#2a3048` vs page `#12151d` (clear separation), brighter
@@ -125,10 +129,10 @@ tangle and avoids circular imports (modules import only types or leaf modules).
       Toggle with the ⌨️ button (top-right). Features:
   - `TextDocument` line-buffer model with `{line,col}` positions and range-replace
     primitive; full **undo/redo** stack.
-  - Monospace cell layout with **tab expansion**, **line-number gutter**, and
-    **current-line highlight**.
+  - **Proportional advance-based layout** (fixes proportional-font spacing), with
+    **tab expansion**, **line-number gutter**, and **current-line highlight**.
   - Caret + click-to-place, **mouse drag-select**, **Shift+arrow selection**,
-    select-all, Home/End (smart + doc-level via Ctrl), PageUp/word moves TBD.
+    select-all, Home/End (smart + doc-level via Ctrl).
   - **Incremental syntax highlighting** — per-line tokenizer with carry state so
     multi-line block comments work; only lines from the first edit are re-tokenized.
   - Clipboard (Ctrl+C/X/V), auto-indent on Enter, Tab insert.
@@ -138,14 +142,21 @@ tangle and avoids circular imports (modules import only types or leaf modules).
       through the same pipeline. Toggle with ❯_ (top-right, next to the editor
       button). Features:
   - Styled scrollback buffer with **typewriter boot sequence**.
-  - **Smooth gliding caret** — a thin bar that eases to its target column with a
-    soft sinusoidal blink (not a snapping block).
-  - **Command interpreter**: `help`, `ls`, `echo`, `neofetch`, `colors`, `clear`.
-  - **GPU-rect widget dock** — widgets draw fractional-size rects with eased motion,
-    sub-cell smooth (a character-grid terminal can't): orbiting-dot spinner, smooth
-    progress bar with moving sheen, eased bar chart, **live scrolling signal graph**
-    (`graph`), particle-trail matrix rain, live clock. All off the frame clock.
-  - History (↑/↓), Ctrl+C to cancel widgets, Ctrl+V paste.
+  - **Proportional advance-based layout** (like the editor) — glyphs placed by
+    real advance width, not a fixed monospace grid, so spacing reads naturally.
+  - **Smooth gliding caret** — a thin bar, vertically centered on the glyph band
+    and horizontally centered on the character boundary, that eases to its target
+    column with a soft sinusoidal blink (not a snapping block).
+  - **Command interpreter**: `help`, `ls`, `pwd`, `whoami`, `date`, `echo`,
+    `neofetch`, `colors`, `clear`.
+  - **GPU-rect widget dock** (sits between scrollback and the prompt) — widgets
+    draw fractional-size rects with eased motion, sub-cell smooth (a character-grid
+    terminal can't): orbiting-dot spinner, smooth progress bar with moving sheen,
+    eased bar chart, **live scrolling anti-aliased signal graph** (`graph`, with
+    gridlines + connected line + live readout), particle-trail matrix rain, live
+    clock. All animate off the frame clock.
+  - Editing: history (↑/↓), **Ctrl/Alt word motion + word-delete** (Ctrl+Backspace
+    / Ctrl+Delete / Ctrl+←→), Ctrl+C to cancel widgets, Ctrl+V paste.
 - [ ] File tab bar, side-by-side columns (multi-file)
 - [ ] Extended syntax highlighting (more languages)
 - [ ] Code folding, bracket matching
@@ -171,9 +182,8 @@ tangle and avoids circular imports (modules import only types or leaf modules).
    The VISION suggested moving static classes to a `.css` file; this is a clean
    follow-up, not required for modularity.
 
-2. **HTML content is now 11 per-file `.html` imports** under `content/pages/`,
-   loaded via Vite `?raw` and assembled in `content/pages.ts`. (Previously a
-   single strings array.)
+2. **HTML content is 4 per-file `.html` imports** under `content/pages/`,
+   loaded via Vite `?raw` and assembled in `content/pages.ts`.
 
 3. **`src/windfoil/` kept as-is** rather than renamed to `render/` as the VISION
    sketch suggested — it was already a clean, self-contained module, so renaming
@@ -200,9 +210,10 @@ The per-frame instance build was tightened:
 - **Per-page viewport culling** — static backgrounds and static text are baked
   into per-page instance buffers (`bgByPage`, `textByPage`). Each frame computes
   which pages intersect the viewport (+margin) and only those pages' instances
-  are pushed / uploaded / rasterized. With 11 pages and one on screen, this cuts
-  the instance buffer ~10×. The curve/row atlas stays global so band indices
-  remain valid. Runtime theme changes rebuild the baked buffers via `buildStatic`.
+  are pushed / uploaded / rasterized. With only the visible page contributing,
+  this cuts the instance buffer substantially. The curve/row atlas stays global so
+  band indices remain valid. Runtime theme changes rebuild the baked buffers via
+  `buildStatic`.
 
 ---
 
@@ -243,14 +254,27 @@ place the caret, drag or Shift+arrow to select, type to edit, `Ctrl+Z`/`Ctrl+Y`
 to undo/redo, and scroll/zoom the wheel — glyphs stay razor-sharp at any zoom.
 Click 📄 to return to the document.
 
+To test the **terminal**: click the ❯_ button. Watch the boot sequence, then run
+`help`. Try the animated widgets — `graph` (live plot), `progress`, `spinner`,
+`chart`, `matrix`, `clock` — and zoom in on the graph to see fractional-pixel,
+anti-aliased vector graphics inline in a shell. `Ctrl+C` cancels a widget.
+
 ---
 
 ## 6. Suggested next steps
 
-1. **Editor polish**: word-wise motion (Ctrl+arrow), PageUp/Down, double-click word
-   select / triple-click line select, bracket matching, auto-close brackets.
-2. **Multi-file**: a file tab bar + multiple `CodeEditor` panels side by side
-   (each is already a self-contained world-space panel).
-3. Minimap (scaled second render of the doc), search & replace, multi-cursor.
-4. Extend the tokenizer to more languages / pull in a real grammar.
-5. (Optional) migrate `buildCSS` → CSS variables + static stylesheet.
+1. **Multi-file / split panes** — the editor and terminal are already self-contained
+   world-space panels; add a tab bar and tile several side by side (the grand-vision
+   goal). Each `CodeEditor`/`Terminal` just needs its own `x0/y0`.
+2. **Editor depth** — search & replace, bracket matching, multi-cursor, code folding,
+   double-click word / triple-click line select, auto-close brackets.
+3. **Minimap** — a scaled second render of the document (cheap with this pipeline).
+4. **Terminal → real backend** — pipe to an actual shell via WebSocket/worker, or a
+   scripting sandbox; add Tab command autocomplete.
+5. **Ship a monospace font** — for authentic terminal/code columns without the
+   proportional-layout workarounds.
+6. **Make the design-system controls live** — wire sliders/toggles/tabs to real
+   click/drag handlers, turning the catalog into an interactive playground.
+7. **Perf headroom** — instance-buffer diffing / dirty regions so idle frames upload
+   less; extend the tokenizer to more languages.
+8. (Optional) migrate `buildCSS` → CSS variables + a static stylesheet.

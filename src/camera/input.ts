@@ -111,6 +111,25 @@ export function attachInput(s: AppState) {
       // click outside the panel → pan the canvas (fall through)
     }
 
+    // File tree mode: click inside the panel toggles folders / selects files.
+    if (s.fileTreeMode && s.fileTree) {
+      const ft = s.fileTree;
+      const inPanel = w.x >= ft.x0 && w.x <= ft.x0 + ft.width && w.y >= ft.y0 && w.y <= ft.y0 + ft.contentHeight;
+      if (inPanel) {
+        ft.focused = true;
+        const row = ft.rowAtY(w.y);
+        if (row) {
+          if (row.node.type === 'folder' && ft.isOnChevron(w.x, row)) {
+            ft.toggleFolder(row.node.path);
+          } else {
+            ft.select(row.node.path);
+          }
+        }
+        s.pressed = null;
+        return;
+      }
+    }
+
     const hit = hitTest(s.docRoot, w.x, w.y);
 
     // Interactive controls take priority over pan/nav/edit.

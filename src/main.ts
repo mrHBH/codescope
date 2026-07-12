@@ -21,6 +21,7 @@ import { svgPathToQuads } from './windfoil/svg';
 import { CodeEditor, editorAtlasChars } from './editor/editor';
 import { SAMPLE_CODE } from './editor/sample';
 import { Terminal } from './editor/terminal';
+import { FileTree } from './editor/fileTree';
 import { createToolbar } from './ui/toolbar';
 
 async function main() {
@@ -111,6 +112,22 @@ async function main() {
     s.velX = s.velY = 0;
   }
 
+  // ── File tree ─────────────────────────────────────────────────────────────
+  // World-space panel to the left of the document.
+  const fileTree = new FileTree();
+  fileTree.font = font;
+  fileTree.x0 = -fileTree.width - 40;
+  fileTree.y0 = 0;
+  s.fileTree = fileTree;
+
+  function frameFileTree() {
+    const w = fileTree.width + 60;
+    s.tgtZ = Math.min((s.tCanvas.width / w) * 0.92, 1.4);
+    s.tgtX = fileTree.x0 + w / 2;
+    s.tgtY = fileTree.y0 + s.tCanvas.height / (2 * s.tgtZ) - 20;
+    s.velX = s.velY = 0;
+  }
+
   // ── Terminal ──────────────────────────────────────────────────────────────
   // Same renderer, its own world-space panel to the right of the editor.
   const terminal = new Terminal();
@@ -129,23 +146,35 @@ async function main() {
 
   let edBtn: HTMLButtonElement | null = null;
   let tmBtn: HTMLButtonElement | null = null;
+  let ftBtn: HTMLButtonElement | null = null;
   function setEditorMode(on: boolean) {
     s.editorMode = on;
-    if (on) { s.terminalMode = false; terminal.focused = false; editor.focused = true; s.activeEdit = null; frameEditor(); }
+    if (on) { s.terminalMode = false; s.fileTreeMode = false; terminal.focused = false; fileTree.focused = false; editor.focused = true; s.activeEdit = null; frameEditor(); }
     else goToPage(s, 0);
     if (edBtn) edBtn.textContent = on ? '📄' : '⌨️';
     if (tmBtn) tmBtn.textContent = '❯_';
+    if (ftBtn) ftBtn.textContent = '📁';
   }
   function setTerminalMode(on: boolean) {
     s.terminalMode = on;
-    if (on) { s.editorMode = false; editor.focused = false; terminal.focused = true; s.activeEdit = null; terminal.open(); frameTerminal(); }
+    if (on) { s.editorMode = false; s.fileTreeMode = false; editor.focused = false; fileTree.focused = false; terminal.focused = true; s.activeEdit = null; terminal.open(); frameTerminal(); }
     else goToPage(s, 0);
     if (tmBtn) tmBtn.textContent = on ? '📄' : '❯_';
     if (edBtn) edBtn.textContent = '⌨️';
+    if (ftBtn) ftBtn.textContent = '📁';
+  }
+  function setFileTreeMode(on: boolean) {
+    s.fileTreeMode = on;
+    if (on) { s.editorMode = false; s.terminalMode = false; editor.focused = false; terminal.focused = false; fileTree.focused = true; s.activeEdit = null; frameFileTree(); }
+    else goToPage(s, 0);
+    if (ftBtn) ftBtn.textContent = on ? '📄' : '📁';
+    if (edBtn) edBtn.textContent = '⌨️';
+    if (tmBtn) tmBtn.textContent = '❯_';
   }
 
   // Fixed toolbar (top-right): editor toggle + terminal toggle + theme cycle.
   createToolbar([
+    { icon: '📁', title: 'Toggle file tree', onClick: () => setFileTreeMode(!s.fileTreeMode), ref: (el) => { ftBtn = el; } },
     { icon: '⌨️', title: 'Toggle code editor', onClick: () => setEditorMode(!s.editorMode), ref: (el) => { edBtn = el; } },
     { icon: '❯_', title: 'Toggle terminal', onClick: () => setTerminalMode(!s.terminalMode), ref: (el) => { tmBtn = el; } },
     { icon: '🌙', title: 'Cycle theme: light → dark → high contrast', onClick: () => s.cycleTheme!(), ref: (el) => { s.themeBtn = el; } },

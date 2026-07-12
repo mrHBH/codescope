@@ -13,6 +13,7 @@ import { hitTest } from './layout/walk';
 import { stepCamera } from './camera/camera';
 import type { EditorTheme } from './editor/editor';
 import type { TerminalTheme } from './editor/terminal';
+import type { FileTreeTheme } from './editor/fileTree';
 
 function terminalTheme(): TerminalTheme {
   // A fixed dark VS Code-ish palette (the terminal reads as a dark surface in
@@ -30,6 +31,21 @@ function terminalTheme(): TerminalTheme {
     red: [0.88, 0.40, 0.38, 1],
     magenta: [0.72, 0.48, 0.96, 1],
     caret: [0.62, 0.82, 0.55, 1],
+  };
+}
+
+function fileTreeTheme(): FileTreeTheme {
+  return {
+    bg: [0.086, 0.086, 0.098, 1],       // #16161a
+    barBg: [0.13, 0.13, 0.15, 1],
+    barFg: [0.7, 0.72, 0.78, 1],
+    text: [0.83, 0.85, 0.90, 1],
+    dim: [0.45, 0.48, 0.55, 1],
+    gold: [0.86, 0.71, 0.48, 1],         // #dcb67a — yasmineoss folder gold
+    folder: [0.83, 0.85, 0.90, 1],       // folder name color
+    line: [0.35, 0.38, 0.45, 1],         // tree lines, borders
+    selected: [0.15, 0.33, 0.55, 0.25],  // selection highlight
+    hover: [1, 1, 1, 0.05],              // hover highlight
   };
 }
 
@@ -80,6 +96,17 @@ export function runFrame(s: AppState) {
     const hovered = wheelCool ? null : hitTest(s.docRoot, s.mwx, s.mwy);
     const hoveredSet = new Set<StyledEl>();
     if (hovered) { let cur: StyledEl | null = hovered; while (cur) { hoveredSet.add(cur); cur = cur.parent; } }
+
+    // File tree hover detection (world-space panel, not in DOM)
+    if (s.fileTree && !wheelCool) {
+      const ft = s.fileTree;
+      if (s.mwx >= ft.x0 && s.mwx <= ft.x0 + ft.width && s.mwy >= ft.y0 && s.mwy <= ft.y0 + ft.contentHeight) {
+        const row = ft.rowAtY(s.mwy);
+        ft.hovered = row ? row.node.path : null;
+      } else {
+        ft.hovered = null;
+      }
+    }
 
     // Build working arrays: base atlas + pre-computed static backgrounds
     const crv: number[] = s.baseCrv as number[];
@@ -169,6 +196,10 @@ export function runFrame(s: AppState) {
       let he: StyledEl | null = hovered; while (he && !he.editable) he = he.parent;
       if (he) cursor = 'text';
     }
+    // File tree cursor: pointer when hovering over items
+    if (s.fileTree && s.fileTree.hovered && s.fileTreeMode) {
+      cursor = 'pointer';
+    }
     s.rCanvas.style.cursor = cursor;
 
     // Layer 3: ALL text (static pre-computed + marquee dynamic + editable) — on top of all backgrounds
@@ -202,6 +233,15 @@ export function runFrame(s: AppState) {
       const tR = tm.x0 + tm.contentW, tB = tm.y0 + tm.contentH;
       if (tm.x0 <= vR && tR >= vL && tm.y0 <= vB && tB >= vT) {
         tm.render(s.font, s.atlas, inst, crv, rws, now, dt, terminalTheme(), caretW);
+      }
+    }
+
+    // File tree (world-space panel).
+    if (s.fileTree) {
+      const ft = s.fileTree;
+      const fR = ft.x0 + ft.width, fB = ft.y0 + ft.contentHeight;
+      if (ft.x0 <= vR && fR >= vL && ft.y0 <= vB && fB >= vT) {
+        ft.render(s.font, s.atlas, inst, crv, rws, vT, vB, now, fileTreeTheme());
       }
     }
 

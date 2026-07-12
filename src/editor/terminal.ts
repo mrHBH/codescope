@@ -123,7 +123,7 @@ export class Terminal {
       case 'help':
         this.plain('commands:', T.dim);
         this.two('help', 'this message');
-        this.two('ls', 'list virtual files');
+        this.two('ls / pwd / whoami / date', 'basic shell builtins');
         this.two('echo <text>', 'print text');
         this.two('neofetch', 'system banner');
         this.two('spinner', 'animated spinner demo');
@@ -137,6 +137,15 @@ export class Terminal {
         break;
       case 'ls':
         this.push([{ text: 'README.md  ', color: T.cyan }, { text: 'src/  ', color: T.green }, { text: 'assets/  ', color: T.green }, { text: 'window.wgsl', color: T.cyan }]);
+        break;
+      case 'pwd':
+        this.plain('/home/guest', T.text);
+        break;
+      case 'whoami':
+        this.plain('guest', T.text);
+        break;
+      case 'date':
+        this.plain(new Date().toString(), T.text);
         break;
       case 'echo':
         this.plain(args.join(' '), T.text);
@@ -211,6 +220,33 @@ export class Terminal {
   right() { if (this.cursorCol < this.input.length) this.cursorCol++; }
   home() { this.cursorCol = 0; }
   end() { this.cursorCol = this.input.length; }
+
+  // Word boundaries: scan over run of spaces then run of word chars.
+  private wordLeft(from: number): number {
+    let i = from;
+    while (i > 0 && this.input[i - 1] === ' ') i--;
+    while (i > 0 && this.input[i - 1] !== ' ') i--;
+    return i;
+  }
+  private wordRight(from: number): number {
+    let i = from; const n = this.input.length;
+    while (i < n && this.input[i] === ' ') i++;
+    while (i < n && this.input[i] !== ' ') i++;
+    return i;
+  }
+  moveWordLeft() { this.cursorCol = this.wordLeft(this.cursorCol); }
+  moveWordRight() { this.cursorCol = this.wordRight(this.cursorCol); }
+  deleteWordLeft() {
+    if (this.busy || this.cursorCol === 0) return;
+    const a = this.wordLeft(this.cursorCol);
+    this.input = this.input.slice(0, a) + this.input.slice(this.cursorCol);
+    this.cursorCol = a;
+  }
+  deleteWordRight() {
+    if (this.busy || this.cursorCol >= this.input.length) return;
+    const b = this.wordRight(this.cursorCol);
+    this.input = this.input.slice(0, this.cursorCol) + this.input.slice(b);
+  }
   enter() {
     if (this.busy) return;
     this.widget = null;
@@ -276,6 +312,8 @@ export class Terminal {
     addRect(this.x0 + 14 + dot * 4, dy, this.x0 + 14 + dot * 5, dy + dot, th.green, crv, rws, inst);
     const title = 'wsh — windfoil shell';
     this.emit(inst, atlas, s, title, th.dim, this.x0 + W / 2 - this.lineWidth([{ text: title, color: th.dim }]) / 2, this.y0 + barH / 2 + this.fontSize * 0.35);
+    // Title-bar bottom hairline.
+    addRect(this.x0, this.y0 + barH - 1, this.x0 + W, this.y0 + barH, [th.caret[0], th.caret[1], th.caret[2], 0.18], crv, rws, inst);
 
     // Reserve a dock for the active widget (drawn with GPU rects). It sits just
     // above the prompt line, like live tool output above your shell prompt.
@@ -327,8 +365,7 @@ export class Terminal {
     // Vertically centered on the glyph band (baseline sits at fontSize*0.95 below
     // the row top; the visual glyph box spans roughly [-0.72fs, +0.12fs] around it).
     if (showPrompt && this.focused) {
-      const inputRow = shown.length - 1;
-      const rowTop = startY + inputRow * lh;
+      const rowTop = startY + promptRow * lh;
       const baseline = rowTop + this.fontSize * 0.95;
       let targetX = left + this.lineWidth(this.prompt());
       for (let i = 0; i < this.cursorCol && i < this.input.length; i++) targetX += this.advance(this.input[i]);
@@ -369,6 +406,19 @@ export class Terminal {
   private emit(inst: number[], atlas: any, s: number, text: string, color: number[], x: number, baseline: number) {
     let cx = x;
     for (const ch of text) cx += this.emitAt(inst, atlas, s, ch, color, cx, baseline);
+  }
+
+  // A thick line segment approximated by short vertical bars (addRect is axis-
+  // aligned only). Thin enough to read as a continuous anti-aliased line.
+  private segment(inst: number[], crv: number[], rws: number[], x0: number, y0: number, x1: number, y1: number, thick: number, c: number[]) {
+    const dx = x1 - x0;
+    const steps = Math.max(1, Math.ceil(Math.abs(dx)));
+    for (let i = 0; i <= steps; i++) {
+      const f = i / steps;
+      const px = x0 + dx * f;
+      const py = y0 + (y1 - y0) * f;
+      addRect(px - thick / 2, py - thick / 2, px + thick / 2, py + thick / 2, c, crv, rws, inst);
+    }
   }
 
   // Rows of dock height each widget needs.
@@ -441,34 +491,46 @@ export class Terminal {
       }
       case 'graph': {
         // Live scrolling line/area graph — impossible on a character grid.
-        // Feed a new sample ~20/s from a synthetic signal.
         if (now - wg.lastSample > 50) {
           wg.lastSample = now;
           const sig = 50 + 30 * Math.sin(now / 700) + 12 * Math.sin(now / 190) + (Math.random() - 0.5) * 10;
           wg.samples.push(Math.max(2, Math.min(98, sig)));
-          const maxN = 120; if (wg.samples.length > maxN) wg.samples.shift();
+          const maxN = 160; if (wg.samples.length > maxN) wg.samples.shift();
         }
         this.emit(inst, atlas, s, wg.title, th.magenta, x, base(0));
-        const gx = x, gy = y + lh * 1.1, gw = Math.min(w, this.fontSize * 26), gh = (this.dockRows(wg) - 1.4) * lh;
+        // Row grid: title=0, plot=rows 1..4, hint=row 5 (dockRows=6).
+        const gx = x, gy = y + lh, gw = Math.min(w - this.fontSize * 3, this.fontSize * 26), gh = 4 * lh - this.fontSize * 0.4;
         bar(gx, gy, gw, gh, th.barBg);
+        // Gridlines at 25/50/75% with faint labels.
+        for (const q of [0.25, 0.5, 0.75]) {
+          const yy = gy + gh * (1 - q);
+          bar(gx, yy, gw, 1, [th.dim[0], th.dim[1], th.dim[2], 0.25]);
+        }
         const n = wg.samples.length;
         if (n > 1) {
           const stepX = gw / (n - 1);
+          const yOf = (v: number) => gy + gh - (v / 100) * gh;
+          // Area fill (fractional-height columns) + a bright connected top line.
           for (let i = 0; i < n; i++) {
-            const v = wg.samples[i] / 100;
-            const colH = v * gh;
             const colX = gx + i * stepX;
-            // Area column (thin, anti-aliased, fractional height) → smooth curve.
-            const alpha = 0.25 + 0.55 * (i / n);
-            bar(colX, gy + gh - colH, Math.max(stepX, 1.2), colH, [th.cyan[0], th.cyan[1], th.cyan[2], alpha]);
+            const colH = gy + gh - yOf(wg.samples[i]);
+            const alpha = 0.10 + 0.30 * (i / n);
+            bar(colX, gy + gh - colH, Math.max(stepX, 1.1), colH, [th.cyan[0], th.cyan[1], th.cyan[2], alpha]);
           }
-          // Bright leading tip.
-          const lastV = wg.samples[n - 1] / 100;
-          bar(gx + gw - this.fontSize * 0.18, gy + gh - lastV * gh - this.fontSize * 0.1, this.fontSize * 0.3, this.fontSize * 0.3, th.green);
+          // Connected line: thin quads between consecutive sample points.
+          for (let i = 1; i < n; i++) {
+            const x0 = gx + (i - 1) * stepX, y0 = yOf(wg.samples[i - 1]);
+            const x1 = gx + i * stepX, y1 = yOf(wg.samples[i]);
+            this.segment(inst, crv, rws, x0, y0, x1, y1, this.fontSize * 0.12, th.cyan);
+          }
+          // Bright leading tip + readout.
+          const tipY = yOf(wg.samples[n - 1]);
+          const d = this.fontSize * 0.28;
+          bar(gx + gw - d / 2, tipY - d / 2, d, d, th.green);
           const cur = Math.round(wg.samples[n - 1]);
-          this.emit(inst, atlas, s, cur + '%', th.green, gx + gw + this.fontSize * 0.4, gy + gh * 0.5);
+          this.emit(inst, atlas, s, cur + '%', th.green, gx + gw + this.fontSize * 0.4, tipY + this.fontSize * 0.35);
         }
-        this.emit(inst, atlas, s, 'ctrl-c to stop', th.dim, gx, gy + gh + this.fontSize * 1.1);
+        this.emit(inst, atlas, s, 'ctrl-c to stop', th.dim, gx, base(5));
         return;
       }
       case 'matrix': {

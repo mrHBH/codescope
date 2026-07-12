@@ -14,6 +14,17 @@ export function handleTerminalKey(s: AppState, e: KeyboardEvent) {
     e.preventDefault(); return;
   }
 
+  // Word-wise editing/motion: Ctrl (or Alt) + Backspace/Delete/Arrows.
+  const word = e.ctrlKey || e.altKey;
+  if (word) {
+    switch (k) {
+      case 'Backspace': term.deleteWordLeft(); e.preventDefault(); return;
+      case 'Delete': term.deleteWordRight(); e.preventDefault(); return;
+      case 'ArrowLeft': term.moveWordLeft(); e.preventDefault(); return;
+      case 'ArrowRight': term.moveWordRight(); e.preventDefault(); return;
+    }
+  }
+
   switch (k) {
     case 'Enter': term.enter(); break;
     case 'Backspace': term.backspace(); break;
