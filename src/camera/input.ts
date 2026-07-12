@@ -9,6 +9,8 @@ import { hitTest, findEditableAncestor } from '../layout/walk';
 import { layoutEditable, placeCaretAtPoint, caretIndexAtPoint } from '../layout/editable';
 import { ContextMenu, type MenuItem } from '../ui/contextMenu';
 import { handleEditorKey } from '../editor/editorInput';
+import { handleClickInteraction, sliderOf, setSliderFromX } from '../ui/interactions';
+import { refreshLayout } from '../precompute';
 
 const _editTmp: number[] = [], _editTmpCrv: number[] = [], _editTmpRws: number[] = [];
 
@@ -56,6 +58,17 @@ export function attachInput(s: AppState) {
   const { rCanvas } = s;
   const menu = new ContextMenu();
 
+  // Slider drag state: the DOM slider being dragged + the last integer percent
+  // we rebuilt at (so a drag rebuilds at most ~once per visible step).
+  let sliding: HTMLElement | null = null;
+  let slidingPct = -1;
+  const sliderPct = (el: HTMLElement) => {
+    const min = parseFloat(el.getAttribute('data-min') || '0');
+    const max = parseFloat(el.getAttribute('data-max') || '100');
+    const v = parseFloat(el.getAttribute('data-value') || '0');
+    return max > min ? Math.round(((v - min) / (max - min)) * 100) : 0;
+  };
+
   // Build the menu items for the current context (editing vs. canvas).
   function buildMenuItems(): MenuItem[] {
     const el = s.activeEdit;
@@ -100,6 +113,20 @@ export function attachInput(s: AppState) {
 
     const hit = hitTest(s.docRoot, w.x, w.y);
 
+    // Interactive controls take priority over pan/nav/edit.
+    // Slider: begin a drag and set the value from the click x.
+    const sl = sliderOf(hit);
+    if (sl) {
+      sliding = sl;
+      setSliderFromX(sl, w.x);
+      slidingPct = sliderPct(sl);
+      refreshLayout(s);
+      s.pressed = null;
+      return;
+    }
+    // Toggles, dropdowns, tab selectors — mutate the DOM + rebuild.
+    if (hit && handleClickInteraction(s, hit)) { s.pressed = null; return; }
+
     // Editing: click inside an editable element places the caret and enters edit mode
     const ed = findEditableAncestor(hit);
     if (ed) {
@@ -114,7 +141,7 @@ export function attachInput(s: AppState) {
     }
     s.activeEdit = null;
     s.selecting = false;
-    s.pressed = (hit && hit.shadowable) ? hit : null;
+    s.pressed = (hit && hit.hoverable) ? hit : null;
     let nav: StyledEl | null = hit;
     while (nav && nav.pageIdx < 0) nav = nav.parent;
     if (nav) goToPage(s, nav.pageIdx);
@@ -126,6 +153,14 @@ export function attachInput(s: AppState) {
     if (!s.pointers.has(e.pointerId)) return;
     const prev = s.pointers.get(e.pointerId)!;
     s.pointers.set(e.pointerId, { x: b.x, y: b.y });
+    // Slider drag: track the pointer x, rebuild only when the step changes.
+    if (sliding) {
+      const w = scrToWorld(s, b.x, b.y);
+      setSliderFromX(sliding, w.x);
+      const pct = sliderPct(sliding);
+      if (pct !== slidingPct) { slidingPct = pct; refreshLayout(s); }
+      return;
+    }
     if (s.editorMode && s.editorSelecting && s.editor) {
       const w = scrToWorld(s, b.x, b.y);
       s.editor.placeCursor(w.x, w.y, true);
@@ -152,6 +187,7 @@ export function attachInput(s: AppState) {
     if (s.selecting && s.activeEdit && s.activeEdit.selAnchor === s.activeEdit.caret) s.activeEdit.selAnchor = -1;
     s.selecting = false;
     s.editorSelecting = false;
+    sliding = null; slidingPct = -1;
     s.pointers.clear(); s.dragging = false; s.pressed = null; if (performance.now() - s.lastMoveT > 80) s.velX = s.velY = 0;
   };
   rCanvas.addEventListener('pointerup', rel);

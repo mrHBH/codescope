@@ -9,6 +9,7 @@ import type { StyledEl } from './layout/types';
 import { addRect, layoutIcon } from './layout/metrics';
 import { layoutFlow, layoutPre } from './layout/flow';
 import { highlightCode } from './layout/metrics';
+import { buildStyledEls } from './layout/walk';
 
 // Emit the four border edges of an element as thin rects. Widths are in world
 // px (already DOM-measured). Each side draws only when width>0 and alpha>0.
@@ -85,3 +86,26 @@ export function buildStatic(s: AppState) {
   s.baseCrvLen = s.baseCrv.length;
   s.baseRwsLen = s.baseRws.length;
 }
+
+// Re-derive the whole layout tree from the (mutated) hidden DOM and rebuild the
+// baked buffers. Called after an interaction changes the DOM (toggle flip, tab
+// switch, dropdown expand/collapse, slider move) — those may reflow the page, so
+// every element's geometry is re-measured. The camera/editor state is untouched.
+export function refreshLayout(s: AppState) {
+  const { styledEls, pageRoots } = buildStyledEls(s.container);
+  s.styledEls = styledEls;
+  s.pageRoots = pageRoots;
+  s.docRoot.children = pageRoots;
+  s.docH = (styledEls.length ? Math.max(...styledEls.map((e) => e.y + e.h)) : 0) + 60;
+  s.docRoot.h = s.docH;
+  s.pages = pageRoots.map((r) => ({ x: r.x, y: r.y, w: r.w, h: r.h }));
+  s.editableEls = styledEls.filter((e) => e.editable);
+  s.dynamicEls = styledEls.filter((e) => e.dynamic);
+  s.marqueeEls = styledEls.filter((e) => e.hasFlow && !e.skipText && e.classes.includes('marquee'));
+  if (s.pageVisible.length !== pageRoots.length) s.pageVisible = new Array(pageRoots.length).fill(true);
+  s.activeEdit = null;
+  s.pressed = null;
+  s.highlightCache.clear();
+  buildStatic(s);
+}
+

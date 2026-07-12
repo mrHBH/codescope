@@ -37,9 +37,15 @@ export const palettes: Record<string,Palette> = {
     fg: '#ffffff', caret: '#ffffff',
   }),
   // "light" slot: a warm-grey take that keeps the same structure (still dark-on
-  // surfaces — the design language is fundamentally a dark IDE aesthetic).
+  // surfaces — a true light variant for daytime readability.
   light: ref({
-    bg: '#2b2b2e', bgAlt: '#343438', border: '#3d3d42', backdrop: '#202022', pageBg: '#2b2b2e',
+    bg: '#f5f6f8', bgAlt: '#eceef2', border: '#cfd5df',
+    text: '#1f2430', textDim: '#5f6777',
+    accent: '#0b66d1', accentHover: '#2580ec', accent2: '#6f42c1',
+    success: '#1f9d55', danger: '#c0392b', dangerHover: '#d64a3a', warn: '#bf8b00',
+    cardBg: 'rgba(17,24,39,0.06)', codeBg: 'rgba(17,24,39,0.08)',
+    backdrop: '#e7ebf2', pageBg: '#f5f6f8', fg: '#1f2430', caret: '#1f2430', sel: '#b8d3f6',
+    shadow: 'rgba(15,23,42,0.22)', progFill: '#0b66d1', pulse: '#1f9d55',
   }),
 };
 
@@ -66,7 +72,7 @@ export function buildCSS(p: Palette): string {
 .fc-field { color: ${p.text}; font-size: 12px; line-height: 1.5; margin-bottom: 8px; }
 .fc-field code, code { font-family: Consolas, Monaco, monospace; background: ${p.codeBg}; padding: 1px 5px; font-size: 11px; color: ${p.text}; }
 .audio-player-header, .app-header { padding: 16px 0 12px 0; margin-bottom: 16px; border-bottom: 1px solid ${p.border}; }
-.audio-player-title, .app-title { font-size: 28px; font-weight: 600; color: #fff; letter-spacing: -0.5px; }
+.audio-player-title, .app-title { font-size: 28px; font-weight: 600; color: ${p.fg}; letter-spacing: -0.5px; }
 .audio-player-subtitle, .app-subtitle { margin-top: 6px; color: ${p.textDim}; font-size: 14px; }
 .section-title { font-size: 14px; font-weight: 600; margin: 8px 0 4px; color: ${p.text}; }
 .section-description { font-size: 12px; color: ${p.textDim}; margin-bottom: 8px; }
@@ -99,11 +105,17 @@ export function buildCSS(p: Palette): string {
 .reference-dropdown-btn:hover { border-color: ${p.accent}; }
 .dropdown-text { flex: 1; }
 .dropdown-chevron { display: inline-block; width: 12px; height: 12px; color: ${p.textDim}; }
+.reference-sub-tabs-inline { display: none; margin-top: 2px; min-width: 160px; background: ${p.bg}; border: 1px solid ${p.border}; }
+.reference-dropdown-wrapper.expanded .reference-sub-tabs-inline { display: block; }
+.reference-sub-tab-inline { display: block; width: 100%; padding: 7px 12px; background: transparent; color: ${p.text}; font-size: 12px; cursor: pointer; }
+.reference-sub-tab-inline:hover { background: ${p.cardBg}; }
 
 /* Sliders */
 .seek-row { display: flex; align-items: center; gap: 10px; padding: 4px 0; width: 100%; }
 .reference-grid-value, .control-value, .value-display { min-width: 40px; font-size: 11px; color: ${p.accent}; text-align: right; font-weight: 600; font-family: Consolas, Monaco, monospace; }
-.reference-slider { flex: 1 1 auto; height: 6px; background: ${p.border}; border: 1px solid rgba(255,255,255,0.06); appearance: none; -webkit-appearance: none; }
+.reference-slider { position: relative; flex: 1 1 auto; height: 6px; background: ${p.border}; border: 1px solid rgba(255,255,255,0.06); cursor: pointer; }
+.reference-slider-fill { position: absolute; left: 0; top: 0; bottom: 0; background: ${p.accent}; }
+.reference-slider-thumb { position: absolute; top: -6px; width: 14px; height: 14px; margin-left: -7px; background: ${p.accent}; border: 2px solid ${p.bg}; }
 .advanced-grid { display: flex; flex-direction: column; gap: 8px; width: 100%; }
 .control-row { display: flex; align-items: center; gap: 10px; padding: 2px 0; width: 100%; }
 .control-label { min-width: 64px; font-size: 12px; color: ${p.text}; }
@@ -124,7 +136,8 @@ export function buildCSS(p: Palette): string {
 .model-type-selector { padding: 6px 14px; font-size: 11px; border: 1px solid transparent; background: transparent; color: ${p.text}; cursor: pointer; text-transform: uppercase; letter-spacing: 0.5px; }
 .model-type-selector.active-model-type { background: ${p.backdrop}; border-color: ${p.accent}; color: #ffffff; }
 .model-type-selector:hover { background: rgba(255,255,255,0.05); border-color: ${p.accent}; }
-.model-content-panel { }
+.model-content-panel { display: none; }
+.model-content-panel.active { display: block; }
 
 /* Status badges */
 .status-badge { display: inline-block; padding: 3px 10px; font-size: 11px; font-weight: 600; }
@@ -198,7 +211,7 @@ export function buildCSS(p: Palette): string {
 
 /* Article / blog */
 .blog-article { background: ${p.bgAlt}; padding: 20px; border: 1px solid ${p.border}; }
-.blog-section h2 { color: #fff; font-size: 22px; font-weight: 600; margin-bottom: 16px; letter-spacing: -0.3px; }
+.blog-section h2 { color: ${p.fg}; font-size: 22px; font-weight: 600; margin-bottom: 16px; letter-spacing: -0.3px; }
 .blog-section p { margin-bottom: 14px; color: ${p.text}; font-size: 14px; line-height: 1.7; }
 .lead { font-size: 16px; color: ${p.text}; line-height: 1.6; }
 .insight-block { display: flex; gap: 12px; padding: 16px; background: rgba(0,122,204,0.08); border-left: 3px solid ${p.accent}; margin: 16px 0; }

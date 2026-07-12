@@ -79,7 +79,7 @@ async function main() {
   const s = createAppState({
     dpr, PAGE_W, rCanvas, tCanvas, rCtx, gpuCtx, device,
     renderer: createGlyphRenderer(device, { code: shaderCode, format: 'rgba8unorm' }),
-    font, atlas,
+    font, atlas, container,
     styledEls, pageRoots, editableEls: styledEls.filter(e => e.editable),
     dynamicEls: styledEls.filter(e => e.dynamic),
     marqueeEls: styledEls.filter(e => e.hasFlow && !e.skipText && e.classes.includes('marquee')),
@@ -87,7 +87,7 @@ async function main() {
   });
 
   const theme = createThemeController(s, themeStyle, buildStatic);
-  theme.apply('light');
+  theme.apply('dark');
   s.cycleTheme = theme.cycle;
 
   buildStatic(s);

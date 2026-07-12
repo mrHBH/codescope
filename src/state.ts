@@ -26,6 +26,7 @@ export interface AppState {
   atlas: any;
 
   // DOM + layout tree
+  container: HTMLElement;
   styledEls: StyledEl[];
   pageRoots: StyledEl[];
   editableEls: StyledEl[];
@@ -86,6 +87,7 @@ export function createAppState(partial: Partial<AppState>): AppState {
     dpr: 1, PAGE_W: 1040,
     rCanvas: null as any, tCanvas: null as any, rCtx: null as any, gpuCtx: null as any,
     device: null as any, renderer: null, font: null as any, atlas: null,
+    container: null as any,
     styledEls: [], pageRoots: [], editableEls: [], dynamicEls: [], marqueeEls: [], pages: [], docH: 0, docRoot: null as any,
     cssRules: [], isDark: false, themeMode: 'light', themeCol: {
       backdrop: [0,0,0,0], pageBg: [0,0,0,0], prog: [0,0,0,0], pulse: [0,0,0,0],

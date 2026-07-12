@@ -42,8 +42,13 @@ export function walkDOM(el: Element, parent: StyledEl | null, styledEls: StyledE
   const ANIM = ['bounce','heartbeat','progress','pulse','glow','float','spin','shimmer'];
   let anim = '';
   for (const a of ANIM) if (cl.contains(a)) { anim = a; break; }
-  const hoverable = cl.contains('btn') || cl.contains('card') || cl.contains('feature') || cl.contains('tab') || pageIdx >= 0 || el.tagName === 'A';
-  const shadowable = cl.contains('card') || cl.contains('btn') || cl.contains('feature');
+  // Substring match on the class string: our component classes are `reference-btn`,
+  // `model-type-selector`, etc., so exact classList.contains('btn') would miss them.
+  const cn = typeof el.className === 'string' ? el.className : '';
+  const has = (sub: string) => cn.indexOf(sub) >= 0;
+  const interactive = has('btn') || has('tab') || has('toggle') || has('slider') || has('dropdown') || has('model-type-selector');
+  const hoverable = interactive || has('card') || has('feature') || pageIdx >= 0 || el.tagName === 'A';
+  const shadowable = has('card') || has('btn') || has('feature');
   // An element only needs per-frame dynamic-background work if it can hover,
   // cast a shadow, or run an animation. Everything else is baked into the static
   // buffers and skipped entirely by the frame loop.

@@ -17,13 +17,13 @@ function editorTheme(s: AppState): EditorTheme {
   const c = s.themeCol;
   const dark = s.isDark;
   return {
-    bg: dark ? [0.06, 0.07, 0.10, 1] : [0.117, 0.117, 0.17, 1],
-    gutterBg: dark ? [0.04, 0.05, 0.08, 1] : [0.09, 0.09, 0.14, 1],
-    gutterFg: [0.42, 0.45, 0.58, 1],
-    curLineFg: [0.85, 0.88, 0.96, 1],
-    curLineBg: [1, 1, 1, 0.04],
-    text: [0.804, 0.839, 0.957, 1],
-    caret: [0.95, 0.96, 1, 1],
+    bg: dark ? [0.06, 0.07, 0.10, 1] : [0.96, 0.97, 0.99, 1],
+    gutterBg: dark ? [0.04, 0.05, 0.08, 1] : [0.92, 0.94, 0.97, 1],
+    gutterFg: dark ? [0.42, 0.45, 0.58, 1] : [0.38, 0.42, 0.50, 1],
+    curLineFg: dark ? [0.85, 0.88, 0.96, 1] : [0.18, 0.22, 0.30, 1],
+    curLineBg: dark ? [1, 1, 1, 0.04] : [0.03, 0.16, 0.36, 0.08],
+    text: dark ? [0.804, 0.839, 0.957, 1] : [0.14, 0.18, 0.26, 1],
+    caret: dark ? [0.95, 0.96, 1, 1] : [0.10, 0.14, 0.22, 1],
     sel: [c.sel[0], c.sel[1], c.sel[2], 0.4],
   };
 }
@@ -127,6 +127,12 @@ export function runFrame(s: AppState) {
         const g = 14 * el.curShadow;
         addRect(el.x - g, el.y - g, el.x + el.w + g, el.y + el.h + g, [s.themeCol.shadow[0], s.themeCol.shadow[1], s.themeCol.shadow[2], s.themeCol.shadow[3] * el.curShadow], crv, rws, inst);
         addRect(el.x, el.y, el.x + el.w, el.y + el.h, el.curBg, crv, rws, inst);
+      } else if (anim === '' && (isHov || isAct)) {
+        // Hover/active fill for non-animated controls (buttons, tabs, toggles,
+        // dropdown, cards). Inset by the border so the baked border ring stays
+        // visible; the baked static bg beneath is fully covered by curBg.
+        const [bt, br, bb, bl] = el.borderW;
+        addRect(el.x + bl, el.y + bt, el.x + el.w - br, el.y + el.h - bb, el.curBg, crv, rws, inst);
       }
 
       if (anim === 'progress') {
