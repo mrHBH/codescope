@@ -9,6 +9,7 @@ import { hitTest, findEditableAncestor } from '../layout/walk';
 import { layoutEditable, placeCaretAtPoint, caretIndexAtPoint } from '../layout/editable';
 import { ContextMenu, type MenuItem } from '../ui/contextMenu';
 import { handleEditorKey } from '../editor/editorInput';
+import { handleTerminalKey } from '../editor/terminalInput';
 import { handleClickInteraction, sliderOf, setSliderFromX } from '../ui/interactions';
 import { refreshLayout } from '../precompute';
 
@@ -98,8 +99,7 @@ export function attachInput(s: AppState) {
     const w = scrToWorld(s, b.x, b.y);
 
     // Editor mode: click inside the panel places the caret + starts a selection.
-    if (s.editorMode && s.editor) {
-      const ed = s.editor;
+    if (s.editorMode && s.editor) {      const ed = s.editor;
       const inPanel = w.x >= ed.x0 && w.x <= ed.x0 + ed.contentWidth() && w.y >= ed.y0 && w.y <= ed.y0 + ed.contentHeight();
       if (inPanel) {
         ed.focused = true;
@@ -248,7 +248,8 @@ export function attachInput(s: AppState) {
 
   // ── Text editing ────────────────────────────────────────────────────────
   addEventListener('keydown', (e) => {
-    // Code editor takes precedence when active.
+    // Code editor / terminal take precedence when active.
+    if (s.terminalMode && s.terminal) { handleTerminalKey(s, e); return; }
     if (s.editorMode && s.editor) { handleEditorKey(s, e); return; }
     if (!s.activeEdit) return;
     const el = s.activeEdit, t = el.editText;

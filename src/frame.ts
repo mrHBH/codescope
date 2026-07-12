@@ -12,6 +12,26 @@ import { layoutEditable } from './layout/editable';
 import { hitTest } from './layout/walk';
 import { stepCamera } from './camera/camera';
 import type { EditorTheme } from './editor/editor';
+import type { TerminalTheme } from './editor/terminal';
+
+function terminalTheme(): TerminalTheme {
+  // A fixed dark VS Code-ish palette (the terminal reads as a dark surface in
+  // every app theme — like a real embedded shell).
+  return {
+    bg: [0.086, 0.086, 0.098, 1],      // #16161a
+    barBg: [0.13, 0.13, 0.15, 1],
+    barFg: [0.7, 0.72, 0.78, 1],
+    text: [0.83, 0.85, 0.90, 1],
+    dim: [0.45, 0.48, 0.55, 1],
+    prompt: [0.83, 0.85, 0.90, 1],
+    green: [0.42, 0.80, 0.44, 1],
+    cyan: [0.35, 0.82, 0.94, 1],
+    yellow: [0.95, 0.76, 0.35, 1],
+    red: [0.88, 0.40, 0.38, 1],
+    magenta: [0.72, 0.48, 0.96, 1],
+    caret: [0.62, 0.82, 0.55, 1],
+  };
+}
 
 function editorTheme(s: AppState): EditorTheme {
   const c = s.themeCol;
@@ -173,6 +193,15 @@ export function runFrame(s: AppState) {
       const edR = ed.x0 + ed.contentWidth(), edB = ed.y0 + ed.contentHeight();
       if (ed.x0 <= vR && edR >= vL && ed.y0 <= vB && edB >= vT) {
         ed.render(s.font, s.atlas, inst, crv, rws, vT, vB, now, editorTheme(s), caretW);
+      }
+    }
+
+    // Terminal (world-space panel). Rendered when it intersects the viewport.
+    if (s.terminal) {
+      const tm = s.terminal;
+      const tR = tm.x0 + tm.contentW, tB = tm.y0 + tm.contentH;
+      if (tm.x0 <= vR && tR >= vL && tm.y0 <= vB && tB >= vT) {
+        tm.render(s.font, s.atlas, inst, crv, rws, now, dt, terminalTheme(), caretW);
       }
     }
 

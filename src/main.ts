@@ -20,6 +20,7 @@ import { ICONS, ILLUSTRATIONS } from './content/art';
 import { svgPathToQuads } from './windfoil/svg';
 import { CodeEditor, editorAtlasChars } from './editor/editor';
 import { SAMPLE_CODE } from './editor/sample';
+import { Terminal } from './editor/terminal';
 import { createToolbar } from './ui/toolbar';
 
 async function main() {
@@ -109,17 +110,44 @@ async function main() {
     s.tgtY = editor.y0 + s.tCanvas.height / (2 * s.tgtZ) - 20;
     s.velX = s.velY = 0;
   }
-  let edBtn: HTMLButtonElement | null = null;
-  function setEditorMode(on: boolean) {
-    s.editorMode = on;
-    if (on) { editor.focused = true; s.activeEdit = null; frameEditor(); }
-    else goToPage(s, 0);
-    if (edBtn) edBtn.textContent = on ? '📄' : '⌨️';
+
+  // ── Terminal ──────────────────────────────────────────────────────────────
+  // Same renderer, its own world-space panel to the right of the editor.
+  const terminal = new Terminal();
+  terminal.font = font;
+  terminal.x0 = editor.x0 + 1400;
+  terminal.y0 = 0;
+  s.terminal = terminal;
+
+  function frameTerminal() {
+    const w = terminal.contentW;
+    s.tgtZ = Math.min((s.tCanvas.width / w) * 0.92, 1.5);
+    s.tgtX = terminal.x0 + w / 2;
+    s.tgtY = terminal.y0 + s.tCanvas.height / (2 * s.tgtZ) - 20;
+    s.velX = s.velY = 0;
   }
 
-  // Fixed toolbar (top-right): editor toggle + theme cycle.
+  let edBtn: HTMLButtonElement | null = null;
+  let tmBtn: HTMLButtonElement | null = null;
+  function setEditorMode(on: boolean) {
+    s.editorMode = on;
+    if (on) { s.terminalMode = false; terminal.focused = false; editor.focused = true; s.activeEdit = null; frameEditor(); }
+    else goToPage(s, 0);
+    if (edBtn) edBtn.textContent = on ? '📄' : '⌨️';
+    if (tmBtn) tmBtn.textContent = '❯_';
+  }
+  function setTerminalMode(on: boolean) {
+    s.terminalMode = on;
+    if (on) { s.editorMode = false; editor.focused = false; terminal.focused = true; s.activeEdit = null; terminal.open(); frameTerminal(); }
+    else goToPage(s, 0);
+    if (tmBtn) tmBtn.textContent = on ? '📄' : '❯_';
+    if (edBtn) edBtn.textContent = '⌨️';
+  }
+
+  // Fixed toolbar (top-right): editor toggle + terminal toggle + theme cycle.
   createToolbar([
     { icon: '⌨️', title: 'Toggle code editor', onClick: () => setEditorMode(!s.editorMode), ref: (el) => { edBtn = el; } },
+    { icon: '❯_', title: 'Toggle terminal', onClick: () => setTerminalMode(!s.terminalMode), ref: (el) => { tmBtn = el; } },
     { icon: '🌙', title: 'Cycle theme: light → dark → high contrast', onClick: () => s.cycleTheme!(), ref: (el) => { s.themeBtn = el; } },
   ]);
 

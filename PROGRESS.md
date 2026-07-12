@@ -19,9 +19,7 @@ entirely through the analytic pipeline. Four pages:
 2. **Data & Status** — cards, stats grid, entity grid, progress, badges, LEDs, logs, test runner
 3. **Layout & Content** — separators, header+logo, controls bar, article blocks, viewport slot
 
-Two supporting capabilities were added for fidelity:
-
-- **Border rendering** — `StyledEl` now carries per-side border widths/colors
+Two supporting capabilities were added for fidelity:- **Border rendering** — `StyledEl` now carries per-side border widths/colors
   (`borderW`/`borderC`), read in `walk.ts`, re-read on theme change, and baked as
   thin edge rects in `precompute.ts` (independent of background alpha). This makes
   the design's crisp 1px dividers, card outlines, inputs, and left-accent bars
@@ -84,6 +82,8 @@ src/
     editor.ts        CodeEditor: proportional layout, gutter, caret, selection, viewport cull
     editorInput.ts   handleEditorKey + ensureCaretVisible (keyboard → editor commands)
     sample.ts        Sample source shown on open
+    terminal.ts      Terminal: TUI shell — scrollback, prompt, animated boot + widgets
+    terminalInput.ts handleTerminalKey (keyboard → terminal commands)
 ```
 
 **Design decision:** a single `AppState` object is threaded through `camera`,
@@ -134,6 +134,18 @@ tangle and avoids circular imports (modules import only types or leaf modules).
   - Clipboard (Ctrl+C/X/V), auto-indent on Enter, Tab insert.
   - **Viewport line culling** — only lines intersecting the camera are laid out;
     caret auto-scrolls the camera to stay in view.
+- [x] **Terminal TUI** (`editor/terminal.ts`) — a fully animated shell rendered
+      through the same pipeline. Toggle with ❯_ (top-right, next to the editor
+      button). Features:
+  - Styled scrollback buffer with **typewriter boot sequence**.
+  - **Smooth gliding caret** — a thin bar that eases to its target column with a
+    soft sinusoidal blink (not a snapping block).
+  - **Command interpreter**: `help`, `ls`, `echo`, `neofetch`, `colors`, `clear`.
+  - **GPU-rect widget dock** — widgets draw fractional-size rects with eased motion,
+    sub-cell smooth (a character-grid terminal can't): orbiting-dot spinner, smooth
+    progress bar with moving sheen, eased bar chart, **live scrolling signal graph**
+    (`graph`), particle-trail matrix rain, live clock. All off the frame clock.
+  - History (↑/↓), Ctrl+C to cancel widgets, Ctrl+V paste.
 - [ ] File tab bar, side-by-side columns (multi-file)
 - [ ] Extended syntax highlighting (more languages)
 - [ ] Code folding, bracket matching

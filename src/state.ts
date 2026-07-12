@@ -6,6 +6,7 @@
 import type { FontFace } from './windfoil/font';
 import type { StyledEl, PageRect, Seg } from './layout/types';
 import type { CodeEditor } from './editor/editor';
+import type { Terminal } from './editor/terminal';
 
 export interface ThemeCol {
   backdrop: number[]; pageBg: number[]; prog: number[]; pulse: number[];
@@ -80,6 +81,10 @@ export interface AppState {
   editor: CodeEditor | null;
   editorMode: boolean;
   editorSelecting: boolean;
+
+  // terminal
+  terminal: Terminal | null;
+  terminalMode: boolean;
 }
 
 export function createAppState(partial: Partial<AppState>): AppState {
@@ -104,6 +109,7 @@ export function createAppState(partial: Partial<AppState>): AppState {
     crvFA: new Float32Array(4096), rwsUA: new Uint32Array(1024), instFA: new Float32Array(16384),
     instJS: [], activeEdit: null, pressed: null, selecting: false,
     editor: null, editorMode: false, editorSelecting: false,
+    terminal: null, terminalMode: false,
     ...partial,
   } as AppState;
 }
