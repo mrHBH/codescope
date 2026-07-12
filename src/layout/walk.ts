@@ -15,7 +15,24 @@ export function walkDOM(el: Element, parent: StyledEl | null, styledEls: StyledE
   const fs=parseFloat(cs.fontSize)||16;
   const lh=cs.lineHeight==='normal'?fs*1.2:parseFloat(cs.lineHeight)||fs*1.2;
   const radius=parseFloat(cs.borderTopLeftRadius)||0;
-  const inline=cs.display==='inline'||cs.display==='inline-block';
+  const display=cs.display;
+  const inline=display==='inline'||display==='inline-block';
+  // Pure inline (text spans) contribute no box; inline-block DOES paint a box
+  // (buttons, badges, LEDs), so it gets a background/border baked.
+  const inlineText=display==='inline';
+  // Per-side border widths + colors. Only sides with a visible style contribute;
+  // `border-style:none` reports width 0 in most browsers, but guard anyway.
+  const bw = (w: string, style: string) => (style && style !== 'none' ? parseFloat(w) || 0 : 0);
+  const borderW = [
+    bw(cs.borderTopWidth, cs.borderTopStyle),
+    bw(cs.borderRightWidth, cs.borderRightStyle),
+    bw(cs.borderBottomWidth, cs.borderBottomStyle),
+    bw(cs.borderLeftWidth, cs.borderLeftStyle),
+  ];
+  const borderC = [
+    parseColor(cs.borderTopColor), parseColor(cs.borderRightColor),
+    parseColor(cs.borderBottomColor), parseColor(cs.borderLeftColor),
+  ];
   const isPre=el.tagName==='PRE';
   const upper=cs.textTransform==='uppercase';
   const editable=el.classList.contains('editable') && !isPre;
@@ -45,7 +62,9 @@ export function walkDOM(el: Element, parent: StyledEl | null, styledEls: StyledE
     textAlign: cs.textAlign||'left', upper,
     curBg: parseColor(cs.backgroundColor),
     curShadow: 0,
+    borderW, borderC,
     inline, skipText: false, hasFlow: false, isPre,
+    inlineText,
     editable, editText: editable?text.trim():'', caret: editable?text.trim().length:0, selAnchor: -1, originText: editable?text.trim():'',
     caretXs: null, caretLines: null, lineTops: null,
     pageIdx, hoverable, shadowable, anim, dynamic, ownerPage: -1, icon,

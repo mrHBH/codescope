@@ -42,6 +42,15 @@ export function createThemeController(
       el.curBg = parseColor(cs.backgroundColor);
       el.upper = cs.textTransform === 'uppercase';
       el.textAlign = cs.textAlign || 'left';
+      const bw = (w: string, style: string) => (style && style !== 'none' ? parseFloat(w) || 0 : 0);
+      el.borderW = [
+        bw(cs.borderTopWidth, cs.borderTopStyle), bw(cs.borderRightWidth, cs.borderRightStyle),
+        bw(cs.borderBottomWidth, cs.borderBottomStyle), bw(cs.borderLeftWidth, cs.borderLeftStyle),
+      ];
+      el.borderC = [
+        parseColor(cs.borderTopColor), parseColor(cs.borderRightColor),
+        parseColor(cs.borderBottomColor), parseColor(cs.borderLeftColor),
+      ];
     }
     if (s.themeBtn) s.themeBtn.textContent = THEME_ICON[mode] || '🌙';
 

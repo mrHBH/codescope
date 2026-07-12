@@ -13,7 +13,11 @@ export interface StyledEl {
   fs: number; lh: number; radius: number;
   color: number[]; bg: number[]; textAlign: string; upper: boolean;
   curBg: number[]; curShadow: number;
+  // Per-side border widths [top,right,bottom,left] and their colors (RGBA). A
+  // side draws only when its width > 0 and color alpha > 0.
+  borderW: number[]; borderC: number[][];
   inline: boolean; skipText: boolean; hasFlow: boolean; isPre: boolean;
+  inlineText: boolean;
   editable: boolean; editText: string; caret: number; selAnchor: number; originText: string;
   caretXs: number[] | null; caretLines: number[] | null; lineTops: number[] | null;
   // Precomputed per-frame dispatch flags (set once in walkDOM) — avoids repeated

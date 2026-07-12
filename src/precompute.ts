@@ -5,9 +5,22 @@
 // every frame).
 
 import type { AppState } from './state';
+import type { StyledEl } from './layout/types';
 import { addRect, layoutIcon } from './layout/metrics';
 import { layoutFlow, layoutPre } from './layout/flow';
 import { highlightCode } from './layout/metrics';
+
+// Emit the four border edges of an element as thin rects. Widths are in world
+// px (already DOM-measured). Each side draws only when width>0 and alpha>0.
+function addBorders(el: StyledEl, crv: number[], rws: number[], out: number[]) {
+  const [wt, wr, wb, wl] = el.borderW;
+  const [ct, cr, cb, cl] = el.borderC;
+  const x0 = el.x, y0 = el.y, x1 = el.x + el.w, y1 = el.y + el.h;
+  if (wt > 0 && ct[3] > 0.001) addRect(x0, y0, x1, y0 + wt, ct, crv, rws, out);
+  if (wb > 0 && cb[3] > 0.001) addRect(x0, y1 - wb, x1, y1, cb, crv, rws, out);
+  if (wl > 0 && cl[3] > 0.001) addRect(x0, y0 + wt, x0 + wl, y1 - wb, cl, crv, rws, out);
+  if (wr > 0 && cr[3] > 0.001) addRect(x1 - wr, y0 + wt, x1, y1 - wb, cr, crv, rws, out);
+}
 
 export function buildStatic(s: AppState) {
   const nPages = s.pageRoots.length;
@@ -17,18 +30,28 @@ export function buildStatic(s: AppState) {
   const bgByPage: number[][] = Array.from({ length: nPages }, () => []);
   const textByPage: number[][] = Array.from({ length: nPages }, () => []);
 
-  // Layer 1 static backgrounds: page rects + non-animated element backgrounds
+  // Layer 1 static backgrounds: page rects + non-animated element backgrounds + borders
   const preCrv: number[] = [], preRws: number[] = [];
   for (let p = 0; p < nPages; p++) {
     const pg = s.pageRoots[p];
     addRect(pg.x, pg.y, pg.x + pg.w, pg.y + pg.h, s.themeCol.pageBg, preCrv, preRws, bgByPage[p]);
   }
   for (const el of s.styledEls) {
-    if (el.inline || el.curBg[3] <= 0.001) continue;
-    if (el.anim !== '') continue;
+    if (el.inlineText || el.anim !== '') continue;
     const p = el.ownerPage; if (p < 0) continue;
-    addRect(el.x, el.y, el.x + el.w, el.y + el.h, el.curBg, preCrv, preRws, bgByPage[p]);
+    if (el.curBg[3] > 0.001) addRect(el.x, el.y, el.x + el.w, el.y + el.h, el.curBg, preCrv, preRws, bgByPage[p]);
+    addBorders(el, preCrv, preRws, bgByPage[p]);
   }
+  // bandPieces numbered these rects' rows (row.start = curve-piece index) and the
+  // instances' rowBase relative to the pre buffers starting at 0. But the frame
+  // loop appends preCrv/preRws AFTER the base atlas buffers, so every baked band
+  // index must be shifted by the base atlas size to become absolute in the
+  // combined buffer the shader reads. Without this, background/border rects read
+  // glyph band data instead of their own (fills vanish, borders render garbled).
+  const basePieces = s.atlas.curves.length / 6; // 3 vec2 (6 floats) per monotone piece
+  const baseRows = s.atlas.rows.length / 5;      // ROW_STRIDE = 5 uint32 per band row
+  for (let r = 0; r < preRws.length; r += 5) preRws[r] += basePieces;
+  for (const buf of bgByPage) for (let i = 12; i < buf.length; i += 16) buf[i] += baseRows;
   s.preCrv = preCrv; s.preRws = preRws;
   s.preCrvLen = preCrv.length; s.preRwsLen = preRws.length;
 

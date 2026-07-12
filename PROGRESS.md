@@ -1,10 +1,34 @@
 # Windfoil — Progress & Project State
 
-_Last updated: 2026-07-11_
+_Last updated: 2026-07-12_
 
 This document tracks the current state of the Windfoil codebase against the
 roadmap in `VISION.md`. It supersedes the "what's done" mental model — read this
 for ground truth on structure and feature completeness.
+
+---
+
+## 0. Current content: yasmineOS Design Language Reference
+
+The document content is now a faithful recreation of the yasmineOS
+`design_language_reference` (a VS Code-style dark component catalog), rendered
+entirely through the analytic pipeline. Four pages:
+
+0. **Foundations** — color tokens, headings, buttons (6 variants), layout primitives
+1. **Controls** — inputs, textarea, dropdown, sliders, control grid, toggles, tabs
+2. **Data & Status** — cards, stats grid, entity grid, progress, badges, LEDs, logs, test runner
+3. **Layout & Content** — separators, header+logo, controls bar, article blocks, viewport slot
+
+Two supporting capabilities were added for fidelity:
+
+- **Border rendering** — `StyledEl` now carries per-side border widths/colors
+  (`borderW`/`borderC`), read in `walk.ts`, re-read on theme change, and baked as
+  thin edge rects in `precompute.ts` (independent of background alpha). This makes
+  the design's crisp 1px dividers, card outlines, inputs, and left-accent bars
+  render correctly.
+- **inline-block boxes** — `walk.ts` distinguishes pure `inline` (text spans, no
+  box) from `inline-block` (buttons, badges, LEDs) so the latter get their
+  background + border baked.
 
 ---
 
@@ -43,8 +67,8 @@ src/
     camera.ts        Pan/zoom transform, goToPage, stepCamera
     input.ts         Pointer/wheel/keyboard → camera + editing + navigation
   content/
-    pages.ts         Ordered list; imports the 11 raw .html page files below
-    pages/           00-home.html … 10-playground.html (one file per page, ?raw)
+    pages.ts         Ordered list; imports the 4 raw .html page files below
+    pages/           00-foundations … 03-layout-content (one file per page, ?raw)
     art.ts           Filled SVG path data: ICONS + ILLUSTRATIONS (24×24 grid)
   ui/
     icons.ts         Inline SVG line-icons (currentColor, 24×24 grid)

@@ -1,0 +1,114 @@
+<div class="page">
+  <div class="reference-separator-horizontal"></div>
+  <header class="audio-player-header">
+    <h1 class="audio-player-title">Data &amp; Status</h1>
+    <p class="audio-player-subtitle">Cards, stats, entities, progress, badges, LEDs, logs, and the test runner</p>
+  </header>
+
+  <div class="button-row">
+    <div class="reference-btn jump" data-page="0">Foundations</div>
+    <div class="reference-btn jump" data-page="1">Controls</div>
+    <div class="reference-btn reference-btn-primary jump" data-page="2">Data &amp; Status</div>
+    <div class="reference-btn jump" data-page="3">Layout &amp; Content</div>
+  </div>
+
+  <div class="reference-card">
+    <span class="reference-label">Card Title</span>
+    <div class="fc-field">Cards group content with a subtle glass-like background and a 1px border.</div>
+    <div class="button-row" style="margin-bottom:0"><div class="reference-btn reference-btn-primary">Card Action</div></div>
+  </div>
+
+  <div class="reference-separator-horizontal"></div>
+
+  <div class="reference-field">
+    <span class="reference-label">Stats Grid</span>
+    <div class="stats-grid">
+      <div class="stat-row"><span class="stat-name">FPS</span><span class="stat-val">60</span></div>
+      <div class="stat-row"><span class="stat-name">Draw Calls</span><span class="stat-val">142</span></div>
+      <div class="stat-row"><span class="stat-name">Triangles</span><span class="stat-val">48,320</span></div>
+      <div class="stat-row"><span class="stat-name">Frame Time</span><span class="stat-val">16.6ms</span></div>
+    </div>
+  </div>
+
+  <div class="reference-separator-horizontal"></div>
+
+  <div class="reference-field">
+    <span class="reference-label">Entity Grid</span>
+    <div class="entity-grid">
+      <div class="entity-item"><span class="entity-type zoom-active">COLD</span><span class="entity-desc">Alice (Xbot.glb) — assets released on destroy</span></div>
+      <div class="entity-item"><span class="entity-type zoom-active">HOT</span><span class="entity-desc">HBH (hbh.glb) — assets persist for fast respawn</span></div>
+    </div>
+  </div>
+
+  <div class="reference-separator-horizontal"></div>
+
+  <div class="reference-field">
+    <span class="reference-label">Progress Bar</span>
+    <div class="progress-bar-container"><div class="progress-bar-fill" style="width:65%"></div></div>
+    <div class="progress-text">65% — downloading assets</div>
+  </div>
+
+  <div class="reference-separator-horizontal"></div>
+
+  <div class="reference-field">
+    <span class="reference-label">Status Badges</span>
+    <div class="button-row">
+      <span class="status-badge status-unknown">Unknown</span>
+      <span class="status-badge status-ok">OK</span>
+      <span class="status-badge status-error">Error</span>
+      <span class="status-badge status-info">Info</span>
+    </div>
+  </div>
+
+  <div class="reference-field">
+    <span class="reference-label">Status LEDs</span>
+    <div class="led-row">
+      <div class="led-item"><span class="status-led idle"></span><span class="fc-field" style="margin:0">Idle</span></div>
+      <div class="led-item"><span class="status-led loading"></span><span class="fc-field" style="margin:0">Loading</span></div>
+      <div class="led-item"><span class="status-led ready"></span><span class="fc-field" style="margin:0">Ready</span></div>
+      <div class="led-item"><span class="status-led error"></span><span class="fc-field" style="margin:0">Error</span></div>
+    </div>
+  </div>
+
+  <div class="reference-field">
+    <span class="reference-label">Master Status</span>
+    <div class="master-status">System Offline</div>
+    <div class="master-status on" style="margin-top:8px">System Online</div>
+  </div>
+
+  <div class="reference-separator-horizontal"></div>
+
+  <div class="reference-field">
+    <span class="reference-label">Log Container</span>
+    <div class="log-container">
+      <div class="log-entry log-info">[10:00:01] System initialized</div>
+      <div class="log-entry log-success">[10:00:02] Connection established</div>
+      <div class="log-entry log-warn">[10:00:03] High memory usage detected</div>
+      <div class="log-entry log-error">[10:00:04] Failed to load module: audio</div>
+      <div class="log-entry log-info">[10:00:05] Retrying...</div>
+      <div class="log-entry log-success">[10:00:06] Module loaded successfully</div>
+      <div class="log-entry log-info">[10:00:07] Ready for input</div>
+    </div>
+  </div>
+
+  <div class="reference-separator-horizontal"></div>
+
+  <div class="reference-field">
+    <span class="reference-label">Automated Test Suite</span>
+    <div class="test-runner">
+      <div class="test-header">
+        <span class="test-title">Test Suite</span>
+        <div class="reference-btn reference-btn-primary">Run Tests</div>
+      </div>
+      <div class="test-summary">All 3 tests completed</div>
+      <div class="test-list">
+        <div class="test-item"><span class="test-pass" data-icon="check"></span><span class="test-name">API initialization</span><span class="test-dur">42ms</span></div>
+        <div class="test-item"><span class="test-pass" data-icon="check"></span><span class="test-name">Data validation</span><span class="test-dur">18ms</span></div>
+        <div class="test-item fail"><span class="test-failmark" data-icon="cross"></span><span class="test-name">Edge case handling</span><span class="test-dur">31ms</span></div>
+      </div>
+      <div class="test-footer"><span class="test-pass">2 passed</span><span class="test-failmark">1 failed</span><span style="color:#888">91ms</span></div>
+    </div>
+  </div>
+
+  <p class="footer fc-field">Design Language Reference — Data &amp; Status</p>
+</div>

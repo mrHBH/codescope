@@ -60,7 +60,8 @@ async function main() {
     tag: 'BODY', classes: [], id: '', x: 0, y: 0, w: PAGE_W, h: docH, pad: [0, 0, 0, 0], text: '',
     children: pageRoots, parent: null, el: container,
     fs: 16, lh: 16, radius: 0, color: [0, 0, 0, 1], bg: [0, 0, 0, 0], textAlign: 'left', upper: false,
-    curBg: [0, 0, 0, 0], curShadow: 0, inline: false, skipText: true, hasFlow: false, isPre: false,
+    curBg: [0, 0, 0, 0], curShadow: 0, borderW: [0, 0, 0, 0], borderC: [[0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0]],
+    inline: false, skipText: true, hasFlow: false, isPre: false, inlineText: false,
     editable: false, editText: '', caret: 0, selAnchor: -1, originText: '', caretXs: null, caretLines: null, lineTops: null,
     pageIdx: -1, hoverable: false, shadowable: false, anim: '', dynamic: false, ownerPage: -1, icon: '',
   };
