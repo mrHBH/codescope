@@ -111,18 +111,24 @@ export function attachInput(s: AppState) {
       // click outside the panel → pan the canvas (fall through)
     }
 
-    // File tree mode: click inside the panel toggles folders / selects files.
-    if (s.fileTreeMode && s.fileTree) {
+    // File tree: click inside its panel toggles folders / selects files.
+    // Interactive whenever the pointer is over the panel (it renders as a
+    // persistent side panel), not only while fileTreeMode is engaged.
+    if (s.fileTree) {
       const ft = s.fileTree;
       const inPanel = w.x >= ft.x0 && w.x <= ft.x0 + ft.width && w.y >= ft.y0 && w.y <= ft.y0 + ft.contentHeight;
       if (inPanel) {
         ft.focused = true;
         const row = ft.rowAtY(w.y);
         if (row) {
-          if (row.node.type === 'folder' && ft.isOnChevron(w.x, row)) {
+          // Folders toggle on any click; files select, but clicking the file's
+          // guide line collapses its parent folder (matching hybridcoder).
+          if (row.node.type === 'folder') {
             ft.toggleFolder(row.node.path);
           } else {
-            ft.select(row.node.path);
+            const viaLine = ft.connectorTarget(w.x, row);
+            if (viaLine) ft.toggleFolder(viaLine);
+            else ft.select(row.node.path);
           }
         }
         s.pressed = null;
@@ -251,6 +257,18 @@ export function attachInput(s: AppState) {
     s.lastWheelT = performance.now();
     const b = bufCoords(s, e.clientX, e.clientY);
     const Cw = s.tCanvas.width, Ch = s.tCanvas.height;
+    const w = scrToWorld(s, b.x, b.y);
+
+    // File-tree local scroll (when in file-tree mode and wheel is over panel).
+    if (!s.rightDown && !e.ctrlKey && s.fileTree) {
+      const ft = s.fileTree;
+      const inPanel = w.x >= ft.x0 && w.x <= ft.x0 + ft.width && w.y >= ft.y0 && w.y <= ft.y0 + ft.contentHeight;
+      if (inPanel) {
+        ft.scrollBy((e.deltaY / s.camZ) * 0.9);
+        return;
+      }
+    }
+
     if (s.rightDown || e.ctrlKey) {
       if (s.rightDown) rightWheeled = true;
       const wx = (b.x - Cw / 2) / s.camZ + s.camX, wy = (b.y - Ch / 2) / s.camZ + s.camY;

@@ -122,9 +122,12 @@ async function main() {
 
   function frameFileTree() {
     const w = fileTree.width + 60;
-    s.tgtZ = Math.min((s.tCanvas.width / w) * 0.92, 1.4);
+    const z = Math.min((s.tCanvas.width / w) * 0.92, 1.4);
+    fileTree.setViewportHeight(s.tCanvas.height / Math.max(z, 1e-6));
+    const h = fileTree.contentHeight;
+    s.tgtZ = z;
     s.tgtX = fileTree.x0 + w / 2;
-    s.tgtY = fileTree.y0 + s.tCanvas.height / (2 * s.tgtZ) - 20;
+    s.tgtY = fileTree.y0 + h / 2;
     s.velX = s.velY = 0;
   }
 

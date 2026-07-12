@@ -40,11 +40,12 @@ function fileTreeTheme(): FileTreeTheme {
     barBg: [0.13, 0.13, 0.15, 1],
     barFg: [0.7, 0.72, 0.78, 1],
     text: [0.83, 0.85, 0.90, 1],
-    dim: [0.45, 0.48, 0.55, 1],
+    dim: [0.56, 0.58, 0.64, 1],
     gold: [0.86, 0.71, 0.48, 1],         // #dcb67a — yasmineoss folder gold
     folder: [0.83, 0.85, 0.90, 1],       // folder name color
-    line: [0.35, 0.38, 0.45, 1],         // tree lines, borders
-    selected: [0.15, 0.33, 0.55, 0.25],  // selection highlight
+    line: [0.48, 0.40, 0.27, 1],         // warm rails (reference style)
+    accent: [0.86, 0.71, 0.48, 1],       // chevron/branch highlight in folder-gold
+    selected: [0.10, 0.34, 0.52, 0.42],  // subdued cyan selection strip
     hover: [1, 1, 1, 0.05],              // hover highlight
   };
 }
@@ -197,7 +198,7 @@ export function runFrame(s: AppState) {
       if (he) cursor = 'text';
     }
     // File tree cursor: pointer when hovering over items
-    if (s.fileTree && s.fileTree.hovered && s.fileTreeMode) {
+    if (s.fileTree && s.fileTree.hovered) {
       cursor = 'pointer';
     }
     s.rCanvas.style.cursor = cursor;

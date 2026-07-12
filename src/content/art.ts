@@ -34,10 +34,13 @@ export const ICONS: Record<string, string | string[]> = {
   // Folder — tab on top-left, rounded body (yasmineoss design). Open/closed
   // state is shown by the chevron rotation, so a single folder icon suffices.
   folder: 'M4,5 L9,5 L11,7 L20,7 A2,2 0 0,1 22,9 L22,19 A2,2 0 0,1 20,21 L4,21 A2,2 0 0,1 2,19 L2,7 A2,2 0 0,1 4,5 Z',
+  // Outline-style folder (even-odd fill creates a ring + inner cavity), closer
+  // to hybridcoder's folder glyph appearance.
+  folderOutline: 'M3,4 L9,4 L11,6 L21,6 L21,21 L3,21 Z M5,6 L8.4,6 L10.4,8 L19,8 L19,19 L5,19 Z',
   // Generic file / document with corner fold
   file: 'M7,3 L15,3 L19,7 L19,21 L5,21 L5,5 A2,2 0 0,1 7,3 Z M15,3 L15,7 L19,7 Z',
   // Chevron pointing right (for collapsed folders)
-  chevronRight: 'M7 5l7 7-7 7z',  // filled triangle pointing right
+  chevronRight: 'M8.3 5.3a1 1 0 0 1 1.4 0L15 10.6 9.7 15.9a1 1 0 0 1-1.4-1.4l4.6-4.6-4.6-4.6a1 1 0 0 1 0-1.4z',
 };
 
 // Larger, multi-shape illustrations. Authored on the same 24×24 grid; the layout
