@@ -13,6 +13,7 @@ import type { StyledEl } from './layout/types';
 import { createAppState } from './state';
 import { buildStatic } from './precompute';
 import { setSize, goToPage } from './camera/camera';
+import { toggle3D } from './camera/camera';
 import { attachInput } from './camera/input';
 import { runFrame } from './frame';
 import { HTML_SRC } from './content/pages';
@@ -180,6 +181,7 @@ async function main() {
     { icon: '📁', title: 'Toggle file tree', onClick: () => setFileTreeMode(!s.fileTreeMode), ref: (el) => { ftBtn = el; } },
     { icon: '⌨️', title: 'Toggle code editor', onClick: () => setEditorMode(!s.editorMode), ref: (el) => { edBtn = el; } },
     { icon: '❯_', title: 'Toggle terminal', onClick: () => setTerminalMode(!s.terminalMode), ref: (el) => { tmBtn = el; } },
+    { icon: '🧊', title: 'Toggle 3D free camera (drag = orbit, Shift+drag = pan, wheel = dolly)', onClick: () => toggle3D(s) },
     { icon: '🌙', title: 'Cycle theme: light → dark → high contrast', onClick: () => s.cycleTheme!(), ref: (el) => { s.themeBtn = el; } },
   ]);
 

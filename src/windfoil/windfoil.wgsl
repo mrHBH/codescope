@@ -3,9 +3,10 @@
 // the pixel's footprint in closed form (F = ∫∫_box w dA / area) and folds it to coverage.
 
 struct Uniforms {
-  res : vec2<f32>,    // render-target size in pixels
-  style : vec2<f32>,  // (gamma, sharp) coverage transform; (1, 1) = exact
-  cam : vec4<f32>,    // camera: device px = worldPx·(scaleX, scaleY) + (transX, transY)
+  res : vec2<f32>,        // render-target size in pixels
+  style : vec2<f32>,      // (gamma, sharp) coverage transform; (1, 1) = exact
+  cam : vec4<f32>,        // legacy 2D scale/translate; xy still drives the AA-skirt pad
+  viewProj : mat4x4<f32>, // world-plane (x, y, 0, 1) → clip space (perspective-capable)
 };
 
 struct Instance {
@@ -57,10 +58,13 @@ fn vs(@builtin(vertex_index) vi : u32, @builtin(instance_index) ii : u32) -> VsO
   let uv = vec2<f32>(f32(vi & 1u), f32(vi >> 1u));
   let em = mix(lo, hi, uv);
   let worldPx = I.place.xy + em * unitsToPx;
-  let devicePx = worldPx * camScale + U.cam.zw;
-  let ndc = devicePx / U.res * 2.0 - 1.0;             // Y-down NDC; clip space flips y
+  // Project the world-plane point through the camera. With an orthographic
+  // viewProj this reproduces the legacy `worldPx·camScale + trans → NDC` path
+  // exactly; with a perspective viewProj the panel can sit at any 3D angle while
+  // the fragment stage stays crisp (its footprint comes from screen-space
+  // derivatives of `rc`, not from this transform).
   var o : VsOut;
-  o.pos = vec4<f32>(ndc.x, -ndc.y, 0.0, 1.0);
+  o.pos = U.viewProj * vec4<f32>(worldPx.x, worldPx.y, 0.0, 1.0);
   o.rc = em;
   o.inst = ii;
   return o;

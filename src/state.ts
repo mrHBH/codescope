@@ -60,6 +60,18 @@ export interface AppState {
   lastWheelT: number;
   rightDown: boolean;
 
+  // 3D free camera (Phase 2). When `active`, the world plane is viewed through a
+  // perspective camera orbiting a target on the plane; when inactive the legacy
+  // 2D ortho path runs untouched. yaw/pitch/dist ease toward tgt* every frame so
+  // 2D↔3D and orbit moves are continuous (no snapping).
+  cam3d: {
+    active: boolean;
+    exiting: boolean;
+    yaw: number; pitch: number; dist: number;
+    tgtYaw: number; tgtPitch: number; tgtDist: number;
+    fov: number; // vertical field of view, radians
+  };
+
   // precomputed static buffers
   preCrv: number[]; preRws: number[];
   preCrvLen: number; preRwsLen: number;
@@ -107,6 +119,12 @@ export function createAppState(partial: Partial<AppState>): AppState {
     tgtX: 0, tgtY: 0, tgtZ: 0.5, velX: 0, velY: 0,
     dragging: false, lastMoveT: 0, minZoom: 0.02,
     pointers: new Map(), mx: 0, my: 0, mwx: 0, mwy: 0, lastWheelT: 0, rightDown: false,
+    cam3d: {
+      active: false, exiting: false,
+      yaw: 0, pitch: 0, dist: 1000,
+      tgtYaw: 0, tgtPitch: 0, tgtDist: 1000,
+      fov: (50 * Math.PI) / 180,
+    },
     preCrv: [], preRws: [], preCrvLen: 0, preRwsLen: 0,
     highlightCache: new Map(),
     bgByPage: [], textByPage: [], pageVisible: [],

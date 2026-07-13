@@ -40,8 +40,10 @@ export function createGlyphRenderer(
     primitive: { topology: 'triangle-strip' },
   });
 
-  const uniform = device.createBuffer({ size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
-  const uniformData = new Float32Array(8);
+  // Uniforms: res(vec2) + style(vec2) + cam(vec4) = 32B, then viewProj(mat4) = 64B.
+  // mat4 needs 16-byte alignment; offset 32 satisfies it. Total 96B.
+  const uniform = device.createBuffer({ size: 96, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+  const uniformData = new Float32Array(24);
 
   const INIT_CURVE = 4 * 1024 * 1024;
   const INIT_ROW = 1024 * 1024;
@@ -71,10 +73,11 @@ export function createGlyphRenderer(
   }
 
   return {
-    setUniforms({ width, height, cam = [1, 1, 0, 0] as number[] }: { width: number; height: number; cam?: number[] }) {
+    setUniforms({ width, height, cam = [1, 1, 0, 0] as number[], viewProj }: { width: number; height: number; cam?: number[]; viewProj: ArrayLike<number> }) {
       uniformData[0] = width; uniformData[1] = height;
       uniformData[2] = 1; uniformData[3] = 1; // style: (gamma=1, sharp=1) = exact coverage
       uniformData[4] = cam[0]; uniformData[5] = cam[1]; uniformData[6] = cam[2]; uniformData[7] = cam[3];
+      uniformData.set(viewProj, 8); // mat4 (16 floats, column-major) at offset 32B
       device.queue.writeBuffer(uniform, 0, uniformData);
     },
     draw(pass: GPURenderPassEncoder, curves: Float32Array, rows: Uint32Array, instances: Float32Array, instanceCount: number) {

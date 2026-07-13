@@ -11,6 +11,7 @@ import { layoutFlow } from './layout/flow';
 import { layoutEditable } from './layout/editable';
 import { hitTest } from './layout/walk';
 import { stepCamera } from './camera/camera';
+import { cameraViewProj, cameraScale } from './camera/camera';
 import type { EditorTheme } from './editor/editor';
 import type { TerminalTheme } from './editor/terminal';
 import type { FileTreeTheme } from './editor/fileTree';
@@ -89,7 +90,7 @@ export function runFrame(s: AppState) {
     const visible = s.pageVisible;
     for (let p = 0; p < s.pageRoots.length; p++) {
       const pg = s.pageRoots[p];
-      visible[p] = pg.x <= vR && pg.x + pg.w >= vL && pg.y <= vB && pg.y + pg.h >= vT;
+      visible[p] = s.cam3d.active || (pg.x <= vR && pg.x + pg.w >= vL && pg.y <= vB && pg.y + pg.h >= vT);
     }
 
     // Skip expensive hit-test + resolveStyle during wheel zoom (200ms cooldown)
@@ -223,7 +224,7 @@ export function runFrame(s: AppState) {
     if (s.editor) {
       const ed = s.editor;
       const edR = ed.x0 + ed.contentWidth(), edB = ed.y0 + ed.contentHeight();
-      if (ed.x0 <= vR && edR >= vL && ed.y0 <= vB && edB >= vT) {
+      if (s.cam3d.active || (ed.x0 <= vR && edR >= vL && ed.y0 <= vB && edB >= vT)) {
         ed.render(s.font, s.atlas, inst, crv, rws, vT, vB, now, editorTheme(s), caretW);
       }
     }
@@ -232,7 +233,7 @@ export function runFrame(s: AppState) {
     if (s.terminal) {
       const tm = s.terminal;
       const tR = tm.x0 + tm.contentW, tB = tm.y0 + tm.contentH;
-      if (tm.x0 <= vR && tR >= vL && tm.y0 <= vB && tB >= vT) {
+      if (s.cam3d.active || (tm.x0 <= vR && tR >= vL && tm.y0 <= vB && tB >= vT)) {
         tm.render(s.font, s.atlas, inst, crv, rws, now, dt, terminalTheme(), caretW);
       }
     }
@@ -241,7 +242,7 @@ export function runFrame(s: AppState) {
     if (s.fileTree) {
       const ft = s.fileTree;
       const fR = ft.x0 + ft.width, fB = ft.y0 + ft.contentHeight;
-      if (ft.x0 <= vR && fR >= vL && ft.y0 <= vB && fB >= vT) {
+      if (s.cam3d.active || (ft.x0 <= vR && fR >= vL && ft.y0 <= vB && fB >= vT)) {
         ft.render(s.font, s.atlas, inst, crv, rws, vT, vB, now, fileTreeTheme());
       }
     }
@@ -256,7 +257,11 @@ export function runFrame(s: AppState) {
     s.instFA.set(inst);
     const enc = s.device.createCommandEncoder();
     const pass = enc.beginRenderPass({ colorAttachments: [{ view: s.gpuCtx.getCurrentTexture().createView(), clearValue: { r: 0, g: 0, b: 0, a: 0 }, loadOp: 'clear', storeOp: 'store' }] });
-    s.renderer.setUniforms({ width: Cw, height: Ch, cam: [s.viewZ, s.viewZ, Cw / 2 - s.viewZ * s.viewX, Ch / 2 - s.viewZ * s.viewY] });
+    // View-projection: orthographic (2D) or perspective (3D free camera). `cam`
+    // still feeds the AA-skirt pad via the effective on-axis scale.
+    const camScale = cameraScale(s);
+    const viewProj = cameraViewProj(s, Cw, Ch);
+    s.renderer.setUniforms({ width: Cw, height: Ch, cam: [camScale, camScale, 0, 0], viewProj });
     s.renderer.draw(pass, s.crvFA.subarray(0, crv.length), s.rwsUA.subarray(0, rws.length), s.instFA.subarray(0, inst.length), inst.length / 16);
     pass.end();
     s.device.queue.submit([enc.finish()]);
