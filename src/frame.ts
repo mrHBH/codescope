@@ -95,12 +95,12 @@ export function runFrame(s: AppState) {
 
     // Skip expensive hit-test + resolveStyle during wheel zoom (200ms cooldown)
     const wheelCool = (performance.now() - s.lastWheelT) < 200;
-    const hovered = wheelCool ? null : hitTest(s.docRoot, s.mwx, s.mwy);
+    const hovered = (wheelCool || s.cam3d.active) ? null : hitTest(s.docRoot, s.mwx, s.mwy);
     const hoveredSet = new Set<StyledEl>();
     if (hovered) { let cur: StyledEl | null = hovered; while (cur) { hoveredSet.add(cur); cur = cur.parent; } }
 
     // File tree hover detection (world-space panel, not in DOM)
-    if (s.fileTree && !wheelCool) {
+    if (s.fileTree && !wheelCool && !s.cam3d.active) {
       const ft = s.fileTree;
       if (s.mwx >= ft.x0 && s.mwx <= ft.x0 + ft.width && s.mwy >= ft.y0 && s.mwy <= ft.y0 + ft.contentHeight) {
         const row = ft.rowAtY(s.mwy);

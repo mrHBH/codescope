@@ -14,6 +14,7 @@ import { createAppState } from './state';
 import { buildStatic } from './precompute';
 import { setSize, goToPage } from './camera/camera';
 import { toggle3D } from './camera/camera';
+import { initOrbit } from './camera/orbit';
 import { attachInput } from './camera/input';
 import { runFrame } from './frame';
 import { HTML_SRC } from './content/pages';
@@ -190,6 +191,7 @@ async function main() {
   s.camX = s.tgtX; s.camY = s.tgtY; s.camZ = s.tgtZ;
   s.viewX = s.camX; s.viewY = s.camY; s.viewZ = s.camZ;
 
+  initOrbit(rCanvas);
   attachInput(s);
   runFrame(s);
 }

@@ -63,8 +63,6 @@ export function attachInput(s: AppState) {
   // we rebuilt at (so a drag rebuilds at most ~once per visible step).
   let sliding: HTMLElement | null = null;
   let slidingPct = -1;
-  // 3D orbit: true while a Shift/Alt-modified drag is panning the target plane.
-  let pan3d = false;
   const sliderPct = (el: HTMLElement) => {
     const min = parseFloat(el.getAttribute('data-min') || '0');
     const max = parseFloat(el.getAttribute('data-max') || '100');
@@ -94,14 +92,13 @@ export function attachInput(s: AppState) {
 
   rCanvas.addEventListener('pointerdown', (e) => {
     if (e.button !== 0) return; // only the primary (left) button drives editing/nav
+    // 3D free camera: the camera-controls library owns pointer input on the
+    // canvas (left = truck, right = rotate). Don't capture or run 2D logic.
+    if (s.cam3d.active) return;
     rCanvas.setPointerCapture(e.pointerId);
     const b = bufCoords(s, e.clientX, e.clientY);
     s.pointers.set(e.pointerId, { x: b.x, y: b.y });
     s.dragging = true; s.velX = s.velY = 0; s.lastMoveT = performance.now();
-
-    // 3D free-camera mode: left-drag orbits, Shift/Alt-drag pans the target.
-    // Element editing/nav is suspended until ray-picking lands (Phase 3).
-    if (s.cam3d.active) { pan3d = e.shiftKey || e.altKey; return; }
 
     const w = scrToWorld(s, b.x, b.y);
 
@@ -182,24 +179,10 @@ export function attachInput(s: AppState) {
   rCanvas.addEventListener('pointermove', (e) => {
     const b = bufCoords(s, e.clientX, e.clientY);
     s.mx = b.x; s.my = b.y;
+    if (s.cam3d.active) return; // camera-controls owns pointer input in 3D
     if (!s.pointers.has(e.pointerId)) return;
     const prev = s.pointers.get(e.pointerId)!;
     s.pointers.set(e.pointerId, { x: b.x, y: b.y });
-    // 3D orbit / pan: consume the drag before any 2D pan/edit logic.
-    if (s.cam3d.active) {
-      const dx = b.x - prev.x, dy = b.y - prev.y;
-      const c = s.cam3d;
-      if (pan3d) {
-        // Move the target across the plane, screen-scaled by the on-axis scale.
-        const sc = s.tCanvas.height / (2 * c.dist * Math.tan(c.fov / 2));
-        s.camX -= dx / sc; s.camY -= dy / sc;
-        s.tgtX = s.camX; s.tgtY = s.camY; s.viewX = s.camX; s.viewY = s.camY;
-      } else {
-        c.tgtYaw += dx * 0.005;
-        c.tgtPitch = Math.max(-1.4, Math.min(1.4, c.tgtPitch + dy * 0.005));
-      }
-      return;
-    }
     // Slider drag: track the pointer x, rebuild only when the step changes.
     if (sliding) {
       const w = scrToWorld(s, b.x, b.y);
@@ -250,6 +233,8 @@ export function attachInput(s: AppState) {
   const LONG_PRESS_MS = 350, MOVE_TOL = 6;
   rCanvas.addEventListener('pointerdown', (e) => {
     if (e.button !== 2) return;
+    // In 3D, right-drag is orbit (owned by camera-controls) — no context menu.
+    if (s.cam3d.active) return;
     s.rightDown = true;
     rightDownT = performance.now();
     rightWheeled = false; rightMoved = false;
@@ -277,12 +262,8 @@ export function attachInput(s: AppState) {
   rCanvas.addEventListener('wheel', (e) => {
     e.preventDefault();
     s.lastWheelT = performance.now();
-    // 3D free-camera mode: wheel dollies (changes orbit distance = zoom).
-    if (s.cam3d.active) {
-      const c = s.cam3d;
-      c.tgtDist = Math.max(20, Math.min(c.dist * 40, c.tgtDist * Math.exp(e.deltaY * 0.0015)));
-      return;
-    }
+    // 3D free camera: the camera-controls library handles the wheel (dolly).
+    if (s.cam3d.active) return;
     const b = bufCoords(s, e.clientX, e.clientY);
     const Cw = s.tCanvas.width, Ch = s.tCanvas.height;
     const w = scrToWorld(s, b.x, b.y);
