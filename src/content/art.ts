@@ -25,7 +25,7 @@ export const ICONS: Record<string, string | string[]> = {
   eye: 'M12 5C6.5 5 2.7 9.2 1.5 12 2.7 14.8 6.5 19 12 19s9.3-4.2 10.5-7C21.3 9.2 17.5 5 12 5zm0 11.5a4.5 4.5 0 1 1 0-9 4.5 4.5 0 0 1 0 9zm0-2.2a2.3 2.3 0 1 0 0-4.6 2.3 2.3 0 0 0 0 4.6z',
   lock: 'M17 9h-1V7a4 4 0 1 0-8 0v2H7a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-9a1 1 0 0 0-1-1zm-7-2a2 2 0 1 1 4 0v2h-4z',
   code: 'M9.4 16.6 4.8 12l4.6-4.6L8 6l-6 6 6 6zm5.2 0L19.2 12l-4.6-4.6L16 6l6 6-6 6z',
-  chevron: 'M5.3 8.3a1 1 0 0 1 1.4 0L12 13.6l5.3-5.3a1 1 0 1 1 1.4 1.4l-6 6a1 1 0 0 1-1.4 0l-6-6a1 1 0 0 1 0-1.4z',
+  chevron: 'M6 8 L12 14 L18 8 L18 11 L12 17 L6 11 Z',
   cross: 'M6.4 5 12 10.6 17.6 5 19 6.4 13.4 12 19 17.6 17.6 19 12 13.4 6.4 19 5 17.6 10.6 12 5 6.4z',
   cube: 'M12 2 3 7v10l9 5 9-5V7z M12 4.3 18.5 8 12 11.7 5.5 8z M5 9.7l6 3.4v6.9l-6-3.3z M13 20v-6.9l6-3.4v7z',
   record: 'M12 4a8 8 0 1 0 0 16 8 8 0 0 0 0-16zm0 3.5a4.5 4.5 0 1 1 0 9 4.5 4.5 0 0 1 0-9z',
@@ -34,13 +34,18 @@ export const ICONS: Record<string, string | string[]> = {
   // Folder — tab on top-left, rounded body (yasmineoss design). Open/closed
   // state is shown by the chevron rotation, so a single folder icon suffices.
   folder: 'M4,5 L9,5 L11,7 L20,7 A2,2 0 0,1 22,9 L22,19 A2,2 0 0,1 20,21 L4,21 A2,2 0 0,1 2,19 L2,7 A2,2 0 0,1 4,5 Z',
+  // Open folder (back panel + front tray, see-through mouth) — cross-faded with
+  // `folder` on expand/collapse.
+  folderOpen: 'M2 14 V8 a2 2 0 0 1 2-2 h5 l2 2 h9 a2 2 0 0 1 2 2 v1 H4 a2 2 0 0 0-2 2 Z M2 14 h20 l-2 7 H4 Z',
   // Outline-style folder (even-odd fill creates a ring + inner cavity), closer
   // to hybridcoder's folder glyph appearance.
   folderOutline: 'M3,4 L9,4 L11,6 L21,6 L21,21 L3,21 Z M5,6 L8.4,6 L10.4,8 L19,8 L19,19 L5,19 Z',
   // Generic file / document with corner fold
   file: 'M7,3 L15,3 L19,7 L19,21 L5,21 L5,5 A2,2 0 0,1 7,3 Z M15,3 L15,7 L19,7 Z',
-  // Chevron pointing right (for collapsed folders)
-  chevronRight: 'M8.3 5.3a1 1 0 0 1 1.4 0L15 10.6 9.7 15.9a1 1 0 0 1-1.4-1.4l4.6-4.6-4.6-4.6a1 1 0 0 1 0-1.4z',
+  // Chevron pointing right (for collapsed folders) — exact 90° rotation of
+  // `chevron` so the expand/collapse cross-fade reads as a smooth rotation and
+  // the glyph keeps the same weight in both states.
+  chevronRight: 'M8 18 L14 12 L8 6 L11 6 L17 12 L11 18 Z',
 };
 
 // Larger, multi-shape illustrations. Authored on the same 24×24 grid; the layout

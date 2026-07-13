@@ -121,7 +121,9 @@ export class FileTree {
   private roots: TreeNode[];
   private expanded: Set<string> = new Set();
   private scrollY = 0;
-  private chevAnim: Map<string, number> = new Map(); // 0=collapsed, 1=expanded
+  private chevAnim: Map<string, number> = new Map();  // target: 0=collapsed, 1=expanded
+  private chevDisp: Map<string, number> = new Map();  // displayed (animated) value
+  private _lastNow = 0;
   selected: string | null = null;
   hovered: string | null = null;
 
@@ -140,6 +142,7 @@ export class FileTree {
     this.expanded.add('src/layout');
     this.expanded.add('src/ui');
     this.expanded.add('src/windfoil');
+    for (const p of this.expanded) this.chevAnim.set(p, 1);
   }
 
   private get scale() { return this.font ? this.fontSize / (this.font as any).unitsPerEm : this.fontSize / 2048; }
@@ -198,6 +201,7 @@ export class FileTree {
     if (!node || node.type !== 'folder') return;
     if (this.expanded.has(path)) this.expanded.delete(path);
     else this.expanded.add(path);
+    this.chevAnim.set(path, this.expanded.has(path) ? 1 : 0);
     this.dirty = true;
     this.scrollY = Math.min(this.scrollY, this.maxScroll);
   }
@@ -276,6 +280,8 @@ export class FileTree {
          worldTop: number, worldBottom: number, now: number, th: FileTreeTheme) {
     if (!this.font) this.font = font;
     this.ensureFlat();
+    const dt = this._lastNow ? Math.min((now - this._lastNow) / 1000, 0.05) : 0;
+    this._lastNow = now;
 
     const lh = this.lineHeight;
     const totalH = this.contentHeight;
@@ -324,9 +330,9 @@ export class FileTree {
       const guideX = lineXbase + depth * indent;       // tree line center for this depth
       const chevSize = this.chevSize;
       const iconSize = this.fontSize * 1.05;
-      // Icon column is always offset from the guide line, so it never collides
-      // with the tree line (for either files or folders).
-      const iconX = guideX + 9;
+      // Icon column is offset from the guide line so the chevron (centered on the
+      // line) sits in its own clear column and never collides with the icon.
+      const iconX = guideX + 13;
       const textX = iconX + iconSize + 4;
       const iconY = top + lh / 2;
       const baseline = iconY + this.fontSize * 0.4;
@@ -360,49 +366,71 @@ export class FileTree {
       // Current-depth connector: the vertical rail continues to the next row (or
       // to the last descendant) and a horizontal tick branches to the label.
       // Only the absolute last item ends at the elbow, so rails stay connected
-      // through a last folder and its children.
+      // through a last folder and its children. For a folder, the rail is gapped
+      // around the chevron (which sits at the intercept) and the tick starts just
+      // past the chevron, so the guide lines never cross the chevron.
       if (depth > 0) {
         const lx = lineXbase + depth * indent;
         const isLastItem = i === this.flatRows.length - 1;
-        const vEnd = isLastItem ? top + lh / 2 : top + lh;
         const col = onActivePath ? pathAccent(pathA) : treeLineColor;
-        addRect(lx, top, lx + lineW, vEnd, col, crv, rws, inst);
-        const tickLen = 10;
-        addRect(lx, top + lh / 2 - lineW / 2, lx + tickLen, top + lh / 2 + lineW / 2, col, crv, rws, inst);
+        if (row.node.type === 'folder') {
+          const midY = top + lh / 2;
+          const vGap = iconSize * 0.20;               // half-gap for the chevron
+          addRect(lx, top, lx + lineW, midY - vGap, col, crv, rws, inst);
+          addRect(lx, midY + vGap, lx + lineW, isLastItem ? midY : top + lh, col, crv, rws, inst);
+          const tickX0 = lx + iconSize * 0.25 + 2;    // just past the chevron
+          addRect(tickX0, midY - lineW / 2, iconX, midY + lineW / 2, col, crv, rws, inst);
+        } else {
+          const vEnd = isLastItem ? top + lh / 2 : top + lh;
+          addRect(lx, top, lx + lineW, vEnd, col, crv, rws, inst);
+          addRect(lx, top + lh / 2 - lineW / 2, iconX, top + lh / 2 + lineW / 2, col, crv, rws, inst);
+        }
       }
 
-      // Chevron for folders — centered on the guide line.
-      const chevX = guideX - chevSize / 2;
+      // Folder open/closed animation value (eased toward target). Shared by the
+      // chevron rotation and the folder-icon cross-fade below.
+      let folderT = 0;
       if (row.node.type === 'folder') {
-        const isExpanded = this.expanded.has(row.node.path);
-        const sIcon = iconSize / this.iconUnits;
-        const bl = iconY - iconSize * 0.5;
+        const target = this.chevAnim.get(row.node.path) ?? (this.expanded.has(row.node.path) ? 1 : 0);
+        const prev = this.chevDisp.get(row.node.path) ?? target;
+        folderT = prev + (target - prev) * (1 - Math.exp(-dt * 16));
+        this.chevDisp.set(row.node.path, folderT);
+      }
+
+      // Chevron for folders — centered on the guide line (the intercept), animated.
+      if (row.node.type === 'folder') {
+        // Subtle scale "pop" peaks mid-transition for a livelier feel.
+        const pop = 1 + 0.18 * Math.sin(Math.PI * Math.max(0, Math.min(1, folderT)));
+        const sIcon = (iconSize / this.iconUnits) * pop;
         const ca = isSelected ? 1 : (isHovered || onActivePath) ? 0.7 + 0.3 * hoverPulse : 1;
         const cc = (isHovered || isSelected || onActivePath) ? accent : th.dim;
-        const t0 = this.chevAnim.get(row.node.path) ?? (isExpanded ? 1 : 0);
-        const t1 = t0 + ((isExpanded ? 1 : 0) - t0) * 0.22;
-        const t = Math.max(0, Math.min(1, t1));
-        this.chevAnim.set(row.node.path, t);
         const chDown = atlas.table['icon:chevron'];
         const chRight = atlas.table['icon:chevronRight'];
-        if (chRight && (1 - t) > 0.01) {
-          inst.push(chevX, bl, sIcon, 1, chRight.bbox[0], chRight.bbox[1], chRight.bbox[2], chRight.bbox[3], cc[0], cc[1], cc[2], ca * (1 - t), chRight.rowBase, chRight.bandCount, chRight.y0, chRight.invH);
+        // Center the ink at (guideX, midY) so it lands exactly on the line intercept.
+        if (chRight && (1 - folderT) > 0.01) {
+          this.pushCentered(inst, chRight, guideX, iconY, sIcon, cc, ca * (1 - folderT));
         }
-        if (chDown && t > 0.01) {
-          inst.push(chevX, bl, sIcon, 1, chDown.bbox[0], chDown.bbox[1], chDown.bbox[2], chDown.bbox[3], cc[0], cc[1], cc[2], ca * t, chDown.rowBase, chDown.bandCount, chDown.y0, chDown.invH);
+        if (chDown && folderT > 0.01) {
+          this.pushCentered(inst, chDown, guideX, iconY, sIcon, cc, ca * folderT);
         }
       }
 
-      // Folder/file icon (file type aware) — clear of the tree line.
+      // Folder/file icon (file type aware) — clear of the tree line, ink centered.
       const isFolder = row.node.type === 'folder';
       const fileIcon = this.fileIconFor(row.node.path);
-      const iconName = isFolder ? 'icon:folderOutline' : fileIcon.name;
-      const gl = atlas.table[iconName];
-      if (gl) {
-        const iconClr = isFolder ? th.gold : fileIcon.color;
-        const sIcon = iconSize / this.iconUnits;
-        const bl = iconY - iconSize * 0.5;
-        inst.push(iconX, bl, sIcon, 1, gl.bbox[0], gl.bbox[1], gl.bbox[2], gl.bbox[3], iconClr[0], iconClr[1], iconClr[2], iconClr[3], gl.rowBase, gl.bandCount, gl.y0, gl.invH);
+      const sIcon = iconSize / this.iconUnits;
+      const iconCx = iconX + iconSize / 2;
+      const iconCy = iconY;
+      if (isFolder) {
+        // Cross-fade closed ↔ open folder in sync with the chevron rotation.
+        const closed = atlas.table['icon:folder'];
+        const open = atlas.table['icon:folderOpen'];
+        const ca = isSelected ? 1 : (isHovered || onActivePath) ? 0.85 + 0.15 * hoverPulse : 1;
+        this.pushCentered(inst, closed, iconCx, iconCy, sIcon, th.gold, ca * (1 - folderT));
+        this.pushCentered(inst, open, iconCx, iconCy, sIcon, th.gold, ca * folderT);
+      } else {
+        const gl = atlas.table[fileIcon.name];
+        if (gl) this.pushCentered(inst, gl, iconCx, iconCy, sIcon, fileIcon.color, 1);
       }
 
       // Name text
@@ -432,5 +460,18 @@ export class FileTree {
       if (gl) inst.push(cx, baseline, s, 0, gl.bbox[0], gl.bbox[1], gl.bbox[2], gl.bbox[3], color[0], color[1], color[2], color[3], gl.rowBase, gl.bandCount, gl.y0, gl.invH);
       cx += this.advance(ch);
     }
+  }
+
+  // Pushes a glyph so its ink-bbox CENTER lands at (cx, cy). windfoil places a
+  // glyph by its ink-bbox low corner (place.xy), so we must offset by half the
+  // ink box — using sIcon/2 (assumes a 24x24 ink box) is what shoved the chevron
+  // diagonally bottom-right off the guide line.
+  private pushCentered(inst: number[], gl: any, cx: number, cy: number, sIcon: number, color: number[], alpha: number) {
+    if (!gl) return;
+    const bw = gl.bbox[2] - gl.bbox[0];
+    const bh = gl.bbox[3] - gl.bbox[1];
+    const x = cx - (bw / 2) * sIcon;
+    const y = cy - (bh / 2) * sIcon;
+    inst.push(x, y, sIcon, 1, gl.bbox[0], gl.bbox[1], gl.bbox[2], gl.bbox[3], color[0], color[1], color[2], alpha, gl.rowBase, gl.bandCount, gl.y0, gl.invH);
   }
 }
