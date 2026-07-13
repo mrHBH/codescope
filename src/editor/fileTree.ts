@@ -231,23 +231,29 @@ export class FileTree {
   }
 
   private get chevSize() { return this.fontSize * 1.0; }
-  // Tree guide-line center for a given depth (chevron tip aligns here).
+  // Tree guide-line (rail) center for a given depth.
   private guideXFor(depth: number): number {
     return this.x0 + this.pad + 6 + depth * this.indent;
   }
+  // Icon-column left edge for a given depth.
+  private iconXFor(depth: number): number { return this.guideXFor(depth) + 18; }
+  // Chevron center for a given depth — sits centred in the gap between the rail
+  // and the icon, with even padding on both sides so it reads as its own column.
+  private chevCxFor(depth: number): number { return this.guideXFor(depth) + 9; }
 
   // Returns true if the world point is on the chevron of the given row
   isOnChevron(wx: number, row: FlatRow): boolean {
-    const cx = this.guideXFor(row.depth) - this.chevSize / 2;
-    return wx >= cx - 3 && wx <= cx + this.chevSize + 3;
+    const cx = this.chevCxFor(row.depth);
+    const half = this.chevSize / 2 + 3;
+    return wx >= cx - half && wx <= cx + half;
   }
 
   // If wx hits a connector line for this row, return the folder path that line
   // belongs to (matching hybridcoder's line-click-to-toggle behavior).
   connectorTarget(wx: number, row: FlatRow): string | null {
     if (row.depth <= 0) return null;
-    const cx = this.guideXFor(row.depth) - this.chevSize / 2;
-    if (wx >= cx - 6 && wx <= cx + this.chevSize + 6) return null;
+    const cx = this.chevCxFor(row.depth);
+    if (wx >= cx - this.chevSize / 2 - 4 && wx <= cx + this.chevSize / 2 + 4) return null;
     const lineXbase = this.x0 + this.pad + 6;
     const tol = 2.2;
     for (let d = 0; d < row.depth; d++) {
@@ -328,11 +334,10 @@ export class FileTree {
 
       const lineXbase = this.x0 + this.pad + 6;
       const guideX = lineXbase + depth * indent;       // tree line center for this depth
-      const chevSize = this.chevSize;
       const iconSize = this.fontSize * 1.05;
-      // Icon column is offset from the guide line so the chevron (centered on the
-      // line) sits in its own clear column and never collides with the icon.
-      const iconX = guideX + 13;
+      // Icon column sits a fixed offset right of the guide line, leaving a padded
+      // chevron column in between so nothing crowds the rail or the icon.
+      const iconX = guideX + 18;
       const textX = iconX + iconSize + 4;
       const iconY = top + lh / 2;
       const baseline = iconY + this.fontSize * 0.4;
@@ -352,9 +357,10 @@ export class FileTree {
 
       // Tree connector lines with proper ancestry continuation.
       const lineW = 1.0;
-      // Ancestor rails: continuous verticals for every ancestor that has a
-      // following sibling. Accented only when this row shares that ancestor with
-      // the active (hovered/selected) item, so the highlighted path stays
+      // Ancestor rails: continuous verticals for every ancestor that still has a
+      // following sibling. They span the full row height so consecutive rows join
+      // into one seamless line. Accented only when this row shares that ancestor
+      // with the active (hovered/selected) item, so the highlighted path stays
       // connected from the root down to the item.
       for (let d = 0; d < depth; d++) {
         if (!row.ancestorHasNext[d]) continue;
@@ -363,28 +369,18 @@ export class FileTree {
         const col = sharesAncestor ? pathAccent(pathA) : treeLineColor;
         addRect(lx, top, lx + lineW, top + lh, col, crv, rws, inst);
       }
-      // Current-depth connector: the vertical rail continues to the next row (or
-      // to the last descendant) and a horizontal tick branches to the label.
-      // Only the absolute last item ends at the elbow, so rails stay connected
-      // through a last folder and its children. For a folder, the rail is gapped
-      // around the chevron (which sits at the intercept) and the tick starts just
-      // past the chevron, so the guide lines never cross the chevron.
+      // Current-depth connector: a continuous vertical guide, clipped to the
+      // sibling group. It starts at the FIRST child's centre and ends at the LAST
+      // child's centre, so it never pokes above the first item or below the last
+      // item in a folder. No horizontal ticks — the guide reads as a clean rail.
       if (depth > 0) {
         const lx = lineXbase + depth * indent;
-        const isLastItem = i === this.flatRows.length - 1;
+        const prevDepth = i > 0 ? this.flatRows[i - 1].depth : -1;
+        const isFirstChild = prevDepth < depth;     // first sibling in this group
         const col = onActivePath ? pathAccent(pathA) : treeLineColor;
-        if (row.node.type === 'folder') {
-          const midY = top + lh / 2;
-          const vGap = iconSize * 0.20;               // half-gap for the chevron
-          addRect(lx, top, lx + lineW, midY - vGap, col, crv, rws, inst);
-          addRect(lx, midY + vGap, lx + lineW, isLastItem ? midY : top + lh, col, crv, rws, inst);
-          const tickX0 = lx + iconSize * 0.25 + 2;    // just past the chevron
-          addRect(tickX0, midY - lineW / 2, iconX, midY + lineW / 2, col, crv, rws, inst);
-        } else {
-          const vEnd = isLastItem ? top + lh / 2 : top + lh;
-          addRect(lx, top, lx + lineW, vEnd, col, crv, rws, inst);
-          addRect(lx, top + lh / 2 - lineW / 2, iconX, top + lh / 2 + lineW / 2, col, crv, rws, inst);
-        }
+        const vTop = isFirstChild ? iconY : top;
+        const vBot = row.isLast ? iconY : top + lh;
+        addRect(lx, vTop, lx + lineW, vBot, col, crv, rws, inst);
       }
 
       // Folder open/closed animation value (eased toward target). Shared by the
@@ -397,8 +393,10 @@ export class FileTree {
         this.chevDisp.set(row.node.path, folderT);
       }
 
-      // Chevron for folders — centered on the guide line (the intercept), animated.
+      // Chevron for folders — centred in its own column between the rail and the
+      // icon, vertically centred on the row, animated.
       if (row.node.type === 'folder') {
+        const chevCx = iconX - 9;
         // Subtle scale "pop" peaks mid-transition for a livelier feel.
         const pop = 1 + 0.18 * Math.sin(Math.PI * Math.max(0, Math.min(1, folderT)));
         const sIcon = (iconSize / this.iconUnits) * pop;
@@ -406,12 +404,12 @@ export class FileTree {
         const cc = (isHovered || isSelected || onActivePath) ? accent : th.dim;
         const chDown = atlas.table['icon:chevron'];
         const chRight = atlas.table['icon:chevronRight'];
-        // Center the ink at (guideX, midY) so it lands exactly on the line intercept.
+        // Center the ink at (chevCx, iconY) so the twisty reads as its own column.
         if (chRight && (1 - folderT) > 0.01) {
-          this.pushCentered(inst, chRight, guideX, iconY, sIcon, cc, ca * (1 - folderT));
+          this.pushCentered(inst, chRight, chevCx, iconY, sIcon, cc, ca * (1 - folderT));
         }
         if (chDown && folderT > 0.01) {
-          this.pushCentered(inst, chDown, guideX, iconY, sIcon, cc, ca * folderT);
+          this.pushCentered(inst, chDown, chevCx, iconY, sIcon, cc, ca * folderT);
         }
       }
 
