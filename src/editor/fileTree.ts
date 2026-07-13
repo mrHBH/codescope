@@ -124,6 +124,7 @@ export class FileTree {
   private chevAnim: Map<string, number> = new Map();  // target: 0=collapsed, 1=expanded
   private chevDisp: Map<string, number> = new Map();  // displayed (animated) value
   private _lastNow = 0;
+  private _wasAnimating = false;
   selected: string | null = null;
   hovered: string | null = null;
 
@@ -187,7 +188,11 @@ export class FileTree {
         const node = nodes[i];
         const isLast = i === nodes.length - 1;
         rows.push({ node, depth, isLast, ancestorHasNext: ancestorHasNext.slice(), ancestorPaths: ancestorPaths.slice() });
-        if (node.type === 'folder' && this.expanded.has(node.path)) {
+        // Keep a folder's children in the flattened list while it is expanded OR
+        // still animating closed, so the collapse can accordion out before the
+        // rows are dropped.
+        const revealed = this.expanded.has(node.path) || (this.chevDisp.get(node.path) ?? 0) > 0.0015;
+        if (node.type === 'folder' && revealed) {
           walk(node.children || [], depth + 1, ancestorHasNext.concat(!isLast), ancestorPaths.concat(node.path));
         }
       }
@@ -235,11 +240,12 @@ export class FileTree {
   private guideXFor(depth: number): number {
     return this.x0 + this.pad + 6 + depth * this.indent;
   }
-  // Icon-column left edge for a given depth.
-  private iconXFor(depth: number): number { return this.guideXFor(depth) + 18; }
-  // Chevron center for a given depth — sits centred in the gap between the rail
-  // and the icon, with even padding on both sides so it reads as its own column.
-  private chevCxFor(depth: number): number { return this.guideXFor(depth) + 9; }
+  // Icon-column left edge for a given depth. Sits one indent + a pad past the
+  // rail so the chevron (on the child guide line) has room before the icon.
+  private iconXFor(depth: number): number { return this.guideXFor(depth) + this.indent + 12; }
+  // Chevron center for a given depth — sits directly on top of the guide line it
+  // controls (its children's rail, one indent deeper).
+  private chevCxFor(depth: number): number { return this.guideXFor(depth) + this.indent; }
 
   // Returns true if the world point is on the chevron of the given row
   isOnChevron(wx: number, row: FlatRow): boolean {
@@ -285,15 +291,54 @@ export class FileTree {
   render(font: FontFace, atlas: any, inst: number[], crv: number[], rws: number[],
          worldTop: number, worldBottom: number, now: number, th: FileTreeTheme) {
     if (!this.font) this.font = font;
-    this.ensureFlat();
     const dt = this._lastNow ? Math.min((now - this._lastNow) / 1000, 0.05) : 0;
     this._lastNow = now;
+
+    // ── Expand / collapse animation ──────────────────────────────────────────
+    // Advance every folder's open value toward its target (1 = expanded). While
+    // anything is moving we re-flatten so a collapsing subtree stays in the list
+    // (and keeps rendering) until it has fully accordioned away.
+    const kEase = 1 - Math.exp(-dt * 14);
+    let anyAnim = false;
+    const advanceAll = (nodes: TreeNode[]) => {
+      for (const n of nodes) {
+        if (n.type !== 'folder') continue;
+        const target = this.expanded.has(n.path) ? 1 : 0;
+        const prev = this.chevDisp.get(n.path) ?? target;
+        let next = prev + (target - prev) * kEase;
+        if (Math.abs(target - next) < 0.0015) next = target; else anyAnim = true;
+        this.chevDisp.set(n.path, next);
+        if (n.children) advanceAll(n.children);
+      }
+    };
+    advanceAll(this.roots);
+    if (anyAnim || this._wasAnimating) this.dirty = true;   // one extra flatten on settle
+    this._wasAnimating = anyAnim;
+    this.ensureFlat();
 
     const lh = this.lineHeight;
     const totalH = this.contentHeight;
     const indent = this.indent;
     const bodyTop = this.bodyTop;
     const listTop = bodyTop - this.scrollY;
+
+    // Animated per-row layout. A row's reveal is the product of every ancestor
+    // folder's open value, so a row shrinks to nothing (and fades) as any of its
+    // ancestors closes. Smoothstepped for a gentle accordion.
+    const nRows = this.flatRows.length;
+    const rowTop = new Array<number>(nRows);
+    const rowRev = new Array<number>(nRows);
+    let accY = listTop;
+    for (let i = 0; i < nRows; i++) {
+      const r = this.flatRows[i];
+      let rv = 1;
+      for (const ap of r.ancestorPaths) rv *= this.chevDisp.get(ap) ?? 1;
+      rv = Math.max(0, Math.min(1, rv));
+      const sm = rv * rv * (3 - 2 * rv);
+      rowTop[i] = accY;
+      rowRev[i] = sm;
+      accY += lh * sm;
+    }
 
     // Panel + title bar
     addRect(this.x0, this.y0, this.x0 + this.width, this.y0 + totalH, th.bg, crv, rws, inst);
@@ -316,9 +361,6 @@ export class FileTree {
     addRect(this.x0, this.y0 + barH - 1, this.x0 + this.width, this.y0 + barH, [th.line[0], th.line[1], th.line[2], 0.18], crv, rws, inst);
 
     // Visible rows
-    const first = Math.max(0, Math.floor((worldTop - listTop) / lh) - 1);
-    const last = Math.min(this.flatRows.length - 1, Math.ceil((worldBottom - listTop) / lh) + 1);
-
     const treeLineColor: number[] = [th.line[0], th.line[1], th.line[2], 0.35];
     const accent = th.accent || th.dim;
     const hoverPulse = 0.65 + 0.35 * Math.sin(now / 220);
@@ -326,20 +368,25 @@ export class FileTree {
     const selectedRow = this.selected ? this.flatRows.find((r) => r.node.path === this.selected) : null;
     const activeRow = hoveredRow || selectedRow;
 
-    for (let i = first; i <= last; i++) {
+    for (let i = 0; i < nRows; i++) {
       const row = this.flatRows[i];
-      const top = listTop + i * lh;
-      if (top + lh < bodyTop || top > bodyTop + this.bodyH) continue;
+      const rev = rowRev[i];
+      if (rev < 0.02) continue;                 // fully collapsed away
+      const top = rowTop[i];
+      const h = lh * rev;
+      if (top + h < bodyTop || top > bodyTop + this.bodyH) continue;
       const depth = row.depth;
+      // Alpha-scale every mark on this row by its reveal so it fades with height.
+      const fade = (c: number[]): number[] => [c[0], c[1], c[2], c[3] * rev];
 
       const lineXbase = this.x0 + this.pad + 6;
       const guideX = lineXbase + depth * indent;       // tree line center for this depth
       const iconSize = this.fontSize * 1.05;
-      // Icon column sits a fixed offset right of the guide line, leaving a padded
-      // chevron column in between so nothing crowds the rail or the icon.
-      const iconX = guideX + 18;
+      // Chevron sits on the child guide line (guideX + indent); the icon follows
+      // a pad further right.
+      const iconX = guideX + indent + 12;
       const textX = iconX + iconSize + 4;
-      const iconY = top + lh / 2;
+      const iconY = top + h / 2;
       const baseline = iconY + this.fontSize * 0.4;
 
       // ── Connected-path highlight ───────────────────────────────────────────
@@ -353,54 +400,45 @@ export class FileTree {
       const pathAccent = (a: number): number[] => [accent[0], accent[1], accent[2], a];
       const pathA = isHovered || isSelected ? 0.98 : 0.82;
       // Persistent selection strip (hover is conveyed by the line accent below).
-      if (isSelected) addRect(this.x0, top, this.x0 + this.width, top + lh, th.selected, crv, rws, inst);
+      if (isSelected) addRect(this.x0, top, this.x0 + this.width, top + h, fade(th.selected), crv, rws, inst);
 
       // Tree connector lines with proper ancestry continuation.
       const lineW = 1.0;
       // Ancestor rails: continuous verticals for every ancestor that still has a
       // following sibling. They span the full row height so consecutive rows join
-      // into one seamless line. Accented only when this row shares that ancestor
-      // with the active (hovered/selected) item, so the highlighted path stays
-      // connected from the root down to the item.
-      for (let d = 0; d < depth; d++) {
+      // into one seamless line. The outermost level (d === 0) is skipped so the
+      // root items carry no guide and every rail sits under its parent's chevron.
+      for (let d = 1; d < depth; d++) {
         if (!row.ancestorHasNext[d]) continue;
         const lx = lineXbase + d * indent;
         const sharesAncestor = !!activeRow && d < activeRow.depth && row.ancestorPaths[d] === activeRow.ancestorPaths[d];
         const col = sharesAncestor ? pathAccent(pathA) : treeLineColor;
-        addRect(lx, top, lx + lineW, top + lh, col, crv, rws, inst);
+        addRect(lx - lineW / 2, top, lx + lineW / 2, top + h, fade(col), crv, rws, inst);
       }
-      // Current-depth connector: a continuous vertical guide, clipped to the
-      // sibling group. It starts at the FIRST child's centre and ends at the LAST
-      // child's centre, so it never pokes above the first item or below the last
-      // item in a folder. No horizontal ticks — the guide reads as a clean rail.
+      // Current-depth connector: a continuous vertical guide that spans the FULL
+      // height of every child row, so it covers the whole first and last entry
+      // (matching the selection box). Centred on lx so the chevron tip lands dead
+      // on it. No horizontal ticks — a clean rail.
       if (depth > 0) {
         const lx = lineXbase + depth * indent;
-        const prevDepth = i > 0 ? this.flatRows[i - 1].depth : -1;
-        const isFirstChild = prevDepth < depth;     // first sibling in this group
         const col = onActivePath ? pathAccent(pathA) : treeLineColor;
-        const vTop = isFirstChild ? iconY : top;
-        const vBot = row.isLast ? iconY : top + lh;
-        addRect(lx, vTop, lx + lineW, vBot, col, crv, rws, inst);
+        addRect(lx - lineW / 2, top, lx + lineW / 2, top + h, fade(col), crv, rws, inst);
       }
 
-      // Folder open/closed animation value (eased toward target). Shared by the
-      // chevron rotation and the folder-icon cross-fade below.
-      let folderT = 0;
-      if (row.node.type === 'folder') {
-        const target = this.chevAnim.get(row.node.path) ?? (this.expanded.has(row.node.path) ? 1 : 0);
-        const prev = this.chevDisp.get(row.node.path) ?? target;
-        folderT = prev + (target - prev) * (1 - Math.exp(-dt * 16));
-        this.chevDisp.set(row.node.path, folderT);
-      }
+      // Folder open value (0..1), already advanced this frame; drives the chevron
+      // rotation and the folder-icon cross-fade.
+      const folderT = row.node.type === 'folder'
+        ? (this.chevDisp.get(row.node.path) ?? (this.expanded.has(row.node.path) ? 1 : 0))
+        : 0;
 
-      // Chevron for folders — centred in its own column between the rail and the
-      // icon, vertically centred on the row, animated.
+      // Chevron for folders — centred on the child guide line it controls,
+      // vertically centred on the row, animated.
       if (row.node.type === 'folder') {
-        const chevCx = iconX - 9;
+        const chevCx = guideX + indent;
         // Subtle scale "pop" peaks mid-transition for a livelier feel.
         const pop = 1 + 0.18 * Math.sin(Math.PI * Math.max(0, Math.min(1, folderT)));
         const sIcon = (iconSize / this.iconUnits) * pop;
-        const ca = isSelected ? 1 : (isHovered || onActivePath) ? 0.7 + 0.3 * hoverPulse : 1;
+        const ca = (isSelected ? 1 : (isHovered || onActivePath) ? 0.7 + 0.3 * hoverPulse : 1) * rev;
         const cc = (isHovered || isSelected || onActivePath) ? accent : th.dim;
         const chDown = atlas.table['icon:chevron'];
         const chRight = atlas.table['icon:chevronRight'];
@@ -423,16 +461,16 @@ export class FileTree {
         // Cross-fade closed ↔ open folder in sync with the chevron rotation.
         const closed = atlas.table['icon:folder'];
         const open = atlas.table['icon:folderOpen'];
-        const ca = isSelected ? 1 : (isHovered || onActivePath) ? 0.85 + 0.15 * hoverPulse : 1;
+        const ca = (isSelected ? 1 : (isHovered || onActivePath) ? 0.85 + 0.15 * hoverPulse : 1) * rev;
         this.pushCentered(inst, closed, iconCx, iconCy, sIcon, th.gold, ca * (1 - folderT));
         this.pushCentered(inst, open, iconCx, iconCy, sIcon, th.gold, ca * folderT);
       } else {
         const gl = atlas.table[fileIcon.name];
-        if (gl) this.pushCentered(inst, gl, iconCx, iconCy, sIcon, fileIcon.color, 1);
+        if (gl) this.pushCentered(inst, gl, iconCx, iconCy, sIcon, fileIcon.color, rev);
       }
 
       // Name text
-      this.emitText(inst, atlas, s, row.node.name, isFolder ? th.folder : th.text, textX, baseline);
+      this.emitText(inst, atlas, s, row.node.name, fade(isFolder ? th.folder : th.text), textX, baseline);
     }
 
     // Scrollbar
@@ -460,16 +498,17 @@ export class FileTree {
     }
   }
 
-  // Pushes a glyph so its ink-bbox CENTER lands at (cx, cy). windfoil places a
-  // glyph by its ink-bbox low corner (place.xy), so we must offset by half the
-  // ink box — using sIcon/2 (assumes a 24x24 ink box) is what shoved the chevron
-  // diagonally bottom-right off the guide line.
+  // Pushes a glyph so its ink-bbox CENTRE lands at (cx, cy). The shader places a
+  // glyph at place.xy + inkCoord*scale (see windfoil.wgsl vs()), so to centre the
+  // ink we offset place.xy by the bbox MIDPOINT (not the half-width) — using the
+  // half-width shoved every icon right by its left-edge offset (e.g. the chevron
+  // tip landed ~3.7px right of the guide line).
   private pushCentered(inst: number[], gl: any, cx: number, cy: number, sIcon: number, color: number[], alpha: number) {
     if (!gl) return;
-    const bw = gl.bbox[2] - gl.bbox[0];
-    const bh = gl.bbox[3] - gl.bbox[1];
-    const x = cx - (bw / 2) * sIcon;
-    const y = cy - (bh / 2) * sIcon;
+    const midX = (gl.bbox[0] + gl.bbox[2]) / 2;
+    const midY = (gl.bbox[1] + gl.bbox[3]) / 2;
+    const x = cx - midX * sIcon;
+    const y = cy - midY * sIcon;
     inst.push(x, y, sIcon, 1, gl.bbox[0], gl.bbox[1], gl.bbox[2], gl.bbox[3], color[0], color[1], color[2], alpha, gl.rowBase, gl.bandCount, gl.y0, gl.invH);
   }
 }
