@@ -255,7 +255,7 @@ export function runFrame(s: AppState) {
       const g = s.windgraph;
       const gR = g.x0 + g.width, gB = g.y0 + g.height;
       if (s.cam3d.active || (g.x0 <= vR && gR >= vL && g.y0 <= vB && gB >= vT)) {
-        g.emit(s.font, s.atlas, inst, crv, rws, now);
+        g.emit(s.font, s.atlas, inst, crv, rws, now, { zoom: s.viewZ, left: vL, right: vR, top: vT, bottom: vB });
       }
     }
 

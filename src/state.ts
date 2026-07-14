@@ -103,8 +103,8 @@ export interface AppState {
   // cinematic demo flight (optional controller; see ui/demo.ts)
   demo: { running: boolean; toggle(): void; start(): void; stop(): void; update(now: number): void } | null;
 
-  // windgraph Phase-0/1 demo (world-space board; see windgraph/demo.ts)
-  windgraph: { x0: number; y0: number; width: number; height: number; emit(font: FontFace, atlas: any, inst: number[], crv: number[], rws: number[], now: number): void } | null;
+  // windgraph Phase-0/1/2 demo (world-space board; see windgraph/demo.ts)
+  windgraph: { x0: number; y0: number; width: number; height: number; emit(font: FontFace, atlas: any, inst: number[], crv: number[], rws: number[], now: number, view: { zoom: number; left: number; right: number; top: number; bottom: number }): void } | null;
 }
 
 export function createAppState(partial: Partial<AppState>): AppState {

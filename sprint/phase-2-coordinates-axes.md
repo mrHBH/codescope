@@ -1,6 +1,6 @@
 # Phase 2 — Coordinate systems, axes, grids
 
-**Status:** not started · **Depends on:** Phase 1 · **Blocks:** 3, 7.
+**Status:** done ✅ (log/polar deferred) · **Depends on:** Phase 1 · **Blocks:** 3, 7.
 
 ## Goal
 A data coordinate space mapped onto the windfoil camera, with axes, ticks, grids,

@@ -7,6 +7,8 @@
 import { strokeInto, strokeQuadPath, fillQuads, circleQuads, type Pt } from './stroke/stroke';
 import { Group, type RenderCtx } from './mobject/mobject';
 import { Polygon, Circle, Dot, Label, Vector } from './mobject/primitives';
+import { NumberPlane, type PlaneView } from './coords/numberPlane';
+import { plotFunction, areaUnder, scatter } from './plot/plot';
 import type { FontFace } from '../windfoil/font';
 
 const INK = [0.90, 0.92, 0.98, 1];
@@ -21,8 +23,9 @@ export class WindgraphDemo {
   x0 = 0;
   y0 = 0;
   width = 1500;
-  height = 2050;
+  height = 3000;
   private scene: Group | null = null;
+  private plane = new NumberPlane();
 
   private buildScene(): Group {
     const g = new Group();
@@ -51,7 +54,7 @@ export class WindgraphDemo {
     return g;
   }
 
-  emit(font: FontFace, atlas: any, inst: number[], crv: number[], rws: number[], _now: number) {
+  emit(font: FontFace, atlas: any, inst: number[], crv: number[], rws: number[], _now: number, view: PlaneView) {
     const ox = this.x0, oy = this.y0;
     const grid = [1, 1, 1, 0.07];
     const ink = INK, blue = BLUE, red = RED, green = GREEN, gold = GOLD;
@@ -98,5 +101,17 @@ export class WindgraphDemo {
     this.scene.position = [ox, oy + 1320];
     const ctx: RenderCtx = { font, atlas, inst, crv, rws };
     this.scene.emit(ctx);
+
+    // ── Phase 2/3: coordinate plane + smooth plots ─────────────────────────
+    const p = this.plane;
+    p.worldX0 = ox + 720; p.worldY0 = oy + 2520;
+    p.unitX = 110; p.unitY = 100;
+    const pctx = { font, atlas, inst, crv, rws };
+    p.render(pctx, view);
+    // area under the sine, then two smooth (adaptive-Bézier) curves + a scatter series
+    areaUnder((x) => Math.sin(x) * 2.4, p, view, pctx, [0.30, 0.60, 0.98, 0.14]);
+    plotFunction((x) => Math.sin(x) * 2.4, p, view, pctx, { color: blue, widthPx: 3 });
+    plotFunction((x) => 0.16 * x * x - 2.6, p, view, pctx, { color: red, widthPx: 3 });
+    scatter([[-4, 1], [-2, -1.5], [0, 0.8], [2, 2], [4, -2.2]], p, view, pctx, gold, 6);
   }
 }

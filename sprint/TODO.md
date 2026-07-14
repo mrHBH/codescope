@@ -27,13 +27,13 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done
 - [x] Group/Mobject tree with combined transforms
 - [x] Demo: a labeled geometry scene (triangle, incircle, vectors)
 
-## Phase 2 — Coordinates, axes, grids  (`phase-2-coordinates-axes.md`)
-- [ ] Data↔screen transform tied to the windfoil camera
-- [ ] NumberPlane: linear axes, ticks, minor/major grid
-- [ ] Tick labels + axis labels (windfoil text)
-- [ ] Log scale, polar grid
-- [ ] Auto-ranging + nice-number tick selection
-- [ ] Demo: axes that stay crisp + correctly ticked through infinite zoom
+## Phase 2 — Coordinates, axes, grids  (`phase-2-coordinates-axes.md`)  ✅
+- [x] Data↔screen transform tied to the windfoil camera
+- [x] NumberPlane: linear axes, ticks, minor/major grid
+- [x] Tick labels + axis labels (windfoil text)
+- [ ] Log scale, polar grid (later)
+- [x] Auto-ranging + nice-number tick selection (adaptive to zoom)
+- [x] Demo: axes that stay crisp + correctly ticked through zoom
 
 ## Phase 3 — Plotting  (`phase-3-plotting.md`)
 - [ ] `y = f(x)` plot (adaptive Bézier sampling)
