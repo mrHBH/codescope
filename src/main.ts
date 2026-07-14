@@ -13,8 +13,8 @@ import type { StyledEl } from './layout/types';
 import { createAppState } from './state';
 import { buildStatic } from './precompute';
 import { setSize, goToPage } from './camera/camera';
-import { toggle3D } from './camera/camera';
-import { initOrbit } from './camera/orbit';
+import { toggle3D, enter3D } from './camera/camera';
+import { initOrbit, orbitSetPose, orbitDistForZoom, updateOrbit } from './camera/orbit';
 import { attachInput } from './camera/input';
 import { runFrame } from './frame';
 import { HTML_SRC } from './content/pages';
@@ -30,6 +30,7 @@ import { WindgraphDemo } from './windgraph/demo';
 import { MorphDemo } from './windgraph/anim/demo';
 import { InteractDemo } from './windgraph/interact/demo';
 import { Surface3DDemo } from './windgraph/space3d/demo';
+import { createMeshRenderer } from './windfoil/mesh3d';
 import { loadMathFonts, mathExtraFonts } from './windgraph/math/fonts';
 import { MathDemo } from './windgraph/math/demo';
 
@@ -187,25 +188,31 @@ async function main() {
     s.velX = s.velY = 0;
   }
 
-  // ── windgraph Phase-7 3D graphing demo ────────────────────────────────────
-  // World-space drag-to-orbit board to the right of the interactive board.
+  // ── windgraph Phase-7 3D graphing demo (TRUE 3D mesh) ─────────────────────
+  // A real 3D surface that rises off the ground plane; viewed with the free
+  // camera. Framed by entering 3D and posing the orbit over its footprint.
   const graph3d = new Surface3DDemo();
-  graph3d.x0 = interactive.x0 + interactive.width + 400;
-  graph3d.y0 = -graph3d.height - 200;
+  graph3d.cx = PAGE_W + 1000;
+  graph3d.cy = 500;
   s.graph3d = graph3d;
+  s.meshRenderer = createMeshRenderer(device, 'rgba8unorm');
 
   function frameGraph3d() {
     const g = graph3d;
-    s.tgtZ = Math.min((s.tCanvas.width / (g.width + 160)) * 0.9, (s.tCanvas.height / (g.height + 160)) * 0.9);
-    s.tgtX = g.x0 + g.width / 2;
-    s.tgtY = g.y0 + g.height / 2;
-    s.velX = s.velY = 0;
+    const span = g.halfSpan * 2 + 400;
+    s.camX = s.tgtX = s.viewX = g.cx;
+    s.camY = s.tgtY = s.viewY = g.cy;
+    const z = Math.min(s.tCanvas.width / span, s.tCanvas.height / span) * 0.9;
+    s.camZ = s.tgtZ = s.viewZ = z;
+    enter3D(s);
+    orbitSetPose(g.cx, g.cy, orbitDistForZoom(z, s.tCanvas.height), 0.6, 0.92);
+    updateOrbit(16);
   }
 
   // ── windgraph Phase-6 math typesetting demo ───────────────────────────────
   // World-space board to the right of the 3D board.
   const mathDemo = new MathDemo();
-  mathDemo.x0 = graph3d.x0 + graph3d.width + 400;
+  mathDemo.x0 = interactive.x0 + interactive.width + 400;
   mathDemo.y0 = -mathDemo.height - 200;
   s.mathDemo = mathDemo;
 

@@ -130,15 +130,14 @@ export function createDemo(s: AppState): DemoController {
         tick: () => { s.interactive?.autoDrive(); } });
     }
 
-    // (The 3D graphing board is a slow placeholder — see phase-7 doc — but it is
-    // shown briefly here, gated so it only renders during this shot.)
+    // 3.7 — Orbit the TRUE-3D surface (rises off the ground; rendered by the mesh
+    // pipeline through the same camera). polar tilts down for a 3/4 view.
     if (s.graph3d) {
-      const g3 = s.graph3d, w = g3.width, h = g3.height;
-      list.push({ pose: { tx: g3.x0 + w / 2, tz: g3.y0 + h * 0.5, zoom: fitZoom(w + 140, h + 180, 0.92), az: -0.2, polar: 0.5 },
-        travel: 4.2, hold: 5.0, ease: easeInOut,
-        title: 'And even 3D', sub: 'Surfaces, axes & crisp labels (preview)',
-        onEnter: () => { s.graph3d?.autoRotate(); s.graph3d?.pokeFlight(performance.now()); },
-        tick: () => { s.graph3d?.autoRotate(); s.graph3d?.pokeFlight(performance.now()); } });
+      const g3 = s.graph3d;
+      const span = g3.halfSpan * 2 + 400;
+      list.push({ pose: { tx: g3.cx, tz: g3.cy, zoom: fitZoom(span, span, 0.85), az: 0.5, polar: 0.95 },
+        travel: 4.6, hold: 5.2, ease: easeInOut,
+        title: 'True 3D graphs', sub: 'Surfaces that rise off the page' });
     }
 
     // 3.8 — Glide to the analytic-math board (self-animating write-on headline).

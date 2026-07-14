@@ -108,11 +108,6 @@ export function attachInput(s: AppState) {
       s.velX = s.velY = 0; s.pressed = null;
       return;
     }
-    // windgraph 3D board: begin an orbit drag (takes priority over panning).
-    if (s.graph3d && s.graph3d.tryBeginDrag(w.x, w.y, cameraScale(s))) {
-      s.velX = s.velY = 0; s.pressed = null;
-      return;
-    }
 
     // Editor mode: click inside the panel places the caret + starts a selection.
     if (s.editorMode && s.editor) {      const ed = s.editor;
@@ -201,12 +196,6 @@ export function attachInput(s: AppState) {
       s.interactive.dragTo(w.x, w.y);
       return;
     }
-    // windgraph 3D orbit drag.
-    if (s.graph3d && s.graph3d.dragging) {
-      const w = scrToWorld(s, b.x, b.y);
-      s.graph3d.dragTo(w.x, w.y);
-      return;
-    }
     // Slider drag: track the pointer x, rebuild only when the step changes.
     if (sliding) {
       const w = scrToWorld(s, b.x, b.y);
@@ -242,7 +231,6 @@ export function attachInput(s: AppState) {
     s.selecting = false;
     s.editorSelecting = false;
     if (s.interactive) s.interactive.endDrag();
-    if (s.graph3d) s.graph3d.endDrag();
     sliding = null; slidingPct = -1;
     s.pointers.clear(); s.dragging = false; s.pressed = null; if (performance.now() - s.lastMoveT > 80) s.velX = s.velY = 0;
   };

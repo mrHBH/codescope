@@ -121,18 +121,13 @@ export interface AppState {
     readonly dragging: boolean;
   } | null;
 
-  // windgraph Phase-7 3D graphing demo (world-space, drag-to-orbit; see windgraph/space3d/demo.ts)
+  // windgraph Phase-7 3D graphing demo (true 3D mesh; see windgraph/space3d/demo.ts)
   graph3d: {
-    x0: number; y0: number; width: number; height: number;
-    emit(font: FontFace, atlas: any, inst: number[], crv: number[], rws: number[], now: number, view: { zoom: number; left: number; right: number; top: number; bottom: number }): void;
-    tryBeginDrag(wx: number, wy: number, scale: number): boolean;
-    dragTo(wx: number, wy: number): void;
-    endDrag(): void;
-    autoRotate(): void;
-    pokeFlight(now: number): void;
-    wantsFlightEmit(now: number): boolean;
-    readonly dragging: boolean;
+    cx: number; cy: number; readonly halfSpan: number;
+    buildMesh(): { tris: Float32Array; lines: Float32Array };
   } | null;
+  // 3D mesh renderer (companion pipeline sharing the depth buffer).
+  meshRenderer: import('./windfoil/mesh3d').MeshRenderer | null;
 
   // windgraph Phase-6 math typesetting demo (world-space; see windgraph/math/demo.ts)
   mathDemo: { x0: number; y0: number; width: number; height: number; emit(font: FontFace, atlas: any, inst: number[], crv: number[], rws: number[], now: number, view: { zoom: number; left: number; right: number; top: number; bottom: number }): void } | null;
@@ -171,6 +166,7 @@ export function createAppState(partial: Partial<AppState>): AppState {
     interactive: null,
     graph3d: null,
     mathDemo: null,
+    meshRenderer: null,
     ...partial,
   } as AppState;
 }

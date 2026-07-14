@@ -1,3 +1,5 @@
+import { DEPTH_FORMAT } from './mesh3d';
+
 const WGSL_URL = new URL('./windfoil.wgsl', import.meta.url);
 
 export async function loadShaderCode(url: string | URL = WGSL_URL): Promise<string> {
@@ -38,6 +40,10 @@ export function createGlyphRenderer(
       }],
     },
     primitive: { topology: 'triangle-strip' },
+    // The pass carries a shared depth buffer (for the 3D mesh pipeline). windfoil
+    // itself is depth-agnostic: it never writes depth and always passes, so its
+    // painter-order layering is unchanged and it renders on top of 3D meshes.
+    depthStencil: { format: DEPTH_FORMAT, depthWriteEnabled: false, depthCompare: 'always' },
   });
 
   // Uniforms: res(vec2) + style(vec2) + camScale(vec2) + camCenter(vec2) = 32B,

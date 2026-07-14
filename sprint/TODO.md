@@ -74,20 +74,18 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done
       integrals with limits, Greek, operators  ·  [ ] matrices (stretch)
 - [x] Demo (📐): gallery of identities + animated headline, sharp at any zoom
 
-## Phase 7 — 3D graphing  (`phase-7-3d-graphing.md`)  ⚠️ REDO (placeholder only)
-> **Revisit required.** The current impl is a *fake-3D* CPU projection painter-
-> sorted into the **flat 2D canvas** — performance is poor (thousands of sorted
-> fills/frame) and it does **not** integrate with the real 3D free-camera. The
-> intended design: the graph should extend in **true 3D above the ground plane**,
-> rendered by the actual orbit camera (so panning the 3D world flies over/around
-> it). That needs a per-instance **height/Z** in `windfoil.wgsl` (the vs currently
-> hardcodes z=0) — a real renderer change. Come back to this.
-- [~] 3D axes + grid — placeholder (CPU-projected, 2D canvas)
-- [~] Surface `z = f(x,y)` — placeholder (painter-sort, slow); redo as true 3D
-- [x] Space curves `C(t)`  ·  [ ] parametric surfaces `S(u,v)` (stretch)
-- [ ] **True** hidden-surface handling via a depth buffer in the windfoil pass
-- [x] Camera-facing crisp labels (upright 2D text billboards)
-- [~] Demo (🗻) — works but is the placeholder fake-3D, not integrated 3D
+## Phase 7 — 3D graphing  (`phase-7-3d-graphing.md`)  ✅ (true 3D; labels pending)
+> **Redone as TRUE 3D.** The surface is now a real 3D triangle mesh that rises off
+> the ground plane, rendered by the orbit free-camera through a shared depth
+> buffer (companion `mesh3d` pipeline) — fly around it (🗻 enters 3D; right-drag
+> orbits) alongside the document/editor in one 3D world. Fast (GPU triangles).
+- [x] Depth buffer added to the windfoil pass (shared; 2D unaffected)
+- [x] 3D mesh pipeline (`src/windfoil/mesh3d.ts`) — triangles + lines, depth-tested
+- [x] Surface `z = f(x,y)` as a true 3D mesh (colormap + Lambert shading)
+- [x] 3D axes + floor grid + surface wireframe (3D lines)
+- [x] Correct self-occlusion via depth buffer (no painter-sort hack)
+- [ ] Billboarded crisp axis labels (stage 4 — pending: needs per-instance Z)
+- [ ] Parametric surfaces `S(u,v)` + space curves in true 3D (stretch)
 
 ## Phase 8 — Export, docs, polish  (`phase-8-export-polish.md`)
 - [ ] SVG export of a frame (contours → path data)

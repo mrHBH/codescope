@@ -15,6 +15,19 @@ import { cameraViewProj, cameraScale, scrToDoc } from './camera/camera';
 import type { EditorTheme } from './editor/editor';
 import type { TerminalTheme } from './editor/terminal';
 import type { FileTreeTheme } from './editor/fileTree';
+import { DEPTH_FORMAT } from './windfoil/mesh3d';
+
+// Shared depth texture for the 3D mesh pass, recreated when the canvas resizes.
+let _depthTex: GPUTexture | null = null;
+let _depthW = 0, _depthH = 0;
+function ensureDepth(device: GPUDevice, w: number, h: number): GPUTexture {
+  if (!_depthTex || _depthW !== w || _depthH !== h) {
+    _depthTex?.destroy();
+    _depthTex = device.createTexture({ size: [w, h], format: DEPTH_FORMAT, usage: GPUTextureUsage.RENDER_ATTACHMENT });
+    _depthW = w; _depthH = h;
+  }
+  return _depthTex;
+}
 
 function terminalTheme(): TerminalTheme {
   // A fixed dark VS Code-ish palette (the terminal reads as a dark surface in
@@ -289,20 +302,8 @@ export function runFrame(s: AppState) {
       }
     }
 
-    // windgraph Phase-7 3D graphing board (world-space, drag-to-orbit).
-    // Heavy fake-3D placeholder: renders in 2D when framed, and in 3D ONLY while
-    // its cinematic shot is poking it (so it never taxes the rest of the flight).
-    if (s.graph3d) {
-      const g = s.graph3d;
-      const gR = g.x0 + g.width, gB = g.y0 + g.height;
-      if (s.cam3d.active) {
-        if (g.wantsFlightEmit(now)) g.emit(s.font, s.atlas, inst, crv, rws, now, boardView);
-      } else if (g.x0 <= vR && gR >= vL && g.y0 <= vB && gB >= vT) {
-        g.emit(s.font, s.atlas, inst, crv, rws, now, boardView);
-        if (!wheelCool && g.dragging) s.rCanvas.style.cursor = 'grabbing';
-        else if (!wheelCool && s.mwx >= g.x0 && s.mwx <= gR && s.mwy >= g.y0 && s.mwy <= gB) s.rCanvas.style.cursor = 'grab';
-      }
-    }
+    // windgraph Phase-7 3D graphing board is drawn as a TRUE 3D mesh (below, in
+    // the render pass) — not as windfoil instances — so it rises off the ground.
 
     // windgraph Phase-6 math typesetting board (world-space).
     if (s.mathDemo) {
@@ -335,12 +336,25 @@ export function runFrame(s: AppState) {
       }
     }
     const enc = s.device.createCommandEncoder();
-    const pass = enc.beginRenderPass({ colorAttachments: [{ view: s.gpuCtx.getCurrentTexture().createView(), clearValue: { r: 0, g: 0, b: 0, a: 0 }, loadOp: 'clear', storeOp: 'store' }] });
+    const depthView = ensureDepth(s.device, Cw, Ch).createView();
+    const pass = enc.beginRenderPass({
+      colorAttachments: [{ view: s.gpuCtx.getCurrentTexture().createView(), clearValue: { r: 0, g: 0, b: 0, a: 0 }, loadOp: 'clear', storeOp: 'store' }],
+      depthStencilAttachment: { view: depthView, depthClearValue: 1, depthLoadOp: 'clear', depthStoreOp: 'store' },
+    });
     // View-projection: orthographic (2D) or perspective (3D free camera). camScale
     // feeds the AA-skirt pad; camCenter moves camera translation out of the matrix
     // (into the vertex shader) so the matrix terms stay small at extreme zoom.
     const camScale = cameraScale(s);
     const viewProj = cameraViewProj(s, Cw, Ch);
+    // TRUE 3D: draw the surface mesh FIRST (it writes depth + self-occludes); the
+    // analytic windfoil pass then renders on top (depth-agnostic), so document +
+    // labels stay crisp above the surface. Only in the 3D free-camera.
+    if (s.cam3d.active && s.graph3d && s.meshRenderer) {
+      const m = s.graph3d.buildMesh();
+      s.meshRenderer.setViewProj(viewProj);
+      s.meshRenderer.drawTris(pass, m.tris);
+      s.meshRenderer.drawLines(pass, m.lines);
+    }
     s.renderer.setUniforms({ width: Cw, height: Ch, camScale: [camScale, camScale], camCenter: [0, 0], viewProj });
     s.renderer.draw(pass, s.crvFA.subarray(0, crv.length), s.rwsUA.subarray(0, rws.length), s.instFA.subarray(0, inst.length), inst.length / 16);
     pass.end();
