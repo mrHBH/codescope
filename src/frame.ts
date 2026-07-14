@@ -72,7 +72,10 @@ export function runFrame(s: AppState) {
   function frame(now: number) {
     requestAnimationFrame(frame);
     const dt = prevTs ? now - prevTs : 16; prevTs = now;
-    fpsDt = fpsDt * .9 + dt * .1; s.fpsEl.textContent = `${Math.round(1000 / fpsDt)} fps`;
+    fpsDt = fpsDt * .9 + dt * .1;
+    const z = s.viewZ;
+    const zoomStr = z < 1 ? z.toFixed(2) : z < 100 ? z.toFixed(1) : z < 1e4 ? `${(z / 1e3).toFixed(1)}K` : z < 1e7 ? `${(z / 1e6).toFixed(1)}M` : `${(z / 1e9).toFixed(1)}G`;
+    s.fpsEl.textContent = `${Math.round(1000 / fpsDt)} fps  ·  ${zoomStr}×`;
 
     if (s.demo && s.demo.running) s.demo.update(now);
     else stepCamera(s, dt, now);
@@ -251,11 +254,62 @@ export function runFrame(s: AppState) {
     }
 
     // windgraph demo board (world-space).
+    // In 3D (cinematic flight) the 2D view bounds/zoom are stale, so pass the
+    // camera's on-axis scale and unbounded extents (culling is per-board above).
+    const boardView = s.cam3d.active
+      ? { zoom: cameraScale(s), left: -1e12, right: 1e12, top: -1e12, bottom: 1e12 }
+      : { zoom: s.viewZ, left: vL, right: vR, top: vT, bottom: vB };
     if (s.windgraph) {
       const g = s.windgraph;
       const gR = g.x0 + g.width, gB = g.y0 + g.height;
       if (s.cam3d.active || (g.x0 <= vR && gR >= vL && g.y0 <= vB && gB >= vT)) {
-        g.emit(s.font, s.atlas, inst, crv, rws, now, { zoom: s.viewZ, left: vL, right: vR, top: vT, bottom: vB });
+        g.emit(s.font, s.atlas, inst, crv, rws, now, boardView);
+      }
+    }
+
+    // windgraph Phase-4 animation board (world-space).
+    if (s.morphDemo) {
+      const g = s.morphDemo;
+      const gR = g.x0 + g.width, gB = g.y0 + g.height;
+      if (s.cam3d.active || (g.x0 <= vR && gR >= vL && g.y0 <= vB && gB >= vT)) {
+        g.emit(s.font, s.atlas, inst, crv, rws, now, boardView);
+      }
+    }
+
+    // windgraph Phase-5 interactive board (world-space, draggable).
+    if (s.interactive) {
+      const g = s.interactive;
+      const gR = g.x0 + g.width, gB = g.y0 + g.height;
+      if (s.cam3d.active || (g.x0 <= vR && gR >= vL && g.y0 <= vB && gB >= vT)) {
+        // Update hover BEFORE emit so the hover ring is current; set the cursor
+        // directly (the frame's earlier cursor assignment already ran).
+        const over = !wheelCool && (g.dragging || g.updateHover(s.mwx, s.mwy, cameraScale(s)));
+        g.emit(s.font, s.atlas, inst, crv, rws, now, boardView);
+        if (over) s.rCanvas.style.cursor = g.dragging ? 'grabbing' : 'grab';
+      }
+    }
+
+    // windgraph Phase-7 3D graphing board (world-space, drag-to-orbit).
+    // Heavy fake-3D placeholder: renders in 2D when framed, and in 3D ONLY while
+    // its cinematic shot is poking it (so it never taxes the rest of the flight).
+    if (s.graph3d) {
+      const g = s.graph3d;
+      const gR = g.x0 + g.width, gB = g.y0 + g.height;
+      if (s.cam3d.active) {
+        if (g.wantsFlightEmit(now)) g.emit(s.font, s.atlas, inst, crv, rws, now, boardView);
+      } else if (g.x0 <= vR && gR >= vL && g.y0 <= vB && gB >= vT) {
+        g.emit(s.font, s.atlas, inst, crv, rws, now, boardView);
+        if (!wheelCool && g.dragging) s.rCanvas.style.cursor = 'grabbing';
+        else if (!wheelCool && s.mwx >= g.x0 && s.mwx <= gR && s.mwy >= g.y0 && s.mwy <= gB) s.rCanvas.style.cursor = 'grab';
+      }
+    }
+
+    // windgraph Phase-6 math typesetting board (world-space).
+    if (s.mathDemo) {
+      const g = s.mathDemo;
+      const gR = g.x0 + g.width, gB = g.y0 + g.height;
+      if (s.cam3d.active || (g.x0 <= vR && gR >= vL && g.y0 <= vB && gB >= vT)) {
+        g.emit(s.font, s.atlas, inst, crv, rws, now, boardView);
       }
     }
 
@@ -265,15 +319,29 @@ export function runFrame(s: AppState) {
     s.crvFA.set(crv);
     if (rws.length > s.rwsUA.length) s.rwsUA = new Uint32Array(rws.length * 2);
     s.rwsUA.set(rws);
+    // Upload instance buffer. In 2D mode, subtract camera center from each
+    // instance origin in JS (f64) so the GPU sees small coordinates even at
+    // extreme zoom — true infinite zoom. 3D mode passes absolute coords because
+    // orbitViewProj handles the camera transform internally.
     if (inst.length > s.instFA.length) s.instFA = new Float32Array(inst.length * 2);
-    s.instFA.set(inst);
+    if (s.cam3d.active) {
+      s.instFA.set(inst);
+    } else {
+      const cx = s.viewX, cy = s.viewY;
+      for (let i = 0; i < inst.length; i += 16) {
+        s.instFA[i] = inst[i] - cx;       // place.x relative to camera (f64→f32)
+        s.instFA[i + 1] = inst[i + 1] - cy;
+        for (let j = 2; j < 16; j++) s.instFA[i + j] = inst[i + j];
+      }
+    }
     const enc = s.device.createCommandEncoder();
     const pass = enc.beginRenderPass({ colorAttachments: [{ view: s.gpuCtx.getCurrentTexture().createView(), clearValue: { r: 0, g: 0, b: 0, a: 0 }, loadOp: 'clear', storeOp: 'store' }] });
-    // View-projection: orthographic (2D) or perspective (3D free camera). `cam`
-    // still feeds the AA-skirt pad via the effective on-axis scale.
+    // View-projection: orthographic (2D) or perspective (3D free camera). camScale
+    // feeds the AA-skirt pad; camCenter moves camera translation out of the matrix
+    // (into the vertex shader) so the matrix terms stay small at extreme zoom.
     const camScale = cameraScale(s);
     const viewProj = cameraViewProj(s, Cw, Ch);
-    s.renderer.setUniforms({ width: Cw, height: Ch, cam: [camScale, camScale, 0, 0], viewProj });
+    s.renderer.setUniforms({ width: Cw, height: Ch, camScale: [camScale, camScale], camCenter: [0, 0], viewProj });
     s.renderer.draw(pass, s.crvFA.subarray(0, crv.length), s.rwsUA.subarray(0, rws.length), s.instFA.subarray(0, inst.length), inst.length / 16);
     pass.end();
     s.device.queue.submit([enc.finish()]);

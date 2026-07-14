@@ -112,6 +112,43 @@ export function createDemo(s: AppState): DemoController {
       travel: 3.4, hold: 2.4, ease: easeOut,
       title: 'Infinitely zoomable', sub: 'One pixel is a winding integral · zero aliasing' });
 
+    // 3.5 — Rise to the windgraph animation board (self-animating morph scene).
+    if (s.morphDemo) {
+      const m = s.morphDemo, w = m.width, h = m.height;
+      list.push({ pose: { tx: m.x0 + w / 2, tz: m.y0 + h * 0.5, zoom: fitZoom(w + 120, h + 170, 0.92), az: -0.22, polar: 0.5 },
+        travel: 4.6, hold: 4.6, ease: easeInOut,
+        title: 'It animates', sub: 'Eased morphs · draw-on · riding point' });
+    }
+
+    // 3.6 — Slide across to the interactive board; auto-drive a vertex to show
+    // the reactive dependency graph recomputing live.
+    if (s.interactive) {
+      const it = s.interactive, w = it.width, h = it.height;
+      list.push({ pose: { tx: it.x0 + w / 2, tz: it.y0 + h * 0.5, zoom: fitZoom(w + 140, h + 170, 0.9), az: 0.24, polar: 0.52 },
+        travel: 4.2, hold: 5.2, ease: easeInOut,
+        title: "And it's interactive", sub: 'Reactive constraints · live recompute',
+        tick: () => { s.interactive?.autoDrive(); } });
+    }
+
+    // (The 3D graphing board is a slow placeholder — see phase-7 doc — but it is
+    // shown briefly here, gated so it only renders during this shot.)
+    if (s.graph3d) {
+      const g3 = s.graph3d, w = g3.width, h = g3.height;
+      list.push({ pose: { tx: g3.x0 + w / 2, tz: g3.y0 + h * 0.5, zoom: fitZoom(w + 140, h + 180, 0.92), az: -0.2, polar: 0.5 },
+        travel: 4.2, hold: 5.0, ease: easeInOut,
+        title: 'And even 3D', sub: 'Surfaces, axes & crisp labels (preview)',
+        onEnter: () => { s.graph3d?.autoRotate(); s.graph3d?.pokeFlight(performance.now()); },
+        tick: () => { s.graph3d?.autoRotate(); s.graph3d?.pokeFlight(performance.now()); } });
+    }
+
+    // 3.8 — Glide to the analytic-math board (self-animating write-on headline).
+    if (s.mathDemo) {
+      const md = s.mathDemo, w = md.width, h = md.height;
+      list.push({ pose: { tx: md.x0 + w / 2, tz: md.y0 + h * 0.5, zoom: fitZoom(w + 140, h + 180, 0.9), az: -0.16, polar: 0.48 },
+        travel: 4.4, hold: 5.6, ease: easeInOut,
+        title: 'LaTeX-quality math', sub: 'Parsed + analytic · razor-sharp at any zoom' });
+    }
+
     // 4 — Slow sweeping glide to the code editor, banking to the opposite side.
     if (s.editor) {
       const ed = s.editor, w = ed.contentWidth(), h = ed.contentHeight();

@@ -5,8 +5,9 @@
 struct Uniforms {
   res : vec2<f32>,        // render-target size in pixels
   style : vec2<f32>,      // (gamma, sharp) coverage transform; (1, 1) = exact
-  cam : vec4<f32>,        // legacy 2D scale/translate; xy still drives the AA-skirt pad
-  viewProj : mat4x4<f32>, // world-plane (x, y, 0, 1) → clip space (perspective-capable)
+  camScale : vec2<f32>,   // camera scale — drives the AA-skirt pad (was cam.xy)
+  camCenter : vec2<f32>,  // camera center (subtracted from world pos for precision)
+  viewProj : mat4x4<f32>, // world-relative (x, y, 0, 1) → clip space
 };
 
 struct Instance {
@@ -53,22 +54,20 @@ struct VsOut {
 fn vs(@builtin(vertex_index) vi : u32, @builtin(instance_index) ii : u32) -> VsOut {
   let I = instances[ii];
   let unitsToPx = I.place.z;
-  let camScale = U.cam.xy;
   // Kernel-derived AA skirt (0.625px) so the coverage skirt is never clipped, per axis.
-  let pad = KERNEL_SKIRT_PX / (unitsToPx * max(abs(camScale), vec2<f32>(1e-6)));
+  let pad = KERNEL_SKIRT_PX / (unitsToPx * max(abs(U.camScale), vec2<f32>(1e-6)));
   let lo = I.bbox.xy - pad;
   let hi = I.bbox.zw + pad;
   // Unit-quad corners for a triangle-strip; vi ∈ {0..3}.
   let uv = vec2<f32>(f32(vi & 1u), f32(vi >> 1u));
   let em = mix(lo, hi, uv);
   let worldPx = I.place.xy + em * unitsToPx;
-  // Project the world-plane point through the camera. With an orthographic
-  // viewProj this reproduces the legacy `worldPx·camScale + trans → NDC` path
-  // exactly; with a perspective viewProj the panel can sit at any 3D angle while
-  // the fragment stage stays crisp (its footprint comes from screen-space
-  // derivatives of `rc`, not from this transform).
+  // Subtract camera center BEFORE the matrix multiply so the matrix terms stay
+  // small — avoids catastrophic cancellation at extreme zoom (infinite zoom).
+  // For the 3D orbit path camCenter = (0, 0) so this is a no-op.
+  let relPos = worldPx - U.camCenter;
   var o : VsOut;
-  o.pos = U.viewProj * vec4<f32>(worldPx.x, worldPx.y, 0.0, 1.0);
+  o.pos = U.viewProj * vec4<f32>(relPos.x, relPos.y, 0.0, 1.0);
   o.rc = em;
   o.inst = ii;
   return o;

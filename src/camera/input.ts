@@ -102,6 +102,18 @@ export function attachInput(s: AppState) {
 
     const w = scrToWorld(s, b.x, b.y);
 
+    // windgraph interactive board: grab a draggable point (takes priority over
+    // panning). Suppresses camera motion for the duration of the drag.
+    if (s.interactive && s.interactive.tryBeginDrag(w.x, w.y, cameraScale(s))) {
+      s.velX = s.velY = 0; s.pressed = null;
+      return;
+    }
+    // windgraph 3D board: begin an orbit drag (takes priority over panning).
+    if (s.graph3d && s.graph3d.tryBeginDrag(w.x, w.y, cameraScale(s))) {
+      s.velX = s.velY = 0; s.pressed = null;
+      return;
+    }
+
     // Editor mode: click inside the panel places the caret + starts a selection.
     if (s.editorMode && s.editor) {      const ed = s.editor;
       const inPanel = w.x >= ed.x0 && w.x <= ed.x0 + ed.contentWidth() && w.y >= ed.y0 && w.y <= ed.y0 + ed.contentHeight();
@@ -183,6 +195,18 @@ export function attachInput(s: AppState) {
     if (!s.pointers.has(e.pointerId)) return;
     const prev = s.pointers.get(e.pointerId)!;
     s.pointers.set(e.pointerId, { x: b.x, y: b.y });
+    // windgraph interactive drag: move the grabbed point + live recompute.
+    if (s.interactive && s.interactive.dragging) {
+      const w = scrToWorld(s, b.x, b.y);
+      s.interactive.dragTo(w.x, w.y);
+      return;
+    }
+    // windgraph 3D orbit drag.
+    if (s.graph3d && s.graph3d.dragging) {
+      const w = scrToWorld(s, b.x, b.y);
+      s.graph3d.dragTo(w.x, w.y);
+      return;
+    }
     // Slider drag: track the pointer x, rebuild only when the step changes.
     if (sliding) {
       const w = scrToWorld(s, b.x, b.y);
@@ -217,6 +241,8 @@ export function attachInput(s: AppState) {
     if (s.selecting && s.activeEdit && s.activeEdit.selAnchor === s.activeEdit.caret) s.activeEdit.selAnchor = -1;
     s.selecting = false;
     s.editorSelecting = false;
+    if (s.interactive) s.interactive.endDrag();
+    if (s.graph3d) s.graph3d.endDrag();
     sliding = null; slidingPct = -1;
     s.pointers.clear(); s.dragging = false; s.pressed = null; if (performance.now() - s.lastMoveT > 80) s.velX = s.velY = 0;
   };

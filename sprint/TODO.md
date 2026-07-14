@@ -6,6 +6,10 @@ criteria pass.
 
 Legend: `[ ]` todo · `[~]` in progress · `[x]` done
 
+> Cinematic flight (`src/ui/demo.ts`, 🎬 button) now showcases the windgraph
+> library too: an "It animates" morph shot + an "And it's interactive" shot that
+> auto-drives a triangle vertex to show live constraint recompute.
+
 ---
 
 ## Phase 0 — Stroke→fill engine  (`phase-0-stroke-engine.md`)  ✅
@@ -35,43 +39,55 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done
 - [x] Auto-ranging + nice-number tick selection (adaptive to zoom)
 - [x] Demo: axes that stay crisp + correctly ticked through zoom
 
-## Phase 3 — Plotting  (`phase-3-plotting.md`)
-- [ ] `y = f(x)` plot (adaptive Bézier sampling)
-- [ ] Parametric + polar curves
-- [ ] Implicit `f(x,y)=0` (marching squares → contours)
-- [ ] Vector / slope fields
-- [ ] Area fill under/between curves; Riemann rectangles
-- [ ] Discrete data: scatter, line, bar, step
-- [ ] Demo: multi-series plot, zoomable, sharp
+## Phase 3 — Plotting  (`phase-3-plotting.md`)  ✅
+- [x] `y = f(x)` plot (adaptive Bézier sampling)
+- [x] Parametric + polar curves
+- [x] Implicit `f(x,y)=0` (marching squares → contours)
+- [x] Vector / slope fields
+- [x] Area fill under/between curves; Riemann rectangles
+- [x] Discrete data: scatter, line, bar, step, error bars
+- [x] Demo: multi-series plot, implicit contours, vector field, slope field, data series
 
-## Phase 4 — Animation engine  (`phase-4-animation.md`)
-- [ ] Scene + timeline (play/sequence/parallel, easing library)
-- [ ] Create/Draw (partial-length path reveal)
-- [ ] Transform/morph (path interpolation with point correspondence)
-- [ ] FadeIn/Out, shift/scale/rotate, MoveAlongPath
-- [ ] ValueTracker + updaters (dependent animation)
-- [ ] Demo: sin→polynomial morph with moving labeled point
+## Phase 4 — Animation engine  (`phase-4-animation.md`)  ✅
+- [x] Scene + timeline (play/sequence/parallel, easing library)
+- [x] Create/Draw (partial-length path reveal)
+- [x] Transform/morph (path interpolation with point correspondence)
+- [x] FadeIn/Out, shift/scale/rotate, MoveAlongPath
+- [x] ValueTracker + updaters (dependent animation)
+- [x] Demo: sin→polynomial morph with moving labeled point
 
-## Phase 5 — Interactivity + constraints  (`phase-5-interactivity.md`)
-- [ ] Reactive dependency graph (free vs. constrained objects)
-- [ ] Draggable free points (uses windfoil picking)
-- [ ] Derived objects: midpoint, intersection, glider-on-curve, reflection
-- [ ] Live recompute + redraw on drag
-- [ ] Demo: draggable triangle with live centroid/circumcircle
+## Phase 5 — Interactivity + constraints  (`phase-5-interactivity.md`)  ✅
+- [x] Reactive dependency graph (free vs. constrained objects)
+- [x] Draggable free points (uses windfoil picking)
+- [x] Derived objects: midpoint, intersection, glider-on-curve, reflection
+      (+ centroid, circumcircle, perpendicular, parallel, angle, distance)
+- [x] Live recompute + redraw on drag
+- [x] Demo: draggable triangle with live centroid/circumcircle
 
-## Phase 6 — Math typesetting  (`phase-6-math-typesetting.md`)
-- [ ] LaTeX math → positioned glyph/rule boxes (KaTeX-style layout)
-- [ ] Math font atlas baked into windfoil
-- [ ] Inline + display math as a `MathTex` Mobject
-- [ ] Animatable/transformable like any shape
-- [ ] Demo: an equation that writes on and morphs, sharp at any zoom
+## Phase 6 — Math typesetting  (`phase-6-math-typesetting.md`)  ✅
+- [x] Math font atlas (KaTeX TTFs → windfoil, multi-font: mi:/mn:/sz: prefixes)
+- [x] LaTeX-math → box tree (in-house parser + TeX-style box layout, no KaTeX lib)
+- [x] Box tree → windfoil instances (glyphs + rule rects + radical strokes)
+- [x] `MathTex`: display math, anchoring, participates in emit
+- [x] Animatable: write-on (reveal) + fade ; [~] true glyph morph (crossfade for now)
+- [x] Constructs: fractions, exponents/subscripts (nested), radicals, sums/
+      integrals with limits, Greek, operators  ·  [ ] matrices (stretch)
+- [x] Demo (📐): gallery of identities + animated headline, sharp at any zoom
 
-## Phase 7 — 3D graphing  (`phase-7-3d-graphing.md`)
-- [ ] 3D axes + grid (uses the existing perspective camera)
-- [ ] Surface `z = f(x,y)` (quad mesh → analytic fills/strokes)
-- [ ] Parametric surfaces, space curves
-- [ ] Camera-facing crisp labels
-- [ ] Demo: rotatable surface with sharp axis labels
+## Phase 7 — 3D graphing  (`phase-7-3d-graphing.md`)  ⚠️ REDO (placeholder only)
+> **Revisit required.** The current impl is a *fake-3D* CPU projection painter-
+> sorted into the **flat 2D canvas** — performance is poor (thousands of sorted
+> fills/frame) and it does **not** integrate with the real 3D free-camera. The
+> intended design: the graph should extend in **true 3D above the ground plane**,
+> rendered by the actual orbit camera (so panning the 3D world flies over/around
+> it). That needs a per-instance **height/Z** in `windfoil.wgsl` (the vs currently
+> hardcodes z=0) — a real renderer change. Come back to this.
+- [~] 3D axes + grid — placeholder (CPU-projected, 2D canvas)
+- [~] Surface `z = f(x,y)` — placeholder (painter-sort, slow); redo as true 3D
+- [x] Space curves `C(t)`  ·  [ ] parametric surfaces `S(u,v)` (stretch)
+- [ ] **True** hidden-surface handling via a depth buffer in the windfoil pass
+- [x] Camera-facing crisp labels (upright 2D text billboards)
+- [~] Demo (🗻) — works but is the placeholder fake-3D, not integrated 3D
 
 ## Phase 8 — Export, docs, polish  (`phase-8-export-polish.md`)
 - [ ] SVG export of a frame (contours → path data)

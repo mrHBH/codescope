@@ -196,6 +196,46 @@ tangle and avoids circular imports (modules import only types or leaf modules).
 
 ---
 
+---
+
+## 5. windgraph sprint progress
+
+### Phase 0 — Stroke→fill engine ✅
+- Full polyline → filled ribbon contour with butt/round/square caps
+- Miter/bevel/round joins with miter limit
+- Quadratic-Bézier path stroking (curved ribbon offset)
+- Dashed strokes (dash array + offset)
+- All feeds windfoil as normal fill instances
+
+### Phase 1 — Primitives + Mobjects ✅
+- `Mobject` base with transform tree and draw-op emit
+- Group container, Dot, Segment, Polyline, Polygon, Vector/Arrow, Label
+- Circle, Arc, Ellipse (via Mobject scale transform)
+- Labeled geometry demo (triangle, incircle, vectors)
+
+### Phase 2 — Coordinates, axes, grids ✅
+- `NumberPlane` with data↔world transform tied to windfoil camera
+- Adaptive nice-number tick selection (1·2·5 steps at any zoom)
+- Minor/major grid lines + axis lines + tick labels
+- Viewport culling + screen-constant label size
+
+### Phase 3 — Function & data plotting ✅
+- **`src/windgraph/plot/`** split into focused sub-files:
+  - `functions.ts` — adaptive Bézier sampling, `plotFunction`, `plotParametric`, `plotPolar`, `areaUnder`, `areaBetween`
+  - `implicit.ts` — marching squares for `F(x,y)=0` contours with adaptive refinement and saddle disambiguation
+  - `field.ts` — `plotVectorField` (arrow grid from V(x,y)) and `plotSlopeField` (direction field for y'=f(x,y))
+  - `data.ts` — `scatter`, `lineSeries`, `stepSeries`, `bars`, `errorBars`, `riemannRectangles`
+  - `plot.ts` — barrel re-export
+- Full demo: sin(x) + cubic + area fill; Riemann rectangles; implicit circle/hyperbola; rotational vector field; slope field showing circular flow; step series + bar chart with scatter markers
+
+### Phase 4 — Animation ❌ not started
+### Phase 5 — Interactivity ❌ not started
+### Phase 6 — Math typesetting ❌ not started
+### Phase 7 — 3D graphing ❌ not started
+### Phase 8 — Export/polish ❌ not started
+
+---
+
 ## 4b. Performance (frame loop)
 
 The per-frame instance build was tightened:

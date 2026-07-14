@@ -27,10 +27,15 @@ import { FileTree } from './editor/fileTree';
 import { createToolbar } from './ui/toolbar';
 import { createDemo } from './ui/demo';
 import { WindgraphDemo } from './windgraph/demo';
+import { MorphDemo } from './windgraph/anim/demo';
+import { InteractDemo } from './windgraph/interact/demo';
+import { Surface3DDemo } from './windgraph/space3d/demo';
+import { loadMathFonts, mathExtraFonts } from './windgraph/math/fonts';
+import { MathDemo } from './windgraph/math/demo';
 
 async function main() {
   const fpsEl = document.getElementById('fps')!;
-  fpsEl.style.cssText = 'position:fixed;top:8px;left:8px;z-index:100;font:13px/1 monospace;color:#ccc;background:rgba(14,14,18,0.8);padding:4px 8px;border-radius:5px;pointer-events:none;';
+  fpsEl.style.cssText = 'position:fixed;top:10px;left:10px;z-index:100;font:12px/1 monospace;color:#b0b4c0;background:rgba(14,14,18,0.7);padding:5px 10px;border-radius:8px;pointer-events:none;backdrop-filter:blur(4px);';
   const dpr = Math.min(devicePixelRatio, 2);
   const PAGE_W = 1040;
 
@@ -80,7 +85,9 @@ async function main() {
   const shapes: Record<string, { quads: number[]; bbox: number[] }> = {};
   for (const name in ICONS) shapes['icon:' + name] = svgPathToQuads(ICONS[name]);
   for (const name in ILLUSTRATIONS) shapes['art:' + name] = svgPathToQuads(ILLUSTRATIONS[name]);
-  const atlas = buildGlyphAtlas(font, [...allChars].join(' '), shapes);
+  // Math fonts (KaTeX TTFs) baked into the same atlas under mi:/mn:/sz: prefixes.
+  const mathFonts = await loadMathFonts();
+  const atlas = buildGlyphAtlas(font, [...allChars].join(' '), shapes, mathExtraFonts(mathFonts));
 
   const s = createAppState({
     dpr, PAGE_W, rCanvas, tCanvas, rCtx, gpuCtx, device,
@@ -150,6 +157,66 @@ async function main() {
     s.velX = s.velY = 0;
   }
 
+  // ── windgraph Phase-4 animation demo ──────────────────────────────────────
+  // World-space board above the document; runs the eased morph/draw-on scene.
+  const morphDemo = new MorphDemo();
+  morphDemo.x0 = 0;
+  morphDemo.y0 = -morphDemo.height - 200;
+  s.morphDemo = morphDemo;
+
+  function frameMorph() {
+    const g = morphDemo;
+    s.tgtZ = Math.min((s.tCanvas.width / (g.width + 160)) * 0.9, (s.tCanvas.height / (g.height + 160)) * 0.9);
+    s.tgtX = g.x0 + g.width / 2;
+    s.tgtY = g.y0 + g.height / 2;
+    s.velX = s.velY = 0;
+  }
+
+  // ── windgraph Phase-5 interactivity demo ──────────────────────────────────
+  // World-space draggable board to the right of the animation board.
+  const interactive = new InteractDemo();
+  interactive.x0 = morphDemo.width + 400;
+  interactive.y0 = -interactive.height - 200;
+  s.interactive = interactive;
+
+  function frameInteractive() {
+    const g = interactive;
+    s.tgtZ = Math.min((s.tCanvas.width / (g.width + 160)) * 0.9, (s.tCanvas.height / (g.height + 160)) * 0.9);
+    s.tgtX = g.x0 + g.width / 2;
+    s.tgtY = g.y0 + g.height / 2;
+    s.velX = s.velY = 0;
+  }
+
+  // ── windgraph Phase-7 3D graphing demo ────────────────────────────────────
+  // World-space drag-to-orbit board to the right of the interactive board.
+  const graph3d = new Surface3DDemo();
+  graph3d.x0 = interactive.x0 + interactive.width + 400;
+  graph3d.y0 = -graph3d.height - 200;
+  s.graph3d = graph3d;
+
+  function frameGraph3d() {
+    const g = graph3d;
+    s.tgtZ = Math.min((s.tCanvas.width / (g.width + 160)) * 0.9, (s.tCanvas.height / (g.height + 160)) * 0.9);
+    s.tgtX = g.x0 + g.width / 2;
+    s.tgtY = g.y0 + g.height / 2;
+    s.velX = s.velY = 0;
+  }
+
+  // ── windgraph Phase-6 math typesetting demo ───────────────────────────────
+  // World-space board to the right of the 3D board.
+  const mathDemo = new MathDemo();
+  mathDemo.x0 = graph3d.x0 + graph3d.width + 400;
+  mathDemo.y0 = -mathDemo.height - 200;
+  s.mathDemo = mathDemo;
+
+  function frameMath() {
+    const g = mathDemo;
+    s.tgtZ = Math.min((s.tCanvas.width / (g.width + 160)) * 0.9, (s.tCanvas.height / (g.height + 160)) * 0.9);
+    s.tgtX = g.x0 + g.width / 2;
+    s.tgtY = g.y0 + g.height / 2;
+    s.velX = s.velY = 0;
+  }
+
   // ── Terminal ──────────────────────────────────────────────────────────────
   // Same renderer, its own world-space panel to the right of the editor.
   const terminal = new Terminal();
@@ -202,6 +269,10 @@ async function main() {
     { icon: '🧊', title: 'Toggle 3D free camera (drag = orbit, Shift+drag = pan, wheel = dolly)', onClick: () => toggle3D(s) },
     { icon: '🎬', title: 'Play cinematic demo flight (any interaction stops it)', onClick: () => s.demo?.toggle() },
     { icon: '📈', title: 'windgraph stroke demo (Phase 0)', onClick: () => frameWindgraph() },
+    { icon: '🎞️', title: 'windgraph animation demo (Phase 4): morph, draw-on, riding point', onClick: () => frameMorph() },
+    { icon: '🔷', title: 'windgraph interactive demo (Phase 5): drag the triangle vertices', onClick: () => frameInteractive() },
+    { icon: '🗻', title: 'windgraph 3D graphing demo (Phase 7): drag to orbit the surface', onClick: () => frameGraph3d() },
+    { icon: '📐', title: 'windgraph math typesetting demo (Phase 6): analytic LaTeX', onClick: () => frameMath() },
     { icon: '🌙', title: 'Cycle theme: light → dark → high contrast', onClick: () => s.cycleTheme!(), ref: (el) => { s.themeBtn = el; } },
   ]);
 

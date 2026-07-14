@@ -40,8 +40,9 @@ export function createGlyphRenderer(
     primitive: { topology: 'triangle-strip' },
   });
 
-  // Uniforms: res(vec2) + style(vec2) + cam(vec4) = 32B, then viewProj(mat4) = 64B.
-  // mat4 needs 16-byte alignment; offset 32 satisfies it. Total 96B.
+  // Uniforms: res(vec2) + style(vec2) + camScale(vec2) + camCenter(vec2) = 32B,
+  // then viewProj(mat4) = 64B. mat4 needs 16-byte alignment; offset 32 satisfies
+  // it. Total 96B.
   const uniform = device.createBuffer({ size: 96, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
   const uniformData = new Float32Array(24);
 
@@ -73,10 +74,11 @@ export function createGlyphRenderer(
   }
 
   return {
-    setUniforms({ width, height, cam = [1, 1, 0, 0] as number[], viewProj }: { width: number; height: number; cam?: number[]; viewProj: ArrayLike<number> }) {
+    setUniforms({ width, height, camScale = [1, 1] as number[], camCenter = [0, 0] as number[], viewProj }: { width: number; height: number; camScale?: number[]; camCenter?: number[]; viewProj: ArrayLike<number> }) {
       uniformData[0] = width; uniformData[1] = height;
       uniformData[2] = 1; uniformData[3] = 1; // style: (gamma=1, sharp=1) = exact coverage
-      uniformData[4] = cam[0]; uniformData[5] = cam[1]; uniformData[6] = cam[2]; uniformData[7] = cam[3];
+      uniformData[4] = camScale[0]; uniformData[5] = camScale[1];
+      uniformData[6] = camCenter[0]; uniformData[7] = camCenter[1];
       uniformData.set(viewProj, 8); // mat4 (16 floats, column-major) at offset 32B
       device.queue.writeBuffer(uniform, 0, uniformData);
     },

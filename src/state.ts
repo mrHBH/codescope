@@ -104,7 +104,38 @@ export interface AppState {
   demo: { running: boolean; toggle(): void; start(): void; stop(): void; update(now: number): void } | null;
 
   // windgraph Phase-0/1/2 demo (world-space board; see windgraph/demo.ts)
-  windgraph: { x0: number; y0: number; width: number; height: number; emit(font: FontFace, atlas: any, inst: number[], crv: number[], rws: number[], now: number, view: { zoom: number; left: number; right: number; top: number; bottom: number }): void } | null;
+  windgraph: { x0: number; y0: number; width: number; height: number; emit(font: FontFace, atlas: any, inst: number[], crv: number[], rws: number[], now: number, view: { zoom: number; left: number; right: number; top: number; bottom: number }, camX?: number, camY?: number): void } | null;
+
+  // windgraph Phase-4 animation demo (world-space board; see windgraph/anim/demo.ts)
+  morphDemo: { x0: number; y0: number; width: number; height: number; emit(font: FontFace, atlas: any, inst: number[], crv: number[], rws: number[], now: number, view: { zoom: number; left: number; right: number; top: number; bottom: number }): void } | null;
+
+  // windgraph Phase-5 interactivity demo (world-space, draggable; see windgraph/interact/demo.ts)
+  interactive: {
+    x0: number; y0: number; width: number; height: number;
+    emit(font: FontFace, atlas: any, inst: number[], crv: number[], rws: number[], now: number, view: { zoom: number; left: number; right: number; top: number; bottom: number }): void;
+    tryBeginDrag(wx: number, wy: number, scale: number): boolean;
+    dragTo(wx: number, wy: number): void;
+    endDrag(): void;
+    updateHover(wx: number, wy: number, scale: number): boolean;
+    autoDrive(): void;
+    readonly dragging: boolean;
+  } | null;
+
+  // windgraph Phase-7 3D graphing demo (world-space, drag-to-orbit; see windgraph/space3d/demo.ts)
+  graph3d: {
+    x0: number; y0: number; width: number; height: number;
+    emit(font: FontFace, atlas: any, inst: number[], crv: number[], rws: number[], now: number, view: { zoom: number; left: number; right: number; top: number; bottom: number }): void;
+    tryBeginDrag(wx: number, wy: number, scale: number): boolean;
+    dragTo(wx: number, wy: number): void;
+    endDrag(): void;
+    autoRotate(): void;
+    pokeFlight(now: number): void;
+    wantsFlightEmit(now: number): boolean;
+    readonly dragging: boolean;
+  } | null;
+
+  // windgraph Phase-6 math typesetting demo (world-space; see windgraph/math/demo.ts)
+  mathDemo: { x0: number; y0: number; width: number; height: number; emit(font: FontFace, atlas: any, inst: number[], crv: number[], rws: number[], now: number, view: { zoom: number; left: number; right: number; top: number; bottom: number }): void } | null;
 }
 
 export function createAppState(partial: Partial<AppState>): AppState {
@@ -136,6 +167,10 @@ export function createAppState(partial: Partial<AppState>): AppState {
     fileTree: null, fileTreeMode: false,
     demo: null,
     windgraph: null,
+    morphDemo: null,
+    interactive: null,
+    graph3d: null,
+    mathDemo: null,
     ...partial,
   } as AppState;
 }

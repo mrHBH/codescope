@@ -122,7 +122,14 @@ export interface GlyphAtlas {
 // Keyed by an arbitrary name; `quads`/`bbox` come from svgPathToQuads.
 export interface VectorShape { quads: number[]; bbox: number[]; }
 
-export function buildGlyphAtlas(font: FontFace, text: string, shapes?: Record<string, VectorShape>): GlyphAtlas {
+// An extra font whose glyphs are baked into the SAME atlas under prefixed keys
+// (e.g. prefix "mi:" → "mi:x"). Used for math typesetting (italic/symbol fonts)
+// so a single atlas + single draw call covers UI text AND math. Glyph coords are
+// normalized to the font's own em (KaTeX fonts are 1000 upm); the math layouter
+// reads the stored `advance`/`bbox` in those units.
+export interface ExtraFont { font: FontFace; chars: string; prefix: string; }
+
+export function buildGlyphAtlas(font: FontFace, text: string, shapes?: Record<string, VectorShape>, extraFonts?: ExtraFont[]): GlyphAtlas {
   const chars = [...new Set([...text])].filter((ch) => ch !== ' ');
   const curves: number[] = [];
   const rows: number[] = [];
@@ -137,6 +144,21 @@ export function buildGlyphAtlas(font: FontFace, text: string, shapes?: Record<st
     const [, y0, , y1] = g.bbox;
     const header = bandPieces(pieces, y0, y1, curves, rows);
     table[ch] = { ...header, advance: g.advance, bbox: g.bbox };
+  }
+  if (extraFonts) {
+    for (const ef of extraFonts) {
+      for (const ch of new Set([...ef.chars])) {
+        if (ch === ' ') continue;
+        const g = glyphQuads(ef.font, ch);
+        if (!g) continue;
+        const pieces: number[] = [];
+        for (let i = 0; i < g.quads.length; i += 6) pushMonotonePieces(g.quads.slice(i, i + 6), pieces);
+        monotoneTotal += pieces.length / 6;
+        const [, y0, , y1] = g.bbox;
+        const header = bandPieces(pieces, y0, y1, curves, rows);
+        table[ef.prefix + ch] = { ...header, advance: g.advance, bbox: g.bbox, upm: ef.font.unitsPerEm };
+      }
+    }
   }
   if (shapes) {
     for (const name in shapes) {

@@ -3,7 +3,7 @@
 // these are stateless operations over it.
 
 import type { AppState } from '../state';
-import { type Mat4, orthoWorld2D } from './mat4';
+import { type Mat4 } from './mat4';
 import {
   enterOrbit, flattenOrbit, updateOrbit, orbitViewProj, orbitScale,
   orbitPolar, orbitTargetLocal, disableOrbit, screenToDocLocal,
@@ -96,9 +96,15 @@ export function cameraScale(s: AppState): number {
 // camera-controls perspective camera with the document laid flat on the ground.
 export function cameraViewProj(s: AppState, Cw: number, Ch: number): Mat4 {
   if (!s.cam3d.active) {
+    // Origin-centered orthographic matrix — camera translation is handled via
+    // the camCenter uniform (subtracted in the vertex shader). This keeps the
+    // matrix terms small and avoids catastrophic cancellation at extreme zoom.
     const sx = s.viewZ, sy = s.viewZ;
-    const tx = Cw / 2 - s.viewZ * s.viewX, ty = Ch / 2 - s.viewZ * s.viewY;
-    return orthoWorld2D(sx, sy, tx, ty, Cw, Ch);
+    const m = new Float32Array(16) as Mat4;
+    m[0] = (2 * sx) / Cw;
+    m[5] = -(2 * sy) / Ch;
+    m[15] = 1;
+    return m;
   }
   return orbitViewProj(Cw, Ch);
 }

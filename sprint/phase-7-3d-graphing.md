@@ -1,6 +1,26 @@
 # Phase 7 — 3D graphing
 
-**Status:** not started · **Depends on:** Phases 2–4 + the 3D camera (done) · **Blocks:** —
+**Status:** ⚠️ PLACEHOLDER — must be redone as *true* 3D · **Depends on:** Phases 2–4 + the 3D camera (done) · **Blocks:** —
+
+## ⚠️ Revisit note (2026-07-14)
+A first pass exists (`src/windgraph/space3d/`, 🗻 button) but it is a **fake-3D**
+CPU projection: 3D geometry is projected to 2D world coordinates and painter-
+sorted into the **flat 2D canvas**. Two problems make this a placeholder, not the
+real feature:
+1. **Performance is poor** — thousands of CPU-projected, depth-sorted fills +
+   wire strokes are rebuilt every frame.
+2. **It does not integrate with the real 3D free-camera.** The graph should
+   extend in **true 3D above the ground plane** and be viewed by the actual orbit
+   camera (so flying the 3D world sweeps over/around the surface). Instead it is a
+   flat picture-of-3D sitting on the 2D board.
+
+**The real design:** give `windfoil.wgsl` a per-instance **height/Z** (the vertex
+shader currently hardcodes `z = 0`) and a **depth buffer** in the pass, then emit
+the surface as real 3D geometry that the orbit camera renders natively. Keep the
+projection/colormap/shading math; swap the "project to 2D" step for "emit true 3D
++ let the camera + depth buffer handle it." Come back to this after Phases 6/8.
+
+---
 
 ## Goal
 Extend plotting into true 3D using the existing perspective camera + ground/panel
