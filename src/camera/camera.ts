@@ -6,7 +6,7 @@ import type { AppState } from '../state';
 import { type Mat4, orthoWorld2D } from './mat4';
 import {
   enterOrbit, flattenOrbit, updateOrbit, orbitViewProj, orbitScale,
-  orbitPolar, orbitTargetLocal, disableOrbit,
+  orbitPolar, orbitTargetLocal, disableOrbit, screenToDocLocal,
 } from './orbit';
 
 export function setSize(s: AppState) {
@@ -25,6 +25,13 @@ export function bufCoords(s: AppState, clientX: number, clientY: number) {
 
 export function scrToWorld(s: AppState, sx: number, sy: number) {
   return { x: (sx - s.tCanvas.width / 2) / s.camZ + s.camX, y: (sy - s.tCanvas.height / 2) / s.camZ + s.camY };
+}
+
+// Screen (device px) → document-space (x, y), valid in both 2D and 3D. In 3D it
+// ray-casts the pointer onto the grounded document plane (see orbit.ts).
+export function scrToDoc(s: AppState, sx: number, sy: number) {
+  if (s.cam3d.active) return screenToDocLocal(sx, sy, s.tCanvas.width, s.tCanvas.height);
+  return scrToWorld(s, sx, sy);
 }
 
 export function goToPage(s: AppState, i: number) {

@@ -11,7 +11,7 @@ import { layoutFlow } from './layout/flow';
 import { layoutEditable } from './layout/editable';
 import { hitTest } from './layout/walk';
 import { stepCamera } from './camera/camera';
-import { cameraViewProj, cameraScale } from './camera/camera';
+import { cameraViewProj, cameraScale, scrToDoc } from './camera/camera';
 import type { EditorTheme } from './editor/editor';
 import type { TerminalTheme } from './editor/terminal';
 import type { FileTreeTheme } from './editor/fileTree';
@@ -74,11 +74,14 @@ export function runFrame(s: AppState) {
     const dt = prevTs ? now - prevTs : 16; prevTs = now;
     fpsDt = fpsDt * .9 + dt * .1; s.fpsEl.textContent = `${Math.round(1000 / fpsDt)} fps`;
 
-    stepCamera(s, dt, now);
+    if (s.demo && s.demo.running) s.demo.update(now);
+    else stepCamera(s, dt, now);
 
     const Cw = s.tCanvas.width, Ch = s.tCanvas.height;
     s.mwx = (s.mx - Cw / 2) / s.viewZ + s.viewX;
     s.mwy = (s.my - Ch / 2) / s.viewZ + s.viewY;
+    // In 3D the world-mouse comes from ray-casting the pointer onto the ground.
+    if (s.cam3d.active) { const d = scrToDoc(s, s.mx, s.my); s.mwx = d.x; s.mwy = d.y; }
 
     // Viewport bounds in world space (+margin) → which pages are on screen. Off-screen
     // pages contribute no instances, so we skip their (large) static text/bg buffers.
@@ -95,12 +98,12 @@ export function runFrame(s: AppState) {
 
     // Skip expensive hit-test + resolveStyle during wheel zoom (200ms cooldown)
     const wheelCool = (performance.now() - s.lastWheelT) < 200;
-    const hovered = (wheelCool || s.cam3d.active) ? null : hitTest(s.docRoot, s.mwx, s.mwy);
+    const hovered = wheelCool ? null : hitTest(s.docRoot, s.mwx, s.mwy);
     const hoveredSet = new Set<StyledEl>();
     if (hovered) { let cur: StyledEl | null = hovered; while (cur) { hoveredSet.add(cur); cur = cur.parent; } }
 
     // File tree hover detection (world-space panel, not in DOM)
-    if (s.fileTree && !wheelCool && !s.cam3d.active) {
+    if (s.fileTree && !wheelCool) {
       const ft = s.fileTree;
       if (s.mwx >= ft.x0 && s.mwx <= ft.x0 + ft.width && s.mwy >= ft.y0 && s.mwy <= ft.y0 + ft.contentHeight) {
         const row = ft.rowAtY(s.mwy);
@@ -214,7 +217,7 @@ export function runFrame(s: AppState) {
       if (el.ownerPage >= 0 && !visible[el.ownerPage]) continue;
       layoutFlow(el, s.font, s.atlas, inst, now);
     }
-    const caretW = 2 / s.viewZ;
+    const caretW = 2 / cameraScale(s);
     for (const el of s.editableEls) {
       if (el.ownerPage >= 0 && !visible[el.ownerPage] && el !== s.activeEdit) continue;
       layoutEditable(el, s.font, s.atlas, inst, crv, rws, caretW, now, el === s.activeEdit, s.themeCol.caret, s.themeCol.sel);

@@ -278,3 +278,94 @@ anti-aliased vector graphics inline in a shell. `Ctrl+C` cancels a widget.
 7. **Perf headroom** — instance-buffer diffing / dirty regions so idle frames upload
    less; extend the tokenizer to more languages.
 8. (Optional) migrate `buildCSS` → CSS variables + a static stylesheet.
+
+---
+
+## 7. 3D Free Camera (windfoil in perspective) — in progress
+
+Goal: a free 3D camera (like yasmineOS's CSS3D/HybridUI system gives for DOM),
+while keeping windfoil's analytic crisp render for all UI. **Key enabler:** the
+fragment shader derives its per-pixel footprint from `fwidth(rc)` (screen-space
+gradients of the glyph coordinate), **not** from the camera uniform — so the
+closed-form coverage integral stays correct and alias-free under *any* projection,
+including full perspective. The camera work is therefore mostly projection +
+input + picking, with the coverage math reused unchanged.
+
+### Phase 0 — Math (`src/camera/mat4.ts`) ✅
+Dependency-free column-major `Mat4`/`Vec3` kit: `identity`, `mul`, `orthoWorld2D`
+(the exact matrix reproducing the legacy 2D camera), `perspective`, translate/
+scale/rotate, `lookAt`, `invert`, `transformPoint`.
+
+### Phase 1 — Matrix camera plumbing ✅ (regression-gated)
+`Uniforms` gained `viewProj : mat4x4` (uniform buffer 32→96 B); the vertex stage
+projects `viewProj · vec4(worldPx, 0, 1)`. Gate: an orthographic `viewProj`
+reproduces the pre-existing 2D render **pixel-for-pixel** (verified). `cam.xy`
+still feeds the AA-skirt pad.
+
+### Phase 2 — Free 3D camera on the ground ✅
+The document lies **flat on the ground** (world XZ plane, `GROUND_MODEL =
+rotationX(π/2)`) and is driven by the **`camera-controls` library — the same one
+yasmineOS uses** (already a dependency; `three` + `@types/three`). Config mirrors
+yasmineOS's `CameraManager`: `mouseButtons` left = `TRUCK` (pan), right =
+`ROTATE` (orbit), middle = `NONE`, wheel = `DOLLY` (zoom); ground polar clamp
+`[0, π/2]`; library-default speeds and damping. Each frame windfoil reads the
+camera's `projectionMatrix · matrixWorldInverse · GROUND_MODEL` as its `viewProj`.
+- `src/camera/orbit.ts` — the library wrapper (init, enter/flatten/exit, per-frame
+  view-proj, screen↔doc mapping helpers).
+- `src/camera/camera.ts` — delegates the 3D path to `orbit.ts`; 2D path unchanged.
+- `src/camera/input.ts` — all pointer/wheel handlers yield to the library while 3D
+  is active (2D input untouched when it's off).
+- `src/main.ts` — a 🧊 toolbar button toggles 3D; `initOrbit(rCanvas)` binds it.
+- Entering 3D is seamless from the current 2D framing (top-down); exiting eases
+  back to top-down then hands control to the 2D path. Text stays razor-sharp at
+  every angle/depth.
+- **Note:** a large flat plane viewed from finite height shows natural perspective
+  convergence at the edges (the 2D view was orthographic, so it looked perfectly
+  flat) — expected, not a bug.
+
+### Phase 3 — 3D picking / interaction ✅
+Ray-pick: unproject the pointer through the inverse `viewProj`, intersect the doc
+plane, convert to doc-local (x, y), then run the existing hit-test / editor logic.
+- `src/camera/orbit.ts` — `screenToDocLocal(sx, sy, Cw, Ch)`: inverse-VP unproject
+  of two clip depths → ray → intersect the local z = 0 plane → doc-local (x, y).
+- `src/camera/camera.ts` — `scrToDoc(s, x, y)` (2D passthrough / 3D ray-cast).
+- `src/frame.ts` — the world-mouse (`mwx/mwy`) is ray-cast in 3D, so **hover**
+  highlighting works on the ground.
+- `src/camera/input.ts` — a left **click** (press+release, no drag) ray-picks and
+  runs the same file-tree / control / edit-focus logic as 2D, coexisting with the
+  library's left-drag truck. Verified numerically: screen-centre maps exactly to
+  the camera target; x/y increase right/down as expected.
+
+### Phase 4 — Anisotropic footprint ✅
+At grazing angles the pixel footprint is a sheared parallelogram (edges = the
+screen-space partials `dpdx(rc)`/`dpdy(rc)`); a single axis-aligned box (`fwidth`)
+over-blurs. `windfoil.wgsl` now does **anisotropic supersampling**: it averages a
+few exact coverage evaluations spaced along the footprint's major axis, each with
+a footprint tightened along that axis (`n = clamp(floor(major/minor), 1, 4)`). It
+reduces **exactly** to the single isotropic evaluation when `n == 1`, so
+front-facing text is bit-for-bit unchanged (verified: 2D render identical). Shader
+compiles clean.
+
+> **Testing gotcha:** the browser throttles `requestAnimationFrame` to ~3-4 fps
+> when the tab is **hidden/unfocused** — measured fps (and the on-screen counter)
+> are meaningless unless the tab is visible. Don't diagnose "perf regressions"
+> from a background tab.
+
+### Cinematic demo flight (`src/ui/demo.ts`) ✅
+A scripted cinematic tour, launched from the 🎬 toolbar button and **staged
+entirely in 3D**: the document lies flat on the ground and the perspective camera
+flies over it. It opens with a full-screen **title splash**, sweeps across the
+pages, **dives deep into a single heading glyph** (near-top-down so it reads flat;
+distance ~20 to show the infinitely-zoomable analytic render staying razor-sharp),
+visits the code editor, the animated terminal (auto-opened, then **types a series
+of commands** — `neofetch`, `colors`, `progress`, `graph` — so its widgets play on
+cue), and the file tree, before pulling back to a slowly-tilting overview and
+looping. The whole tour drives the `camera-controls` camera via absolute eased
+poses (ground target + distance + azimuth/polar); presentation adds sliding
+**letterbox bars** and **animated title-cards**. **Any interaction — pointer,
+wheel, Esc, or Space — ends the flight** and returns to a flat 2D overview.
+Verified: the camera stays in 3D throughout, distance sweeps 20 → 6751 across 19
+distinct targets, and it exits cleanly to 2D on stop.
+
+
+

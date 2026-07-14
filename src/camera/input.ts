@@ -4,7 +4,7 @@
 
 import type { AppState } from '../state';
 import type { StyledEl } from '../layout/types';
-import { bufCoords, scrToWorld, goToPage, fitDocument } from './camera';
+import { bufCoords, scrToWorld, scrToDoc, goToPage, fitDocument, cameraScale } from './camera';
 import { hitTest, findEditableAncestor } from '../layout/walk';
 import { layoutEditable, placeCaretAtPoint, caretIndexAtPoint } from '../layout/editable';
 import { ContextMenu, type MenuItem } from '../ui/contextMenu';
@@ -291,6 +291,61 @@ export function attachInput(s: AppState) {
       s.tgtX = s.camX; s.tgtY = s.camY; s.tgtZ = s.camZ;
     }
   }, { passive: false });
+
+  // ── 3D picking ────────────────────────────────────────────────────────────
+  // While the camera-controls library owns left-drag (truck), a left *click*
+  // (press+release with no drag) is a pick: ray-cast onto the grounded document
+  // and run the same hit logic as 2D — file tree, controls, and edit focus.
+  let d3 = { x: 0, y: 0, t: 0, moved: false, active: false };
+  function handle3DPick(w: { x: number; y: number }, shift: boolean) {
+    if (s.editor) {
+      const ed = s.editor;
+      if (w.x >= ed.x0 && w.x <= ed.x0 + ed.contentWidth() && w.y >= ed.y0 && w.y <= ed.y0 + ed.contentHeight()) {
+        ed.focused = true; ed.placeCursor(w.x, w.y, shift); ed.anchor = { line: ed.cursor.line, col: ed.cursor.col }; return;
+      }
+    }
+    if (s.fileTree) {
+      const ft = s.fileTree;
+      if (w.x >= ft.x0 && w.x <= ft.x0 + ft.width && w.y >= ft.y0 && w.y <= ft.y0 + ft.contentHeight) {
+        ft.focused = true;
+        const row = ft.rowAtY(w.y);
+        if (row) {
+          if (row.node.type === 'folder') ft.toggleFolder(row.node.path);
+          else { const viaLine = ft.connectorTarget(w.x, row); if (viaLine) ft.toggleFolder(viaLine); else ft.select(row.node.path); }
+        }
+        return;
+      }
+    }
+    const hit = hitTest(s.docRoot, w.x, w.y);
+    const sl = sliderOf(hit);
+    if (sl) { setSliderFromX(sl, w.x); refreshLayout(s); return; }
+    if (hit && handleClickInteraction(s, hit)) return;
+    const ed = findEditableAncestor(hit);
+    if (ed) {
+      s.activeEdit = ed;
+      _editTmp.length = 0; _editTmpCrv.length = 0; _editTmpRws.length = 0;
+      layoutEditable(ed, s.font, s.atlas, _editTmp, _editTmpCrv, _editTmpRws, 2 / cameraScale(s), performance.now(), false, s.themeCol.caret, s.themeCol.sel);
+      placeCaretAtPoint(ed, w.x, w.y);
+      ed.selAnchor = ed.caret;
+      return;
+    }
+    s.activeEdit = null;
+  }
+  rCanvas.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0 || !s.cam3d.active) return;
+    d3 = { x: e.clientX, y: e.clientY, t: performance.now(), moved: false, active: true };
+  });
+  rCanvas.addEventListener('pointermove', (e) => {
+    if (!d3.active) return;
+    if (Math.abs(e.clientX - d3.x) > 5 || Math.abs(e.clientY - d3.y) > 5) d3.moved = true;
+  });
+  rCanvas.addEventListener('pointerup', (e) => {
+    if (e.button !== 0 || !d3.active) return;
+    d3.active = false;
+    if (d3.moved || performance.now() - d3.t > 400) return; // was a truck drag, not a click
+    const b = bufCoords(s, e.clientX, e.clientY);
+    handle3DPick(scrToDoc(s, b.x, b.y), e.shiftKey);
+  });
 
   // ── Text editing ────────────────────────────────────────────────────────
   addEventListener('keydown', (e) => {

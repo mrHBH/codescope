@@ -99,6 +99,9 @@ export interface AppState {
   // file tree
   fileTree: FileTree | null;
   fileTreeMode: boolean;
+
+  // cinematic demo flight (optional controller; see ui/demo.ts)
+  demo: { running: boolean; toggle(): void; start(): void; stop(): void; update(now: number): void } | null;
 }
 
 export function createAppState(partial: Partial<AppState>): AppState {
@@ -128,6 +131,7 @@ export function createAppState(partial: Partial<AppState>): AppState {
     editor: null, editorMode: false, editorSelecting: false,
     terminal: null, terminalMode: false,
     fileTree: null, fileTreeMode: false,
+    demo: null,
     ...partial,
   } as AppState;
 }

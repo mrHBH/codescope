@@ -23,6 +23,7 @@ let camera: THREE.PerspectiveCamera;
 let controls: CameraControls;
 let ready = false;
 const _m = new Float32Array(16);
+const _vp = new Float32Array(16); // last view-projection, for picking
 
 export function initOrbit(dom: HTMLElement) {
   camera = new THREE.PerspectiveCamera(50, 1, 1, 1e7);
@@ -63,7 +64,23 @@ export function orbitViewProj(Cw: number, Ch: number): Mat4 {
   camera.updateMatrixWorld();
   const proj = new Float32Array(fromTHREE(camera.projectionMatrix));
   const view = fromTHREE(camera.matrixWorldInverse);
-  return mul(mul(proj, view), GROUND_MODEL);
+  const vp = mul(mul(proj, view), GROUND_MODEL);
+  _vp.set(vp);
+  return vp;
+}
+
+// Unproject a screen point (device px) to doc-local (x, y) on the ground plane,
+// by intersecting the pointer ray with the document's z = 0 plane. Uses the last
+// frame's view-projection (one frame stale is fine for hover/click).
+export function screenToDocLocal(sx: number, sy: number, Cw: number, Ch: number): { x: number; y: number } {
+  const inv = invert(_vp);
+  const ndcX = (sx / Cw) * 2 - 1;
+  const ndcY = 1 - (sy / Ch) * 2; // WebGPU clip-space y is up; screen y is down
+  const p0 = transformPoint(inv, ndcX, ndcY, 0); // near plane (z = 0)
+  const p1 = transformPoint(inv, ndcX, ndcY, 1); // far plane  (z = 1)
+  const dz = p1[2] - p0[2];
+  const t = Math.abs(dz) < 1e-9 ? 0 : -p0[2] / dz;
+  return { x: p0[0] + t * (p1[0] - p0[0]), y: p0[1] + t * (p1[1] - p0[1]) };
 }
 
 // Advance damping; returns true while still animating.
@@ -92,6 +109,40 @@ export function flattenOrbit(): boolean {
 
 export function orbitPolar() { return ready ? controls.polarAngle : 0; }
 export function orbitAzimuth() { return ready ? controls.azimuthAngle : 0; }
+
+// Set absolute orbit angles immediately (used by the scripted demo finale for a
+// smooth cinematic spin — the demo computes eased angles itself).
+export function orbitSetAngles(azimuth: number, polar: number) {
+  if (ready) controls.rotateTo(azimuth, polar, false);
+}
+
+// ── Scripted-flight pose control (used by the cinematic demo) ─────────────────
+// The demo drives the whole 3D tour by setting an absolute camera pose per frame
+// (ground target + distance + angles) with eased values it computes itself.
+const DEG = () => (camera.fov * DEG2RAD) / 2;
+
+// Distance that frames a world-height of `viewHpx / zoom` px on-axis (mirrors the
+// 2D zoom → 3D distance mapping used on entry).
+export function orbitDistForZoom(zoom: number, viewHpx: number): number {
+  return viewHpx / (2 * zoom * Math.tan(DEG()));
+}
+export function orbitZoomForDist(dist: number, viewHpx: number): number {
+  return viewHpx / (2 * dist * Math.tan(DEG()));
+}
+
+// Set the full pose immediately: ground target (world y = 0), distance, angles.
+export function orbitSetPose(tx: number, tz: number, dist: number, az: number, polar: number) {
+  if (!ready) return;
+  controls.moveTo(tx, 0, tz, false);
+  controls.dollyTo(dist, false);
+  controls.rotateTo(az, polar, false);
+}
+
+// Read the current pose back (for interpolation start points).
+export function orbitGetPose(): { tx: number; tz: number; dist: number; az: number; polar: number } {
+  const t = controls.getTarget(new THREE.Vector3());
+  return { tx: t.x, tz: t.z, dist: controls.distance, az: controls.azimuthAngle, polar: controls.polarAngle };
+}
 
 // The orbit target mapped back to doc-local (2D) coordinates, for the 3D→2D handoff.
 export function orbitTargetLocal(): { x: number; y: number } {

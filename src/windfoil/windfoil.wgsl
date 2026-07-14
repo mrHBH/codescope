@@ -96,14 +96,18 @@ fn shade(color : vec4<f32>, cov : f32) -> vec4<f32> {
 }
 
 // Shared fragment tail: fold the pixel-averaged winding number by fill rule, style, shade.
-fn fold_shade(f : f32, fillRule : f32, color : vec4<f32>) -> vec4<f32> {
+fn fold_cov(f : f32, fillRule : f32) -> f32 {
   var cov : f32;
   if (fillRule > 0.5) {
     cov = tri_wave(f);                // even-odd
   } else {
     cov = clamp(abs(f), 0.0, 1.0);    // nonzero (saturating)
   }
-  return shade(color, style_coverage(cov, U.style.x, U.style.y));
+  return style_coverage(cov, U.style.x, U.style.y);
+}
+
+fn fold_shade(f : f32, fillRule : f32, color : vec4<f32>) -> vec4<f32> {
+  return shade(color, fold_cov(f, fillRule));
 }
 
 // Solve the monotone quadratic component A2·t² + A1·t + A0 = v on [0,1], saturating to the endpoints
@@ -292,11 +296,41 @@ fn profile_face(band : vec4<f32>, bbox : vec4<f32>, rc : vec2<f32>, s : vec2<f32
 fn fs(in : VsOut) -> @location(0) vec4<f32> {
   let I = instances[in.inst];
   let rc = in.rc;
-  // units_per_pixel from the screen-space gradients — the device pixel's preimage under scale/translation.
-  let s = max(fwidth(rc), vec2<f32>(1e-9));
+  // The pixel's footprint in glyph space. Under an axis-aligned camera this is a
+  // box; under a tilted 3D camera it's a sheared parallelogram whose edges are
+  // the screen-space partial derivatives of rc. jx/jy are its two edge vectors.
+  let jx = dpdx(rc);
+  let jy = dpdy(rc);
+  // Axis-aligned bounding box of that footprint (== fwidth) — the isotropic path.
+  let s = max(abs(jx) + abs(jy), vec2<f32>(1e-9));
 
   if (MINIFICATION_GUARD && all(s * GUARD_PX >= I.bbox.zw - I.bbox.xy)) {
     return fold_shade(profile_face(I.band, I.bbox, rc, s) / (s.x * s.y), I.place.w, I.color);
   }
-  return fold_shade(integrate_face(I.band, rc, s) / (s.x * s.y), I.place.w, I.color);
+
+  // Anisotropic supersampling. When the footprint is elongated (grazing angle in
+  // 3D), one derivative is much longer than the other; a single axis-aligned box
+  // over-blurs. Take a few exact evaluations spaced along the major axis, each
+  // with a footprint tightened along that axis (its extent divided by the sample
+  // count). Reduces EXACTLY to the single isotropic evaluation when n == 1, so
+  // front-facing text is bit-for-bit unchanged.
+  let lx = length(jx);
+  let ly = length(jy);
+  let major = max(lx, ly);
+  let minor = max(min(lx, ly), 1e-9);
+  let n = clamp(floor(major / minor), 1.0, 4.0);
+  let ni = i32(n);
+  var axis : vec2<f32>;
+  var sSub : vec2<f32>;
+  if (lx >= ly) { axis = jx; sSub = abs(jx) / n + abs(jy); }
+  else          { axis = jy; sSub = abs(jy) / n + abs(jx); }
+  sSub = max(sSub, vec2<f32>(1e-9));
+  let invArea = 1.0 / (sSub.x * sSub.y);
+  var cov : f32 = 0.0;
+  for (var k : i32 = 0; k < ni; k = k + 1) {
+    let t = (f32(k) + 0.5) / n - 0.5;   // centered offsets across the major axis
+    let p = rc + axis * t;
+    cov += fold_cov(integrate_face(I.band, p, sSub) * invArea, I.place.w);
+  }
+  return shade(I.color, cov / n);
 }

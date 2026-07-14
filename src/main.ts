@@ -25,6 +25,7 @@ import { SAMPLE_CODE } from './editor/sample';
 import { Terminal } from './editor/terminal';
 import { FileTree } from './editor/fileTree';
 import { createToolbar } from './ui/toolbar';
+import { createDemo } from './ui/demo';
 
 async function main() {
   const fpsEl = document.getElementById('fps')!;
@@ -183,7 +184,8 @@ async function main() {
     { icon: '⌨️', title: 'Toggle code editor', onClick: () => setEditorMode(!s.editorMode), ref: (el) => { edBtn = el; } },
     { icon: '❯_', title: 'Toggle terminal', onClick: () => setTerminalMode(!s.terminalMode), ref: (el) => { tmBtn = el; } },
     { icon: '🧊', title: 'Toggle 3D free camera (drag = orbit, Shift+drag = pan, wheel = dolly)', onClick: () => toggle3D(s) },
-    { icon: '🌙', title: 'Cycle theme: light → dark → high contrast', onClick: () => s.cycleTheme!(), ref: (el) => { s.themeBtn = el; } },
+    { icon: '�', title: 'Play cinematic demo flight (any interaction stops it)', onClick: () => s.demo?.toggle() },
+    { icon: '�🌙', title: 'Cycle theme: light → dark → high contrast', onClick: () => s.cycleTheme!(), ref: (el) => { s.themeBtn = el; } },
   ]);
 
   addEventListener('resize', () => setSize(s));
@@ -193,6 +195,7 @@ async function main() {
 
   initOrbit(rCanvas);
   attachInput(s);
+  s.demo = createDemo(s);
   runFrame(s);
 }
 
