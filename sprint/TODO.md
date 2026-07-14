@@ -1,0 +1,81 @@
+# windgraph — Master TODO
+
+Master checklist across all phases. Work top-down; each phase file has the detail,
+rationale, and acceptance criteria. Check an item only when its acceptance
+criteria pass.
+
+Legend: `[ ]` todo · `[~]` in progress · `[x]` done
+
+---
+
+## Phase 0 — Stroke→fill engine  (`phase-0-stroke-engine.md`)
+- [ ] Polyline → filled ribbon contour (constant width)
+- [ ] Butt / square / round caps
+- [ ] Miter / bevel / round joins (with miter limit)
+- [ ] Bézier-path stroking (quadratic; cubic via existing subdivision)
+- [ ] Dashed strokes (dash array + offset)
+- [ ] Variable width along path (taper) — stretch
+- [ ] Feeds windfoil as normal fill instances; crisp at any zoom
+- [ ] Demo: strokes at 1×, 100×, 1000× zoom stay razor-sharp
+
+## Phase 1 — Primitives + Mobject model  (`phase-1-primitives.md`)
+- [ ] `Mobject` base: path(s), stroke/fill style, transform, z-order
+- [ ] Point (dot), Segment, Ray, Line (infinite), Vector/Arrow (arrowheads)
+- [ ] Polyline, Polygon (stroked + filled)
+- [ ] Circle, Arc, Ellipse, Sector; general conic
+- [ ] Group/Mobject tree with combined transforms
+- [ ] Demo: a labeled geometry scene (triangle, circle, vectors)
+
+## Phase 2 — Coordinates, axes, grids  (`phase-2-coordinates-axes.md`)
+- [ ] Data↔screen transform tied to the windfoil camera
+- [ ] NumberPlane: linear axes, ticks, minor/major grid
+- [ ] Tick labels + axis labels (windfoil text)
+- [ ] Log scale, polar grid
+- [ ] Auto-ranging + nice-number tick selection
+- [ ] Demo: axes that stay crisp + correctly ticked through infinite zoom
+
+## Phase 3 — Plotting  (`phase-3-plotting.md`)
+- [ ] `y = f(x)` plot (adaptive Bézier sampling)
+- [ ] Parametric + polar curves
+- [ ] Implicit `f(x,y)=0` (marching squares → contours)
+- [ ] Vector / slope fields
+- [ ] Area fill under/between curves; Riemann rectangles
+- [ ] Discrete data: scatter, line, bar, step
+- [ ] Demo: multi-series plot, zoomable, sharp
+
+## Phase 4 — Animation engine  (`phase-4-animation.md`)
+- [ ] Scene + timeline (play/sequence/parallel, easing library)
+- [ ] Create/Draw (partial-length path reveal)
+- [ ] Transform/morph (path interpolation with point correspondence)
+- [ ] FadeIn/Out, shift/scale/rotate, MoveAlongPath
+- [ ] ValueTracker + updaters (dependent animation)
+- [ ] Demo: sin→polynomial morph with moving labeled point
+
+## Phase 5 — Interactivity + constraints  (`phase-5-interactivity.md`)
+- [ ] Reactive dependency graph (free vs. constrained objects)
+- [ ] Draggable free points (uses windfoil picking)
+- [ ] Derived objects: midpoint, intersection, glider-on-curve, reflection
+- [ ] Live recompute + redraw on drag
+- [ ] Demo: draggable triangle with live centroid/circumcircle
+
+## Phase 6 — Math typesetting  (`phase-6-math-typesetting.md`)
+- [ ] LaTeX math → positioned glyph/rule boxes (KaTeX-style layout)
+- [ ] Math font atlas baked into windfoil
+- [ ] Inline + display math as a `MathTex` Mobject
+- [ ] Animatable/transformable like any shape
+- [ ] Demo: an equation that writes on and morphs, sharp at any zoom
+
+## Phase 7 — 3D graphing  (`phase-7-3d-graphing.md`)
+- [ ] 3D axes + grid (uses the existing perspective camera)
+- [ ] Surface `z = f(x,y)` (quad mesh → analytic fills/strokes)
+- [ ] Parametric surfaces, space curves
+- [ ] Camera-facing crisp labels
+- [ ] Demo: rotatable surface with sharp axis labels
+
+## Phase 8 — Export, docs, polish  (`phase-8-export-polish.md`)
+- [ ] SVG export of a frame (contours → path data)
+- [ ] PDF export of a frame
+- [ ] Frame-sequence / video (or GIF/WebM) capture of an animation
+- [ ] Public API surface + typedocs
+- [ ] Examples gallery + landing demo
+- [ ] Performance pass (dirty-tracking, buffer diffing)
