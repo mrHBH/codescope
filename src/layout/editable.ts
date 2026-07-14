@@ -42,7 +42,7 @@ export function layoutEditable(el: StyledEl, font: FontFace, atlas: any, inst: n
       addRect(x0, y0, x1, y1, sel, crv, rws, inst);
     }
   }
-  for (const g of glyphs) { const gl = g.gl; inst.push(g.x, g.bl, s, 0, gl.bbox[0], gl.bbox[1], gl.bbox[2], gl.bbox[3], el.color[0], el.color[1], el.color[2], el.color[3], gl.rowBase, gl.bandCount, gl.y0, gl.invH); }
+  for (const g of glyphs) { const gl = g.gl; inst.push(g.x, g.bl, s, 0, gl.bbox[0], gl.bbox[1], gl.bbox[2], gl.bbox[3], el.color[0], el.color[1], el.color[2], el.color[3], gl.rowBase, gl.bandCount, gl.bandH, gl.invH); }
 
   // Caret: a thin bar aligned to the glyph em-box (not the line box). The text
   // baseline is at lineTops[ln] + size*0.8, so the visual glyph span is

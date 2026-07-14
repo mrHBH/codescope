@@ -285,7 +285,7 @@ export class CodeEditor {
           const ch = text[c];
           if (ch === ' ' || ch === '\t') continue;
           const gl = atlas.table[ch];
-          if (gl) inst.push(this.textLeft + off[c], baseline, s, 0, gl.bbox[0], gl.bbox[1], gl.bbox[2], gl.bbox[3], color[0], color[1], color[2], color[3], gl.rowBase, gl.bandCount, gl.y0, gl.invH);
+          if (gl) inst.push(this.textLeft + off[c], baseline, s, 0, gl.bbox[0], gl.bbox[1], gl.bbox[2], gl.bbox[3], color[0], color[1], color[2], color[3], gl.rowBase, gl.bandCount, gl.bandH, gl.invH);
         }
       };
       let cursorCol = 0;
@@ -311,7 +311,7 @@ export class CodeEditor {
     for (let i = 0; i < text.length; i++) {
       const ch = text[i];
       const gl = atlas.table[ch];
-      if (gl && ch !== ' ') inst.push(x + i * this.digitW, baseline, s, 0, gl.bbox[0], gl.bbox[1], gl.bbox[2], gl.bbox[3], color[0], color[1], color[2], color[3], gl.rowBase, gl.bandCount, gl.y0, gl.invH);
+      if (gl && ch !== ' ') inst.push(x + i * this.digitW, baseline, s, 0, gl.bbox[0], gl.bbox[1], gl.bbox[2], gl.bbox[3], color[0], color[1], color[2], color[3], gl.rowBase, gl.bandCount, gl.bandH, gl.invH);
     }
   }
 }

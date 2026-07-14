@@ -15,7 +15,7 @@ export function tw(text: string, font: FontFace, size: number): number {
 
 export function layoutStr(out:number[],text:string,clr:number[],tbl:Record<string,any>,font:FontFace,o:{x:number;y:number;size:number}){
   const s=o.size/font.unitsPerEm,bl=o.y+o.size*0.8;let p=o.x,prev:string|null=null;
-  for(let i=0;i<text.length;i++){const ch=text[i];if(prev)p+=kerningOf(font,prev,ch)*s;const gl=tbl[ch];if(gl)out.push(p,bl,s,0,gl.bbox[0],gl.bbox[1],gl.bbox[2],gl.bbox[3],clr[0],clr[1],clr[2],clr[3],gl.rowBase,gl.bandCount,gl.y0,gl.invH);p+=advanceOf(font,ch)*s;prev=ch;}
+  for(let i=0;i<text.length;i++){const ch=text[i];if(prev)p+=kerningOf(font,prev,ch)*s;const gl=tbl[ch];if(gl)out.push(p,bl,s,0,gl.bbox[0],gl.bbox[1],gl.bbox[2],gl.bbox[3],clr[0],clr[1],clr[2],clr[3],gl.rowBase,gl.bandCount,gl.bandH,gl.invH);p+=advanceOf(font,ch)*s;prev=ch;}
 }
 
 // Place a baked vector shape (icon/illustration) scaled to fit `box` while keeping
@@ -33,7 +33,7 @@ export function layoutIcon(out:number[], gl:any, box:{x:number;y:number;w:number
   const oy = box.y + (box.h-drawH)/2 - gl.bbox[1]*scale;
   // fillRule = 1 (even-odd) so counter-wound holes render regardless of contour
   // orientation — hand-authored icon paths don't guarantee nonzero winding.
-  out.push(ox, oy, scale, 1, gl.bbox[0], gl.bbox[1], gl.bbox[2], gl.bbox[3], clr[0], clr[1], clr[2], clr[3], gl.rowBase, gl.bandCount, gl.y0, gl.invH);
+  out.push(ox, oy, scale, 1, gl.bbox[0], gl.bbox[1], gl.bbox[2], gl.bbox[3], clr[0], clr[1], clr[2], clr[3], gl.rowBase, gl.bandCount, gl.bandH, gl.invH);
 }
 
 // Pre-allocated scratch arrays for addRect (avoid per-call allocation)
@@ -73,7 +73,7 @@ export function addRect(x0:number,y0:number,x1:number,y1:number,clr:number[],crv
     }
     o[pn++]=rest[0];o[pn++]=rest[1];o[pn++]=rest[2];o[pn++]=rest[3];o[pn++]=rest[4];o[pn++]=rest[5];
   }
-  const h=bandPieces(ps.slice(0,pn),y0,y1,crv,rws);out.push(0,0,1,0,x0,y0,x1,y1,clr[0],clr[1],clr[2],clr[3],h.rowBase,h.bandCount,h.y0,h.invH);
+  const h=bandPieces(ps.slice(0,pn),y0,y1,crv,rws);out.push(0,0,1,0,x0,y0,x1,y1,clr[0],clr[1],clr[2],clr[3],h.rowBase,h.bandCount,h.bandH,h.invH);
 }
 
 const CODE_KW = new Set(['export','function','var','let','const','for','each','return','min','abs','if','else','in','of','while','new','type']);

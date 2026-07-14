@@ -397,7 +397,7 @@ export class Terminal {
     const adv = this.advance(ch);
     if (ch !== ' ') {
       const gl = atlas.table[ch];
-      if (gl) inst.push(x, baseline, s, 0, gl.bbox[0], gl.bbox[1], gl.bbox[2], gl.bbox[3], color[0], color[1], color[2], color[3], gl.rowBase, gl.bandCount, gl.y0, gl.invH);
+      if (gl) inst.push(x, baseline, s, 0, gl.bbox[0], gl.bbox[1], gl.bbox[2], gl.bbox[3], color[0], color[1], color[2], color[3], gl.rowBase, gl.bandCount, gl.bandH, gl.invH);
     }
     return adv;
   }

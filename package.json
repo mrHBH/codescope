@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "upstream:sync": "git -C ../windfoil fetch origin && git -C ../windfoil reset --hard origin/main",
+    "upstream:diff": "git diff --no-index ../windfoil/src/windfoil.wgsl src/windfoil/windfoil.wgsl"
   },
   "dependencies": {
     "camera-controls": "^3.1.2",

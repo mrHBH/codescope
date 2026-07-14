@@ -493,7 +493,7 @@ export class FileTree {
     for (const ch of text) {
       if (ch === ' ') { cx += this.advance(ch); continue; }
       const gl = atlas.table[ch];
-      if (gl) inst.push(cx, baseline, s, 0, gl.bbox[0], gl.bbox[1], gl.bbox[2], gl.bbox[3], color[0], color[1], color[2], color[3], gl.rowBase, gl.bandCount, gl.y0, gl.invH);
+      if (gl) inst.push(cx, baseline, s, 0, gl.bbox[0], gl.bbox[1], gl.bbox[2], gl.bbox[3], color[0], color[1], color[2], color[3], gl.rowBase, gl.bandCount, gl.bandH, gl.invH);
       cx += this.advance(ch);
     }
   }
@@ -509,6 +509,6 @@ export class FileTree {
     const midY = (gl.bbox[1] + gl.bbox[3]) / 2;
     const x = cx - midX * sIcon;
     const y = cy - midY * sIcon;
-    inst.push(x, y, sIcon, 1, gl.bbox[0], gl.bbox[1], gl.bbox[2], gl.bbox[3], color[0], color[1], color[2], alpha, gl.rowBase, gl.bandCount, gl.y0, gl.invH);
+    inst.push(x, y, sIcon, 1, gl.bbox[0], gl.bbox[1], gl.bbox[2], gl.bbox[3], color[0], color[1], color[2], alpha, gl.rowBase, gl.bandCount, gl.bandH, gl.invH);
   }
 }

@@ -58,6 +58,7 @@ function f32bits(v: number): number {
 export interface BandHeader {
   rowBase: number;
   bandCount: number;
+  bandH: number;
   y0: number;
   invH: number;
 }
@@ -84,6 +85,10 @@ export function bandPieces(
 
   const rowBase = rowOut.length / 5;
   const bandH = R > 1 ? (y1 - y0) / R : y1 - y0;
+  // The shader reconstructs band edges from the header slot and selects bands with
+  // invH; derive the header band height as f32(1/f32(invH)) so band_edges and
+  // band_index tile exactly (no rounding gaps). Density normalizes by the same value.
+  const headerBandH = R > 1 ? Math.fround(1 / Math.fround(invH)) : Math.fround(bandH);
   const xMax = (k: number) => Math.max(pieces[k * 6], pieces[k * 6 + 2], pieces[k * 6 + 4]);
   const xMin = (k: number) => Math.min(pieces[k * 6], pieces[k * 6 + 2], pieces[k * 6 + 4]);
   for (let b = 0; b < R; b++) {
@@ -97,9 +102,13 @@ export function bandPieces(
       bxMax = Math.max(bxMax, xMax(k));
     }
     const area = n ? bandWindingArea(pieces, bucket, xLeft, y0 + b * bandH, y0 + (b + 1) * bandH) : 0;
-    rowOut.push(start, bucket.length, f32bits(area), f32bits(bxMin), f32bits(bxMax));
+    // Precompute the band's winding DENSITY (winding per unit area of its ink
+    // cell) so profile_face is a plain density × y-overlap × x-overlap — no
+    // per-pixel divisions.
+    const density = area / Math.max(headerBandH * (bxMax - bxMin), 1e-30);
+    rowOut.push(start, bucket.length, f32bits(density), f32bits(bxMin), f32bits(bxMax));
   }
-  return { rowBase, bandCount: R, y0, invH };
+  return { rowBase, bandCount: R, bandH: headerBandH, y0, invH };
 }
 
 export interface GlyphAtlas {

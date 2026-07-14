@@ -13,16 +13,16 @@ struct Instance {
   place : vec4<f32>, // originX, originY (device px), unitsToPx, fillRule (0 = nonzero, 1 = even-odd)
   bbox  : vec4<f32>, // ink box loX, loY, hiX, hiY (glyph units, Y-down)
   color : vec4<f32>, // straight-alpha RGBA
-  band  : vec4<f32>, // rowBase, bandCount, y0, invH
+  band  : vec4<f32>, // rowBase, bandCount, bandH, invH
 };
 
 // Bands with count > SORT_MIN are x-sorted on the CPU so the gather can break at the first piece fully left
 // of the box. MUST equal BAND_SORT_MIN in bands.js.
 const SORT_MIN : u32 = 4u;
 
-// Row-table layout — MUST match bands.js's rowOut.push(start, count, areaBits, xMinBits, xMaxBits).
+// Row-table layout — MUST match bands.js's rowOut.push(start, count, densityBits, xMinBits, xMaxBits).
 const ROW_STRIDE : u32 = 5u;
-const ROW_AREA : u32 = 2u;
+const ROW_DENSITY : u32 = 2u;
 const ROW_XMIN : u32 = 3u;
 const ROW_XMAX : u32 = 4u;
 
@@ -31,6 +31,10 @@ const ROW_XMAX : u32 = 4u;
 // it: bench/README.md, bench/ACCEL-NOTES.md.
 const MINIFICATION_GUARD = true;
 const GUARD_PX = 3.7;
+
+// Kernel support plus 0.125px derivative slack; adjust support per axis for other kernels.
+const KERNEL_SUPPORT_PX = vec2<f32>(0.5);
+const KERNEL_SKIRT_PX = KERNEL_SUPPORT_PX + vec2<f32>(0.125);
 
 @group(0) @binding(0) var<uniform> U : Uniforms;
 @group(0) @binding(1) var<storage, read> instances : array<Instance>;
@@ -50,10 +54,10 @@ fn vs(@builtin(vertex_index) vi : u32, @builtin(instance_index) ii : u32) -> VsO
   let I = instances[ii];
   let unitsToPx = I.place.z;
   let camScale = U.cam.xy;
-  // 1 device px pad so the AA skirt is never clipped (coverage reaches at most half a pixel past the ink).
-  let pad = 1.0 / (unitsToPx * max(camScale.x, 1e-6));
-  let lo = I.bbox.xy - vec2<f32>(pad);
-  let hi = I.bbox.zw + vec2<f32>(pad);
+  // Kernel-derived AA skirt (0.625px) so the coverage skirt is never clipped, per axis.
+  let pad = KERNEL_SKIRT_PX / (unitsToPx * max(abs(camScale), vec2<f32>(1e-6)));
+  let lo = I.bbox.xy - pad;
+  let hi = I.bbox.zw + pad;
   // Unit-quad corners for a triangle-strip; vi ∈ {0..3}.
   let uv = vec2<f32>(f32(vi & 1u), f32(vi >> 1u));
   let em = mix(lo, hi, uv);
@@ -101,7 +105,7 @@ fn fold_cov(f : f32, fillRule : f32) -> f32 {
   if (fillRule > 0.5) {
     cov = tri_wave(f);                // even-odd
   } else {
-    cov = clamp(abs(f), 0.0, 1.0);    // nonzero (saturating)
+    cov = min(abs(f), 1.0);           // nonzero (saturating)
   }
   return style_coverage(cov, U.style.x, U.style.y);
 }
@@ -127,10 +131,12 @@ fn mono_root(a2 : f32, a1 : f32, a0 : f32, e1 : f32, v : f32, rising : bool) -> 
   let disc = max(a1 * a1 - 4.0 * a2 * c, 0.0);
   let sq = sqrt(disc);
   let qq = -0.5 * (a1 + select(-sq, sq, a1 >= 0.0));   // numerically stable quadratic
-  let r1 = qq / a2;
-  let r2 = select(0.0, c / qq, qq != 0.0);
-  // The derivative at r1 is −sign(a1)·sq, so the branch pick reduces to a sign test on a1.
-  let t = select(r2, r1, (a1 < 0.0) == rising);
+  // r1's derivative is −sign(a1)·sq, so its sign selects the root; choose operands before one safe divide.
+  let use_r1 = (a1 < 0.0) == rising;
+  let num = select(c, qq, use_r1);
+  let den = select(qq, a2, use_r1);
+  let valid = den != 0.0;
+  let t = select(0.0, num / select(1.0, den, valid), valid);
   return clamp(t, 0.0, 1.0);
 }
 
@@ -185,9 +191,9 @@ fn integrate_band(start : u32, count : u32, rc : vec2<f32>, wlo : f32, whi : f32
   for (var i : u32 = 0u; i < count; i = i + 1u) {
     let base = (start + i) * 3u;
     let q1 = curves[base] - rc;
-    let q2 = curves[base + 1u] - rc;
     let q3 = curves[base + 2u] - rc;
-    let x_hull_max = max(q1.x, max(q2.x, q3.x));
+    // In an xy-monotone quadratic q2 lies in the endpoint hull, so load it only after culling.
+    let x_hull_max = max(q1.x, q3.x);
     if (x_hull_max <= -hx) {              // fully LEFT of the box → no area
       if (sorted) { break; }
       continue;
@@ -197,7 +203,7 @@ fn integrate_band(start : u32, count : u32, rc : vec2<f32>, wlo : f32, whi : f32
     let lo = max(wlo, py_lo);
     let hi = min(whi, py_hi);
     if (hi <= lo) { continue; }
-    let x_hull_min = min(q1.x, min(q2.x, q3.x));
+    let x_hull_min = min(q1.x, q3.x);
     if (x_hull_min >= hx) {               // fully RIGHT of the box → full width × clipped y-span
       acc += sx * clipped_dy(q1.y, q3.y, wlo, whi);
       continue;
@@ -209,6 +215,7 @@ fn integrate_band(start : u32, count : u32, rc : vec2<f32>, wlo : f32, whi : f32
       acc += xm * clipped_dy(q1.y, q3.y, wlo, whi);
       continue;
     }
+    let q2 = curves[base + 1u] - rc;
     acc += integrate_piece(q1, q2, q3, lo, hi, hx);
   }
   return acc;
@@ -220,9 +227,9 @@ fn band_index(dy : f32, invH : f32, R : u32) -> u32 {
 }
 
 // Band ri's y-range relative to `base`. R ≤ 64, so f32(ri) + 1.0 is exact.
-fn band_edges(base : f32, ri : u32, invH : f32) -> vec2<f32> {
+fn band_edges(base : f32, ri : u32, bandH : f32) -> vec2<f32> {
   let r = f32(ri);
-  return vec2<f32>(base + r / invH, base + (r + 1.0) / invH);
+  return vec2<f32>(base) + vec2<f32>(r, r + 1.0) * bandH;
 }
 
 // Length of the overlap of intervals [a0, a1] and [b0, b1] (0 when disjoint).
@@ -233,15 +240,16 @@ fn overlap1d(a0 : f32, a1 : f32, b0 : f32, b1 : f32) -> f32 {
 // One glyph's winding integral over the pixel box (rc ± s/2), gathered through the row bands its y-slab
 // touches. Windows are kept rc-RELATIVE for deep-zoom stability, and tile exactly across bands so duplicated
 // pieces never double-count (ALGORITHM.md §6).
-fn integrate_face(band : vec4<f32>, rc : vec2<f32>, s : vec2<f32>) -> f32 {
+fn integrate_face(band : vec4<f32>, y0 : f32, rc : vec2<f32>, s : vec2<f32>) -> f32 {
   let rowBase = u32(band.x);
   let R = u32(band.y);
+  let bandH = band.z;
   let invH = band.w;
   let sy2 = s.y * 0.5;
-  let dy0 = band.z - rc.y;      // band origin y0, relative to the pixel center
+  let dy0 = y0 - rc.y;          // band origin relative to the pixel center
   var ri0 : u32 = 0u;
   var ri1 : u32 = 0u;
-  if (invH > 0.0) {             // invH > 0 only for multi-band glyphs (bands.js stores 0 when R == 1)
+  if (R > 1u) {
     ri0 = band_index(-dy0 - sy2, invH, R);
     ri1 = band_index(-dy0 + sy2, invH, R);
   }
@@ -249,8 +257,8 @@ fn integrate_face(band : vec4<f32>, rc : vec2<f32>, s : vec2<f32>) -> f32 {
   for (var ri = ri0; ri <= ri1; ri = ri + 1u) {
     var w_lo = -sy2;
     var w_hi = sy2;
-    if (invH > 0.0) {
-      let e = band_edges(dy0, ri, invH);
+    if (R > 1u) {
+      let e = band_edges(dy0, ri, bandH);
       w_lo = max(w_lo, e.x);
       w_hi = min(w_hi, e.y);
     }
@@ -270,9 +278,9 @@ fn profile_face(band : vec4<f32>, bbox : vec4<f32>, rc : vec2<f32>, s : vec2<f32
   if (overlap1d(pixLo.x, pixHi.x, bbox.x, bbox.z) <= 0.0) { return 0.0; }
   let rowBase = u32(band.x);
   let R = u32(band.y);
-  // header invH is 0 for a single band — the profile math wants the real 1/bandHeight
-  let invH = select(band.w, 1.0 / max(bbox.w - bbox.y, 1e-30), band.w == 0.0);
-  let y0 = band.z;
+  let bandH = band.z;
+  let invH = band.w;
+  let y0 = bbox.y;
   var ri0 : u32 = 0u;
   var ri1 : u32 = 0u;
   if (R > 1u) {
@@ -282,12 +290,12 @@ fn profile_face(band : vec4<f32>, bbox : vec4<f32>, rc : vec2<f32>, s : vec2<f32
   var ink : f32 = 0.0;
   for (var ri = ri0; ri <= ri1; ri = ri + 1u) {
     let rIdx = (rowBase + ri) * ROW_STRIDE;
-    let e = band_edges(y0, ri, invH);
-    let ov = overlap1d(pixLo.y, pixHi.y, e.x, e.y);
+    let e = band_edges(y0, ri, bandH);
+    let oy = overlap1d(pixLo.y, pixHi.y, e.x, e.y);
     let hull0 = bitcast<f32>(rows[rIdx + ROW_XMIN]);
     let hull1 = bitcast<f32>(rows[rIdx + ROW_XMAX]);
-    let fx = overlap1d(pixLo.x, pixHi.x, hull0, hull1) / max(hull1 - hull0, 1e-30);
-    ink += bitcast<f32>(rows[rIdx + ROW_AREA]) * (ov * invH) * fx;
+    let ox = overlap1d(pixLo.x, pixHi.x, hull0, hull1);
+    ink += bitcast<f32>(rows[rIdx + ROW_DENSITY]) * oy * ox;
   }
   return ink;
 }
@@ -330,7 +338,7 @@ fn fs(in : VsOut) -> @location(0) vec4<f32> {
   for (var k : i32 = 0; k < ni; k = k + 1) {
     let t = (f32(k) + 0.5) / n - 0.5;   // centered offsets across the major axis
     let p = rc + axis * t;
-    cov += fold_cov(integrate_face(I.band, p, sSub) * invArea, I.place.w);
+    cov += fold_cov(integrate_face(I.band, I.bbox.y, p, sSub) * invArea, I.place.w);
   }
   return shade(I.color, cov / n);
 }
