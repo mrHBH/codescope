@@ -1,6 +1,6 @@
 # Phase 0 — Analytic stroke→fill engine
 
-**Status:** not started · **Depends on:** windfoil renderer (done) · **Blocks:** all
+**Status:** done ✅ · **Depends on:** windfoil renderer (done) · **Blocks:** all
 later phases.
 
 ## Goal

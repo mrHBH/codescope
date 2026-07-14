@@ -8,23 +8,24 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done
 
 ---
 
-## Phase 0 — Stroke→fill engine  (`phase-0-stroke-engine.md`)
-- [ ] Polyline → filled ribbon contour (constant width)
-- [ ] Butt / square / round caps
-- [ ] Miter / bevel / round joins (with miter limit)
-- [ ] Bézier-path stroking (quadratic; cubic via existing subdivision)
-- [ ] Dashed strokes (dash array + offset)
+## Phase 0 — Stroke→fill engine  (`phase-0-stroke-engine.md`)  ✅
+- [x] Polyline → filled ribbon contour (constant width)
+- [x] Butt / square / round caps
+- [x] Miter / bevel / round joins (with miter limit)
+- [x] Bézier-path stroking (quadratic; cubic via existing subdivision)
+- [x] Dashed strokes (dash array + offset)
 - [ ] Variable width along path (taper) — stretch
-- [ ] Feeds windfoil as normal fill instances; crisp at any zoom
-- [ ] Demo: strokes at 1×, 100×, 1000× zoom stay razor-sharp
+- [x] Feeds windfoil as normal fill instances; crisp at any zoom
+- [x] Demo: strokes board (grid, caps, joins, ring, S-curve, dashes) via 📈 button
 
-## Phase 1 — Primitives + Mobject model  (`phase-1-primitives.md`)
-- [ ] `Mobject` base: path(s), stroke/fill style, transform, z-order
-- [ ] Point (dot), Segment, Ray, Line (infinite), Vector/Arrow (arrowheads)
-- [ ] Polyline, Polygon (stroked + filled)
-- [ ] Circle, Arc, Ellipse, Sector; general conic
-- [ ] Group/Mobject tree with combined transforms
-- [ ] Demo: a labeled geometry scene (triangle, circle, vectors)
+## Phase 1 — Primitives + Mobject model  (`phase-1-primitives.md`)  ✅
+- [x] `Mobject` base: path(s), stroke/fill style, transform, z-order
+- [x] Point (dot), Segment, Vector/Arrow (arrowheads) + Label
+- [~] Ray, Line (infinite) — deferred to Phase 2 (need viewport clipping)
+- [x] Polyline, Polygon (stroked + filled)
+- [x] Circle, Arc, Ellipse  ·  [ ] Sector, general conic (stretch)
+- [x] Group/Mobject tree with combined transforms
+- [x] Demo: a labeled geometry scene (triangle, incircle, vectors)
 
 ## Phase 2 — Coordinates, axes, grids  (`phase-2-coordinates-axes.md`)
 - [ ] Data↔screen transform tied to the windfoil camera

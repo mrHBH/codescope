@@ -26,6 +26,7 @@ import { Terminal } from './editor/terminal';
 import { FileTree } from './editor/fileTree';
 import { createToolbar } from './ui/toolbar';
 import { createDemo } from './ui/demo';
+import { WindgraphDemo } from './windgraph/demo';
 
 async function main() {
   const fpsEl = document.getElementById('fps')!;
@@ -134,6 +135,21 @@ async function main() {
     s.velX = s.velY = 0;
   }
 
+  // ── windgraph Phase-0 stroke board ────────────────────────────────────────
+  // World-space board below the document; exercises the stroke→fill engine.
+  const windgraph = new WindgraphDemo();
+  windgraph.x0 = 0;
+  windgraph.y0 = s.docH + 400;
+  s.windgraph = windgraph;
+
+  function frameWindgraph() {
+    const g = windgraph;
+    s.tgtZ = Math.min((s.tCanvas.width / (g.width + 200)) * 0.9, (s.tCanvas.height / (g.height + 200)) * 0.9);
+    s.tgtX = g.x0 + g.width / 2;
+    s.tgtY = g.y0 + g.height / 2;
+    s.velX = s.velY = 0;
+  }
+
   // ── Terminal ──────────────────────────────────────────────────────────────
   // Same renderer, its own world-space panel to the right of the editor.
   const terminal = new Terminal();
@@ -184,8 +200,7 @@ async function main() {
     { icon: '⌨️', title: 'Toggle code editor', onClick: () => setEditorMode(!s.editorMode), ref: (el) => { edBtn = el; } },
     { icon: '❯_', title: 'Toggle terminal', onClick: () => setTerminalMode(!s.terminalMode), ref: (el) => { tmBtn = el; } },
     { icon: '🧊', title: 'Toggle 3D free camera (drag = orbit, Shift+drag = pan, wheel = dolly)', onClick: () => toggle3D(s) },
-    { icon: '�', title: 'Play cinematic demo flight (any interaction stops it)', onClick: () => s.demo?.toggle() },
-    { icon: '�🌙', title: 'Cycle theme: light → dark → high contrast', onClick: () => s.cycleTheme!(), ref: (el) => { s.themeBtn = el; } },
+    { icon: '�', title: 'Play cinematic demo flight (any interaction stops it)', onClick: () => s.demo?.toggle() },    { icon: '📈', title: 'windgraph stroke demo (Phase 0)', onClick: () => frameWindgraph() },    { icon: '�🌙', title: 'Cycle theme: light → dark → high contrast', onClick: () => s.cycleTheme!(), ref: (el) => { s.themeBtn = el; } },
   ]);
 
   addEventListener('resize', () => setSize(s));

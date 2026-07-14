@@ -1,6 +1,6 @@
 # Phase 1 — Primitives + Mobject model
 
-**Status:** not started · **Depends on:** Phase 0 · **Blocks:** 2–7.
+**Status:** done ✅ · **Depends on:** Phase 0 · **Blocks:** 2–7.
 
 ## Goal
 Define the base **Mobject** (the animatable/renderable object) and the core

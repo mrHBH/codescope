@@ -250,6 +250,15 @@ export function runFrame(s: AppState) {
       }
     }
 
+    // windgraph demo board (world-space).
+    if (s.windgraph) {
+      const g = s.windgraph;
+      const gR = g.x0 + g.width, gB = g.y0 + g.height;
+      if (s.cam3d.active || (g.x0 <= vR && gR >= vL && g.y0 <= vB && gB >= vT)) {
+        g.emit(s.font, s.atlas, inst, crv, rws, now);
+      }
+    }
+
     s.rCtx.fillStyle = rgb(s.themeCol.backdrop);
     s.rCtx.fillRect(0, 0, Cw, Ch);
     if (crv.length > s.crvFA.length) s.crvFA = new Float32Array(crv.length * 2);
