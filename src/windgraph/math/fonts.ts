@@ -20,9 +20,10 @@ const LATIN = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
 const ITALIC_CHARS = LATIN + GREEK_LOWER + GREEK_UPPER;
 // Main upright: digits, punctuation/operators, upright letters (function names),
 // and the common small symbols.
-const MAIN_CHARS = '0123456789' + LATIN + '+-=()[]{}.,/|<>!:;*?' + '−×÷±≤≥≠→←↔∈∉∀∃∞∂∇√∫∮…·′' + GREEK_UPPER;
-// Size-2: big operators, radical, and large delimiters used by \frac/\sqrt/limits.
-const SIZE2_CHARS = '∑∫∏√()[]{}|';
+const MAIN_CHARS = '0123456789' + LATIN + '+-=()[]{}.,/|<>!:;*?' + '−×÷±∓≤≥≠≈≡→←↔∈∉∀∃∞∂∇√∫∮…⋯·′' + GREEK_UPPER;
+// Size-2: big operators, radical, large delimiters, and multiple/contour
+// integrals (∬ ∭ ∮) + n-ary union/intersection/coproduct.
+const SIZE2_CHARS = '∑∫∏√()[]{}|∬∭∮∐⋃⋂';
 
 export const MATH_FONT_URLS = {
   italic: '/KaTeX_Math-Italic.ttf',

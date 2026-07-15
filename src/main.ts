@@ -14,7 +14,8 @@ import { createAppState } from './state';
 import { buildStatic } from './precompute';
 import { setSize, goToPage } from './camera/camera';
 import { toggle3D, enter3D } from './camera/camera';
-import { initOrbit, orbitSetPose, orbitDistForZoom, updateOrbit } from './camera/orbit';
+import { initOrbit } from './camera/orbit';
+import { orbitSetPose, orbitDistForZoom, updateOrbit, disableOrbit } from './camera/orbit';
 import { attachInput } from './camera/input';
 import { runFrame } from './frame';
 import { HTML_SRC } from './content/pages';
@@ -150,12 +151,21 @@ async function main() {
   windgraph.y0 = s.docH + 400;
   s.windgraph = windgraph;
 
+  // Navigate to a 2D board. If we're in the 3D free camera (e.g. after viewing the
+  // 3D graph), drop back to 2D and snap so the target board is framed immediately.
+  function frame2DBoard(x: number, y: number, z: number) {
+    if (s.cam3d.active) {
+      disableOrbit();
+      s.cam3d.active = false; s.cam3d.exiting = false;
+      s.camX = s.viewX = x; s.camY = s.viewY = y; s.camZ = s.viewZ = z;
+    }
+    s.tgtX = x; s.tgtY = y; s.tgtZ = z; s.velX = s.velY = 0;
+  }
+
   function frameWindgraph() {
     const g = windgraph;
-    s.tgtZ = Math.min((s.tCanvas.width / (g.width + 200)) * 0.9, (s.tCanvas.height / (g.height + 200)) * 0.9);
-    s.tgtX = g.x0 + g.width / 2;
-    s.tgtY = g.y0 + g.height / 2;
-    s.velX = s.velY = 0;
+    const z = Math.min((s.tCanvas.width / (g.width + 200)) * 0.9, (s.tCanvas.height / (g.height + 200)) * 0.9);
+    frame2DBoard(g.x0 + g.width / 2, g.y0 + g.height / 2, z);
   }
 
   // ── windgraph Phase-4 animation demo ──────────────────────────────────────
@@ -167,10 +177,8 @@ async function main() {
 
   function frameMorph() {
     const g = morphDemo;
-    s.tgtZ = Math.min((s.tCanvas.width / (g.width + 160)) * 0.9, (s.tCanvas.height / (g.height + 160)) * 0.9);
-    s.tgtX = g.x0 + g.width / 2;
-    s.tgtY = g.y0 + g.height / 2;
-    s.velX = s.velY = 0;
+    const z = Math.min((s.tCanvas.width / (g.width + 160)) * 0.9, (s.tCanvas.height / (g.height + 160)) * 0.9);
+    frame2DBoard(g.x0 + g.width / 2, g.y0 + g.height / 2, z);
   }
 
   // ── windgraph Phase-5 interactivity demo ──────────────────────────────────
@@ -182,10 +190,8 @@ async function main() {
 
   function frameInteractive() {
     const g = interactive;
-    s.tgtZ = Math.min((s.tCanvas.width / (g.width + 160)) * 0.9, (s.tCanvas.height / (g.height + 160)) * 0.9);
-    s.tgtX = g.x0 + g.width / 2;
-    s.tgtY = g.y0 + g.height / 2;
-    s.velX = s.velY = 0;
+    const z = Math.min((s.tCanvas.width / (g.width + 160)) * 0.9, (s.tCanvas.height / (g.height + 160)) * 0.9);
+    frame2DBoard(g.x0 + g.width / 2, g.y0 + g.height / 2, z);
   }
 
   // ── windgraph Phase-7 3D graphing demo (TRUE 3D mesh) ─────────────────────
@@ -198,15 +204,20 @@ async function main() {
   s.meshRenderer = createMeshRenderer(device, 'rgba8unorm');
 
   function frameGraph3d() {
+    // Always show the surface as a TRUE 3D object (no jarring flat 2D colour map):
+    // centre the 2D view on it, lift into the orbit camera, then pose at a tilted
+    // 3/4 angle so it rises off the ground. Same free-camera as 🧊 / the cinematic.
     const g = graph3d;
-    const span = g.halfSpan * 2 + 400;
-    s.camX = s.tgtX = s.viewX = g.cx;
-    s.camY = s.tgtY = s.viewY = g.cy;
-    const z = Math.min(s.tCanvas.width / span, s.tCanvas.height / span) * 0.9;
-    s.camZ = s.tgtZ = s.viewZ = z;
+    const Ch = s.tCanvas.height, Cw = s.tCanvas.width;
+    const span = g.halfSpan * 2 + 1000;
+    const zoom = Math.min(Cw / span, Ch / span) * 0.95;
+    s.camX = s.viewX = s.tgtX = g.cx;
+    s.camY = s.viewY = s.tgtY = g.cy;
+    s.camZ = s.viewZ = s.tgtZ = zoom;
     enter3D(s);
-    orbitSetPose(g.cx, g.cy, orbitDistForZoom(z, s.tCanvas.height), 0.6, 0.92);
+    orbitSetPose(g.cx, g.cy, orbitDistForZoom(zoom, Ch), 0.6, 0.88);
     updateOrbit(16);
+    s.velX = s.velY = 0;
   }
 
   // ── windgraph Phase-6 math typesetting demo ───────────────────────────────
@@ -218,10 +229,8 @@ async function main() {
 
   function frameMath() {
     const g = mathDemo;
-    s.tgtZ = Math.min((s.tCanvas.width / (g.width + 160)) * 0.9, (s.tCanvas.height / (g.height + 160)) * 0.9);
-    s.tgtX = g.x0 + g.width / 2;
-    s.tgtY = g.y0 + g.height / 2;
-    s.velX = s.velY = 0;
+    const z = Math.min((s.tCanvas.width / (g.width + 160)) * 0.9, (s.tCanvas.height / (g.height + 160)) * 0.9);
+    frame2DBoard(g.x0 + g.width / 2, g.y0 + g.height / 2, z);
   }
 
   // ── Terminal ──────────────────────────────────────────────────────────────

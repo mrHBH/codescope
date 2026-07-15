@@ -9,10 +9,14 @@ export type Cls = 'var' | 'num' | 'op' | 'rm' | 'open' | 'close' | 'punct' | 'bi
 export type Node =
   | { t: 'row'; items: Node[] }
   | { t: 'char'; ch: string; cls: Cls }
+  | { t: 'func'; name: string }
+  | { t: 'limop'; name: string; sub?: Node; sup?: Node }
+  | { t: 'space'; w: number }
+  | { t: 'limits'; over: boolean }
   | { t: 'scripted'; base: Node; sup?: Node; sub?: Node }
   | { t: 'frac'; num: Node; den: Node }
   | { t: 'sqrt'; body: Node }
-  | { t: 'bigop'; ch: string; sub?: Node; sup?: Node };
+  | { t: 'bigop'; ch: string; sub?: Node; sup?: Node; mult?: number; over?: boolean };
 
 const GREEK: Record<string, string> = {
   alpha: 'α', beta: 'β', gamma: 'γ', delta: 'δ', epsilon: 'ε', varepsilon: 'ε', zeta: 'ζ', eta: 'η',
@@ -27,8 +31,11 @@ const SYMBOL: Record<string, [string, Cls]> = {
   in: ['∈', 'rel'], notin: ['∉', 'rel'], infty: ['∞', 'var'], partial: ['∂', 'var'], nabla: ['∇', 'var'],
   approx: ['≈', 'rel'], equiv: ['≡', 'rel'], cdots: ['⋯', 'punct'], ldots: ['…', 'punct'], prime: ['′', 'op'],
 };
-const FUNCS = new Set(['sin', 'cos', 'tan', 'cot', 'sec', 'csc', 'log', 'ln', 'exp', 'lim', 'max', 'min', 'det', 'gcd', 'sinh', 'cosh', 'tanh', 'arg', 'deg']);
-const BIGOPS: Record<string, string> = { sum: '∑', int: '∫', prod: '∏', oint: '∮', bigcup: '⋃', bigcap: '⋂' };
+// Inline functions (scripts to the side). Limit-style operators (scripts ABOVE/
+// BELOW in display mode) are handled separately as `limop`.
+const FUNCS = new Set(['sin', 'cos', 'tan', 'cot', 'sec', 'csc', 'log', 'ln', 'exp', 'sinh', 'cosh', 'tanh', 'arg', 'deg']);
+const LIMOPS: Record<string, string> = { lim: 'lim', max: 'max', min: 'min', sup: 'sup', inf: 'inf', det: 'det', gcd: 'gcd', limsup: 'lim sup', liminf: 'lim inf', Pr: 'Pr' };
+const BIGOPS: Record<string, string> = { sum: '∑', int: '∫', prod: '∏', oint: '∮', bigcup: '⋃', bigcap: '⋂', coprod: '∐' };
 const SPACES = new Set([',', ';', ':', '!', ' ', 'quad', 'qquad', 'thinspace']);
 
 function classify(ch: string): Cls {
@@ -56,7 +63,10 @@ export function parseMath(src: string): Node {
       if (c === '}') { if (stopBrace) { i++; return { t: 'row', items }; } i++; continue; }
       if (c === '^' || c === '_') { i++; attachScript(items, c === '^'); continue; }
       const atom = parseAtom();
-      if (atom) items.push(atom);
+      if (!atom) continue;
+      // \limits / \nolimits modify the preceding big operator's limit placement.
+      if (atom.t === 'limits') { const prev = items[items.length - 1]; if (prev && prev.t === 'bigop') prev.over = atom.over; continue; }
+      items.push(atom);
     }
     return { t: 'row', items };
   }
@@ -65,8 +75,8 @@ export function parseMath(src: string): Node {
     const arg = parseAtom() ?? { t: 'row', items: [] };
     let base = items.pop();
     if (!base) base = { t: 'row', items: [] };
-    // Big operators keep limits as sub/sup on themselves.
-    if (base.t === 'bigop') { if (isSup) base.sup = arg; else base.sub = arg; items.push(base); return; }
+    // Big operators + limit-style operators keep scripts as their own limits.
+    if (base.t === 'bigop' || base.t === 'limop') { if (isSup) base.sup = arg; else base.sub = arg; items.push(base); return; }
     if (base.t === 'scripted') { if (isSup) base.sup = arg; else base.sub = arg; items.push(base); return; }
     items.push({ t: 'scripted', base, [isSup ? 'sup' : 'sub']: arg } as Node);
   }
@@ -80,16 +90,32 @@ export function parseMath(src: string): Node {
     if (c === '{') { i++; return parseRow(true); }
     if (c === '\\') {
       i++;
-      // Escaped space/brace or a control symbol.
-      if (i < s.length && !/[a-zA-Z]/.test(s[i])) { const ch = s[i++]; if (' ,;:!'.includes(ch)) return null; return { t: 'char', ch, cls: classify(ch) }; }
+      // Escaped space / control-symbol spacing macros (\, \; \: \! \ ).
+      if (i < s.length && !/[a-zA-Z]/.test(s[i])) {
+        const ch = s[i++];
+        if (ch === ',') return { t: 'space', w: 0.17 };
+        if (ch === ':') return { t: 'space', w: 0.22 };
+        if (ch === ';') return { t: 'space', w: 0.28 };
+        if (ch === ' ') return { t: 'space', w: 0.25 };
+        if (ch === '!') return { t: 'space', w: -0.17 };
+        return { t: 'char', ch, cls: classify(ch) };
+      }
       const name = readCmd();
-      if (name === 'frac') { const num = parseAtom() ?? empty(); const den = parseAtom() ?? empty(); return { t: 'frac', num, den }; }
+      if (name === 'frac' || name === 'dfrac' || name === 'tfrac') { const num = parseAtom() ?? empty(); const den = parseAtom() ?? empty(); return { t: 'frac', num, den }; }
       if (name === 'sqrt') { const body = parseAtom() ?? empty(); return { t: 'sqrt', body }; }
+      if (name === 'limits') return { t: 'limits', over: true };
+      if (name === 'nolimits') return { t: 'limits', over: false };
+      if (name === 'iint') return { t: 'bigop', ch: '∬' };
+      if (name === 'iiint') return { t: 'bigop', ch: '∭' };
       if (BIGOPS[name]) return { t: 'bigop', ch: BIGOPS[name] };
+      if (LIMOPS[name]) return { t: 'limop', name: LIMOPS[name] };
       if (GREEK[name]) return { t: 'char', ch: GREEK[name], cls: 'var' };
       if (SYMBOL[name]) return { t: 'char', ch: SYMBOL[name][0], cls: SYMBOL[name][1] };
-      if (FUNCS.has(name)) return { t: 'row', items: [...name].map((ch) => ({ t: 'char', ch, cls: 'rm' } as Node)) };
+      if (FUNCS.has(name)) return { t: 'func', name };
       if (name === 'left' || name === 'right') { if (i < s.length && '()[]{}|.'.includes(s[i])) { const d = s[i++]; if (d === '.') return null; return { t: 'char', ch: d, cls: d === '(' || d === '[' || d === '{' ? 'open' : 'close' }; } return null; }
+      if (name === 'quad') return { t: 'space', w: 1.0 };
+      if (name === 'qquad') return { t: 'space', w: 2.0 };
+      if (name === 'thinspace' || name === 'thin') return { t: 'space', w: 0.17 };
       if (SPACES.has(name)) return null;
       if (name === 'mathrm' || name === 'operatorname' || name === 'text') { const g = parseAtom() ?? empty(); return rmify(g); }
       // Unknown command → render its name upright (best effort).

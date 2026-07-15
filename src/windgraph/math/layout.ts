@@ -66,6 +66,10 @@ export function layout(node: Node, atlas: Atlas, scale = 1): Box {
   switch (node.t) {
     case 'row': return layoutRow(node.items, atlas, scale);
     case 'char': return glyphBox(atlas, node.ch, node.cls, scale);
+    case 'func': return layoutFunc(node, atlas, scale);
+    case 'limop': return layoutLimop(node, atlas, scale);
+    case 'space': return { w: node.w * scale, h: 0, d: 0, items: [] };
+    case 'limits': return { w: 0, h: 0, d: 0, items: [] };
     case 'scripted': return layoutScripted(node, atlas, scale);
     case 'frac': return layoutFrac(node, atlas, scale);
     case 'sqrt': return layoutSqrt(node, atlas, scale);
@@ -73,22 +77,56 @@ export function layout(node: Node, atlas: Atlas, scale = 1): Box {
   }
 }
 
+// An upright function name (sin, cos, log, …). Spacing before its ARGUMENT is
+// added by the row layouter (so a superscript like \cos^2 binds to the name).
+function layoutFunc(node: Extract<Node, { t: 'func' }>, atlas: Atlas, scale: number): Box {
+  return layoutRow([...node.name].map((ch) => ({ t: 'char', ch, cls: 'rm' } as Node)), atlas, scale);
+}
+
+function isFuncish(n?: Node): boolean {
+  if (!n) return false;
+  if (n.t === 'func' || n.t === 'limop') return true;
+  if (n.t === 'scripted') return isFuncish(n.base);
+  return false;
+}
+
+// A limit-style operator (lim, max, min, …): the upright name with its limits
+// centered ABOVE / BELOW it (display style), not to the side.
+function layoutLimop(node: Extract<Node, { t: 'limop' }>, atlas: Atlas, scale: number): Box {
+  const nameItems = [...node.name].map((ch) => (ch === ' ' ? { t: 'space', w: 0.22 } : { t: 'char', ch, cls: 'rm' }) as Node);
+  const nb = layoutRow(nameItems, atlas, scale);
+  const limScale = scale * 0.62;
+  const sup = node.sup ? layout(node.sup, atlas, limScale) : null;
+  const sub = node.sub ? layout(node.sub, atlas, limScale) : null;
+  const maxW = Math.max(nb.w, sup?.w ?? 0, sub?.w ?? 0);
+  const out: Placed[] = [];
+  out.push(...shift(nb.items, (maxW - nb.w) / 2, 0));
+  let h = nb.h, d = nb.d;
+  if (sup) { const y = -nb.h - 0.16 * scale - sup.d; out.push(...shift(sup.items, (maxW - sup.w) / 2, y)); h = Math.max(h, -y + sup.h); }
+  if (sub) { const y = nb.d + 0.16 * scale + sub.h; out.push(...shift(sub.items, (maxW - sub.w) / 2, y)); d = Math.max(d, y + sub.d); }
+  return { w: maxW, h, d, items: out };
+}
+
 function layoutRow(items: Node[], atlas: Atlas, scale: number): Box {
   let x = 0, h = 0, d = 0;
   const out: Placed[] = [];
-  let prevCls: Cls | undefined;
+  let prev: Node | undefined;
+  const isComposite = (k: Node['t'] | undefined) => k === 'frac' || k === 'sqrt' || k === 'bigop';
   for (const it of items) {
     const cls = it.t === 'char' ? it.cls : undefined;
-    // Space before binary/relation (not at the very start).
-    if (x > 0 && (cls === 'bin' || cls === 'rel' || cls === 'punct')) x += spacingFor(cls, scale);
+    // Spacing before this atom.
+    if (x > 0) {
+      if (cls === 'bin' || cls === 'rel' || cls === 'punct') x += spacingFor(cls, scale);
+      else if (isComposite(it.t) || isComposite(prev?.t)) x += 0.14 * scale; // room around frac/sqrt/bigop
+      else if (isFuncish(prev)) x += 0.14 * scale;                            // space after a function, before its argument
+    }
     const b = layout(it, atlas, scale);
     out.push(...shift(b.items, x, 0));
     x += b.w;
     if (cls === 'bin' || cls === 'rel') x += spacingFor(cls, scale);
     h = Math.max(h, b.h); d = Math.max(d, b.d);
-    prevCls = cls;
+    prev = it;
   }
-  void prevCls;
   return { w: x, h, d, items: out };
 }
 
@@ -156,60 +194,73 @@ function layoutSqrt(node: Extract<Node, { t: 'sqrt' }>, atlas: Atlas, scale: num
 function layoutBigop(node: Extract<Node, { t: 'bigop' }>, atlas: Atlas, scale: number): Box {
   const t = atlas.table;
   const key = t[SZ + node.ch] ? SZ + node.ch : (t[MN + node.ch] ? MN + node.ch : null);
-  const useLimits = node.ch === '∑' || node.ch === '∏' || node.ch === '⋃' || node.ch === '⋂';
-  let opW = 0.9 * scale, opH = 0.9 * scale, opD = 0.3 * scale;
+  const sumLike = node.ch === '∑' || node.ch === '∏' || node.ch === '⋃' || node.ch === '⋂' || node.ch === '∐';
+  // Display style: sum/product-like ops put limits ABOVE/BELOW by default;
+  // integrals put them to the SIDE. `\limits`/`\nolimits` (node.over) override.
+  const useLimits = node.over !== undefined ? node.over : sumLike;
+  const opScale = scale * (sumLike ? 0.95 : 0.86);
+  const limScale = scale * (sumLike ? 0.6 : 0.5);
+  const mult = Math.max(1, node.mult ?? 1);
+  let opW = 0.9 * opScale, opH = 0.9 * opScale, opD = 0.3 * opScale;
+  let inkR = opW;
   const opItems: Placed[] = [];
   if (key) {
     const e = t[key], upm = upmOf(e);
-    opW = (e.advance / upm) * scale;
-    opH = Math.max(0, -e.bbox[1] / upm) * scale;
-    opD = Math.max(0, e.bbox[3] / upm) * scale;
+    const gw = (e.advance / upm) * opScale;
+    opH = Math.max(0, -e.bbox[1] / upm) * opScale;
+    opD = Math.max(0, e.bbox[3] / upm) * opScale;
+    const gInkR = (e.bbox[2] / upm) * opScale;
     // Center the operator on the math axis.
     const center = (opD - opH) / 2;
     const shiftY = -AXIS * scale - center;
-    opItems.push({ kind: 'glyph', key, x: 0, y: shiftY, s: scale });
+    const step = gw * 0.58; // multiple integral signs (∬ ∭) overlap
+    for (let k = 0; k < mult; k++) opItems.push({ kind: 'glyph', key, x: k * step, y: shiftY, s: opScale });
+    opW = gw + step * (mult - 1);
+    inkR = gInkR + step * (mult - 1);
     opH -= shiftY; // extend height by the upward shift
     opD += shiftY;
   }
-  const ss = scale * SCRIPT;
   const out: Placed[] = [];
   let w = opW, h = opH, d = opD;
 
   if (useLimits) {
     const opTop = -opH, opBot = opD;
     let maxW = opW;
-    const sup = node.sup ? layout(node.sup, atlas, ss) : null;
-    const sub = node.sub ? layout(node.sub, atlas, ss) : null;
+    const sup = node.sup ? layout(node.sup, atlas, limScale) : null;
+    const sub = node.sub ? layout(node.sub, atlas, limScale) : null;
     if (sup) maxW = Math.max(maxW, sup.w);
     if (sub) maxW = Math.max(maxW, sub.w);
     const opX = (maxW - opW) / 2;
     out.push(...shift(opItems, opX, 0));
     if (sup) {
-      const y = opTop - 0.12 * scale - sup.d;
+      const y = opTop - 0.1 * scale - sup.d;
       out.push(...shift(sup.items, (maxW - sup.w) / 2, y));
       h = Math.max(h, -y + sup.h);
     }
     if (sub) {
-      const y = opBot + 0.12 * scale + sub.h;
+      const y = opBot + 0.1 * scale + sub.h;
       out.push(...shift(sub.items, (maxW - sub.w) / 2, y));
       d = Math.max(d, y + sub.d);
     }
     w = maxW;
   } else {
-    // Scripts to the right (e.g. \int_a^b).
+    // Scripts to the RIGHT of the sign (e.g. \int_a^b): small limits placed just
+    // past the ink's right edge with an italic correction (the integral slants,
+    // so the upper limit shifts right and the lower shifts left — like KaTeX).
     out.push(...opItems);
-    let x = opW + 0.04 * scale;
+    const baseX = Math.max(opW, inkR) + 0.04 * scale;
+    const ic = 0.1 * scale;
     if (node.sup) {
-      const sb = layout(node.sup, atlas, ss);
-      const y = -opH + 0.1 * scale - sb.d + 0.15 * scale;
-      out.push(...shift(sb.items, x, y));
-      w = Math.max(w, x + sb.w); h = Math.max(h, -y + sb.h);
+      const sb = layout(node.sup, atlas, limScale);
+      const y = -opH + 0.30 * scale;               // near the top of the sign
+      out.push(...shift(sb.items, baseX + ic, y));
+      w = Math.max(w, baseX + ic + sb.w); h = Math.max(h, -y + sb.h);
     }
     if (node.sub) {
-      const bb = layout(node.sub, atlas, ss);
-      const y = opD - 0.1 * scale + bb.h;
-      out.push(...shift(bb.items, x, y));
-      w = Math.max(w, x + bb.w); d = Math.max(d, y + bb.d);
+      const bb = layout(node.sub, atlas, limScale);
+      const y = opD - 0.18 * scale;                 // near the bottom of the sign
+      out.push(...shift(bb.items, baseX - ic, y));
+      w = Math.max(w, baseX - ic + bb.w); d = Math.max(d, y + bb.d);
     }
   }
   void SS;

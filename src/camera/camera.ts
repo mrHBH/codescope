@@ -36,6 +36,8 @@ export function scrToDoc(s: AppState, sx: number, sy: number) {
 
 export function goToPage(s: AppState, i: number) {
   const p = s.pages[i]; if (!p) return;
+  // Leaving the 3D free camera for a 2D page view (e.g. editor/terminal buttons).
+  if (s.cam3d.active) { disableOrbit(); s.cam3d.active = false; s.cam3d.exiting = false; }
   s.tgtZ = (s.tCanvas.width / s.PAGE_W) * 0.96;
   s.tgtX = p.x + p.w / 2;
   // Position so page top appears ~40px from top of viewport

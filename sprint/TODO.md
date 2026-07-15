@@ -75,15 +75,19 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done
 - [x] Demo (📐): gallery of identities + animated headline, sharp at any zoom
 
 ## Phase 7 — 3D graphing  (`phase-7-3d-graphing.md`)  ✅ (true 3D; labels pending)
-> **Redone as TRUE 3D.** The surface is now a real 3D triangle mesh that rises off
-> the ground plane, rendered by the orbit free-camera through a shared depth
-> buffer (companion `mesh3d` pipeline) — fly around it (🗻 enters 3D; right-drag
-> orbits) alongside the document/editor in one 3D world. Fast (GPU triangles).
+> **Redone as TRUE 3D.** The surface is a real 3D triangle mesh that rises off the
+> ground plane, rendered by the orbit free-camera through a shared depth buffer
+> (companion `mesh3d` pipeline) — it lives in the SAME 3D world as the document /
+> editor / other boards, so there is no jarring 2D↔3D switch. 🗻 now lifts
+> straight into a tilted 3D view (not a flat top-down colour map); drag orbits.
+> SMOOTH per-vertex (Gouraud) shading from the height-field gradient + res 72 → no
+> faceting / no blockiness (fixes the reported 2D↔3D quality degradation).
 - [x] Depth buffer added to the windfoil pass (shared; 2D unaffected)
 - [x] 3D mesh pipeline (`src/windfoil/mesh3d.ts`) — triangles + lines, depth-tested
-- [x] Surface `z = f(x,y)` as a true 3D mesh (colormap + Lambert shading)
+- [x] Surface `z = f(x,y)` as a true 3D mesh (colormap + SMOOTH Gouraud shading)
 - [x] 3D axes + floor grid + surface wireframe (3D lines)
 - [x] Correct self-occlusion via depth buffer (no painter-sort hack)
+- [x] Seamless: 🗻 enters true 3D; cinematic flight orbits it; drag = orbit
 - [ ] Billboarded crisp axis labels (stage 4 — pending: needs per-instance Z)
 - [ ] Parametric surfaces `S(u,v)` + space curves in true 3D (stretch)
 

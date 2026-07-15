@@ -348,12 +348,26 @@ export function runFrame(s: AppState) {
     const viewProj = cameraViewProj(s, Cw, Ch);
     // TRUE 3D: draw the surface mesh FIRST (it writes depth + self-occludes); the
     // analytic windfoil pass then renders on top (depth-agnostic), so document +
-    // labels stay crisp above the surface. Only in the 3D free-camera.
-    if (s.cam3d.active && s.graph3d && s.meshRenderer) {
-      const m = s.graph3d.buildMesh();
-      s.meshRenderer.setViewProj(viewProj);
-      s.meshRenderer.drawTris(pass, m.tris);
-      s.meshRenderer.drawLines(pass, m.lines);
+    // labels stay crisp above the surface. The mesh renders in BOTH modes so the
+    // graph is seamless: a flat top-down colour map in 2D, rising off the ground
+    // in the 3D free-camera. In 2D it uses a full ortho (camera pan/zoom baked in,
+    // z ignored → flat); in 3D it shares the orbit view-projection (height rises).
+    if (s.graph3d && s.meshRenderer) {
+      const g = s.graph3d;
+      const inView3D = s.cam3d.active;
+      const inView2D = !s.cam3d.active && (g.cx - g.halfSpan <= vR && g.cx + g.halfSpan >= vL && g.cy - g.halfSpan <= vB && g.cy + g.halfSpan >= vT);
+      if (inView3D || inView2D) {
+        let meshVP: ArrayLike<number> = viewProj;
+        if (!s.cam3d.active) {
+          const sx = (2 * s.viewZ) / Cw, sy = (2 * s.viewZ) / Ch;
+          // column-major: maps doc (x,y) → clip (x-viewX)*sx, -(y-viewY)*sy, z→0.5
+          meshVP = [sx, 0, 0, 0, 0, -sy, 0, 0, 0, 0, 0, 0, -sx * s.viewX, sy * s.viewY, 0.5, 1];
+        }
+        const m = g.buildMesh();
+        s.meshRenderer.setViewProj(meshVP);
+        s.meshRenderer.drawTris(pass, m.tris);
+        s.meshRenderer.drawLines(pass, m.lines);
+      }
     }
     s.renderer.setUniforms({ width: Cw, height: Ch, camScale: [camScale, camScale], camCenter: [0, 0], viewProj });
     s.renderer.draw(pass, s.crvFA.subarray(0, crv.length), s.rwsUA.subarray(0, rws.length), s.instFA.subarray(0, inst.length), inst.length / 16);

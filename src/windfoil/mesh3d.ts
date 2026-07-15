@@ -43,7 +43,10 @@ export function createMeshRenderer(device: GPUDevice, format: GPUTextureFormat) 
       primitive: { topology, cullMode: 'none' },
       depthStencil: { format: DEPTH_FORMAT, depthWriteEnabled, depthCompare },
     });
-  const triPipe = mk('triangle-list', 'less', true);
+  // 'less-equal' works for BOTH the 3D view (front tris occlude back) AND the flat
+  // 2D top-down view (all tris at equal depth → painter order; a height field has
+  // no top-down overlap, so this is correct).
+  const triPipe = mk('triangle-list', 'less-equal', true);
   const linePipe = mk('line-list', 'less-equal', true);
 
   const uniform = device.createBuffer({ size: 64, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });

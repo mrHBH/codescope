@@ -41,9 +41,12 @@ export function createGlyphRenderer(
     },
     primitive: { topology: 'triangle-strip' },
     // The pass carries a shared depth buffer (for the 3D mesh pipeline). windfoil
-    // itself is depth-agnostic: it never writes depth and always passes, so its
-    // painter-order layering is unchanged and it renders on top of 3D meshes.
-    depthStencil: { format: DEPTH_FORMAT, depthWriteEnabled: false, depthCompare: 'always' },
+    // never WRITES depth (so its many overlapping 2D layers keep blending in
+    // painter/submission order — equal depths pass), but it TESTS 'less-equal' so
+    // a 3D mesh drawn in front (smaller depth) correctly OCCLUDES the flat 2D
+    // content behind it. In pure-2D scenes the mesh is absent (depth stays cleared
+    // to 1.0) so every fragment passes → unchanged.
+    depthStencil: { format: DEPTH_FORMAT, depthWriteEnabled: false, depthCompare: 'less-equal' },
   });
 
   // Uniforms: res(vec2) + style(vec2) + camScale(vec2) + camCenter(vec2) = 32B,
