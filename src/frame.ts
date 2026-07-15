@@ -5,7 +5,7 @@
 
 import type { AppState } from './state';
 import type { StyledEl } from './layout/types';
-import { resolveStyle, rgb, parseColor } from './css/engine';
+import { rgb } from './css/engine';
 import { addRect } from './layout/metrics';
 import { layoutFlow } from './layout/flow';
 import { layoutEditable } from './layout/editable';
@@ -102,15 +102,21 @@ function editorTheme(s: AppState): EditorTheme {
 }
 
 export function runFrame(s: AppState) {
-  let prevTs = 0, fpsDt = 16;
+  let prevTs = 0, fpsDt = 16, lastFpsShown = 0;
 
   function frame(now: number) {
     requestAnimationFrame(frame);
     const dt = prevTs ? now - prevTs : 16; prevTs = now;
     fpsDt = fpsDt * .9 + dt * .1;
-    const z = s.viewZ;
-    const zoomStr = z < 1 ? z.toFixed(2) : z < 100 ? z.toFixed(1) : z < 1e4 ? `${(z / 1e3).toFixed(1)}K` : z < 1e7 ? `${(z / 1e6).toFixed(1)}M` : `${(z / 1e9).toFixed(1)}G`;
-    s.fpsEl.textContent = `${Math.round(1000 / fpsDt)} fps  ·  ${zoomStr}×`;
+    // Throttle the FPS-overlay DOM write to ~8Hz. A textContent write every frame
+    // dirties layout, and a pointer event that lands between frames then forces a
+    // synchronous layout flush — extra main-thread cost exactly while moving.
+    if (now - lastFpsShown > 120) {
+      lastFpsShown = now;
+      const z = s.viewZ;
+      const zoomStr = z < 1 ? z.toFixed(2) : z < 100 ? z.toFixed(1) : z < 1e4 ? `${(z / 1e3).toFixed(1)}K` : z < 1e7 ? `${(z / 1e6).toFixed(1)}M` : `${(z / 1e9).toFixed(1)}G`;
+      s.fpsEl.textContent = `${Math.round(1000 / fpsDt)} fps  ·  ${zoomStr}×`;
+    }
 
     if (s.demo && s.demo.running) s.demo.update(now);
     else stepCamera(s, dt, now);
@@ -186,10 +192,10 @@ export function runFrame(s: AppState) {
       if (el.ownerPage >= 0 && !visible[el.ownerPage]) continue;
       const isHov = hoveredSet.has(el), isAct = el === s.pressed;
       if (isHov || isAct) {
-        const state = isHov ? 'hover' : 'active';
-        const st = resolveStyle(el, s.cssRules, state);
-        const hovBg = parseColor(st['background-color'] || st.background || '');
-        if (hovBg[3] > 0.001) for (let i = 0; i < 4; i++) el.curBg[i] += (hovBg[i] - el.curBg[i]) * k;
+        // Hover/active background is precomputed in buildStatic (no per-frame CSS
+        // selector matching — that was the mouse-move FPS killer).
+        const hovBg = isHov ? el.hoverBg : el.activeBg;
+        if (hovBg) for (let i = 0; i < 4; i++) el.curBg[i] += (hovBg[i] - el.curBg[i]) * k;
         if (isHov && el.hoverable) cursor = 'pointer';
       } else {
         for (let i = 0; i < 4; i++) el.curBg[i] += (el.bg[i] - el.curBg[i]) * k;
@@ -340,6 +346,15 @@ export function runFrame(s: AppState) {
     // windgraph Phase-6 math typesetting board (world-space).
     if (s.mathDemo) {
       const g = s.mathDemo;
+      const gR = g.x0 + g.width, gB = g.y0 + g.height;
+      if (boardVis(g.x0, g.y0, gR, gB)) {
+        g.emit(s.font, s.atlas, inst, crv, rws, now, boardView);
+      }
+    }
+
+    // Perf isolation bench (world-space).
+    if (s.bench) {
+      const g = s.bench;
       const gR = g.x0 + g.width, gB = g.y0 + g.height;
       if (boardVis(g.x0, g.y0, gR, gB)) {
         g.emit(s.font, s.atlas, inst, crv, rws, now, boardView);

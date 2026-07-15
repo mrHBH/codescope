@@ -13,6 +13,10 @@ export interface StyledEl {
   fs: number; lh: number; radius: number;
   color: number[]; bg: number[]; textAlign: string; upper: boolean;
   curBg: number[]; curShadow: number;
+  // Precomputed hover/active background colours (resolved once in buildStatic;
+  // avoids running the CSS selector matcher every frame while hovering — that was
+  // the cause of mouse-move FPS drops). `null` until computed / no such state.
+  hoverBg?: number[] | null; activeBg?: number[] | null;
   // Per-side border widths [top,right,bottom,left] and their colors (RGBA). A
   // side draws only when its width > 0 and color alpha > 0.
   borderW: number[]; borderC: number[][];

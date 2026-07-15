@@ -106,3 +106,28 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done
 - [ ] Public API surface + typedocs
 - [ ] Examples gallery + landing demo
 - [ ] Performance pass (dirty-tracking, buffer diffing)
+
+## General optimizations (cross-cutting)
+- [x] 3D mesh vertex buffer: upload ONCE (was ~1MB `writeBuffer` every frame)
+- [x] Depth-texture view cached (was `createView()` every frame)
+- [x] 3D frustum culling: off-screen boards/pages don't emit in the free camera
+      (`cam3d.active` used to force-emit everything every frame)
+- [x] `viewProj` computed once per frame (was twice)
+- [x] Pointer jank: cache the canvas `getBoundingClientRect()` (was a forced
+      layout reflow on EVERY pointermove — several listeners × per event)
+- [x] Pointer jank (main cause): precompute each control's hover/active bg colour
+      ONCE per theme — the frame loop was running the CSS selector matcher
+      (`resolveStyle` over every rule) each frame for the hovered element, so
+      moving the mouse over buttons/cards tanked FPS
+- [x] Rect fast-path in the shader: axis-aligned solid rects (UI bg/borders/hover/
+      shadows — `addRect`, `fillRule=2`) skip the winding-integral gather and use a
+      cheap box-overlap coverage. Fixes the overdraw tank when a hovered element
+      fills the screen; also removes their CPU edge decomposition. (border-radius
+      was never rendered, so all these rects were already sharp — visually identical)
+- [x] Glyph metrics per-frame: `layoutStr` used `charToGlyph` (opentype cmap) for
+      every glyph every frame (dynamic text) — now uses the atlas-cached advance +
+      memoized kerning. FPS overlay throttled; pointermove listeners passive.
+- [x] Perf bench (🧪): isolates rect-count / glyph-count / overdraw to bisect FPS
+- [ ] Instance-buffer diffing / dirty-region tracking so idle frames upload less
+- [ ] Geometry caching + incremental re-tessellation only on change
+- [ ] Cache/skip per-frame `hitTest` when the pointer is stationary and nothing animates

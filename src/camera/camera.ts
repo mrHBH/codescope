@@ -16,11 +16,21 @@ export function setSize(s: AppState) {
     const allH = Math.max(...s.pages.map(p => p.y + p.h)) + 60;
     s.minZoom = Math.min(s.tCanvas.width / s.PAGE_W, s.tCanvas.height / allH) * 0.95;
   } else s.minZoom = 0.002;
+  refreshCanvasRect(s);
+}
+
+// Cached canvas bounding rect. getBoundingClientRect() forces a synchronous
+// layout reflow; calling it in every pointermove handler (several of them) is the
+// classic cause of mouse-move jank. The full-screen canvas only moves/resizes on
+// resize or scroll, so we cache the rect and refresh it there.
+let _rc = { left: 0, top: 0, width: 1, height: 1 };
+export function refreshCanvasRect(s: AppState) {
+  const r = s.rCanvas.getBoundingClientRect();
+  _rc = { left: r.left, top: r.top, width: r.width || 1, height: r.height || 1 };
 }
 
 export function bufCoords(s: AppState, clientX: number, clientY: number) {
-  const rc = s.rCanvas.getBoundingClientRect();
-  return { x: (clientX - rc.left) * (s.rCanvas.width / rc.width), y: (clientY - rc.top) * (s.rCanvas.height / rc.height) };
+  return { x: (clientX - _rc.left) * (s.rCanvas.width / _rc.width), y: (clientY - _rc.top) * (s.rCanvas.height / _rc.height) };
 }
 
 export function scrToWorld(s: AppState, sx: number, sy: number) {

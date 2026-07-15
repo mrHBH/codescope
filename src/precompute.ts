@@ -10,6 +10,7 @@ import { addRect, layoutIcon } from './layout/metrics';
 import { layoutFlow, layoutPre } from './layout/flow';
 import { highlightCode } from './layout/metrics';
 import { buildStyledEls } from './layout/walk';
+import { resolveStyle, parseColor } from './css/engine';
 
 // Emit the four border edges of an element as thin rects. Widths are in world
 // px (already DOM-measured). Each side draws only when width>0 and alpha>0.
@@ -30,6 +31,21 @@ export function buildStatic(s: AppState) {
   // band index (rowBase) remains valid; only the *instances* are culled by page.
   const bgByPage: number[][] = Array.from({ length: nPages }, () => []);
   const textByPage: number[][] = Array.from({ length: nPages }, () => []);
+
+  // Precompute each interactive element's hover/active background ONCE (per theme).
+  // The frame loop previously ran the CSS selector matcher (resolveStyle over every
+  // rule) each frame for the hovered element — hovering over controls while moving
+  // the mouse tanked FPS. These colours only change on theme switch (which re-runs
+  // buildStatic), so cache them here.
+  for (const el of s.styledEls) {
+    if (!el.dynamic && !el.hoverable) { el.hoverBg = null; el.activeBg = null; continue; }
+    const hov = resolveStyle(el, s.cssRules, 'hover');
+    const act = resolveStyle(el, s.cssRules, 'active');
+    const hc = parseColor(hov['background-color'] || hov.background || '');
+    const ac = parseColor(act['background-color'] || act.background || '');
+    el.hoverBg = hc[3] > 0.001 ? hc : null;
+    el.activeBg = ac[3] > 0.001 ? ac : null;
+  }
 
   // Layer 1 static backgrounds: page rects + non-animated element backgrounds + borders
   const preCrv: number[] = [], preRws: number[] = [];

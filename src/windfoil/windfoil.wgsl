@@ -311,6 +311,18 @@ fn fs(in : VsOut) -> @location(0) vec4<f32> {
   // Axis-aligned bounding box of that footprint (== fwidth) — the isotropic path.
   let s = max(abs(jx) + abs(jy), vec2<f32>(1e-9));
 
+  // FAST PATH: solid axis-aligned rectangle (fillRule 2). Coverage is just the
+  // box overlap of the pixel footprint with the ink bbox, per axis — no band
+  // gather, no winding integral. UI backgrounds/borders/hover/shadows use this,
+  // so a screen-filling rect costs a few ALU ops instead of a full gather/pixel.
+  if (I.place.w >= 1.5) {
+    let lo = I.bbox.xy;
+    let hi = I.bbox.zw;
+    let ox = clamp(min(rc.x + s.x * 0.5, hi.x) - max(rc.x - s.x * 0.5, lo.x), 0.0, s.x);
+    let oy = clamp(min(rc.y + s.y * 0.5, hi.y) - max(rc.y - s.y * 0.5, lo.y), 0.0, s.y);
+    return shade(I.color, (ox * oy) / (s.x * s.y));
+  }
+
   if (MINIFICATION_GUARD && all(s * GUARD_PX >= I.bbox.zw - I.bbox.xy)) {
     return fold_shade(profile_face(I.band, I.bbox, rc, s) / (s.x * s.y), I.place.w, I.color);
   }

@@ -34,6 +34,7 @@ import { Surface3DDemo } from './windgraph/space3d/demo';
 import { createMeshRenderer } from './windfoil/mesh3d';
 import { loadMathFonts, mathExtraFonts } from './windgraph/math/fonts';
 import { MathDemo } from './windgraph/math/demo';
+import { PerfBench } from './perf/bench';
 
 async function main() {
   const fpsEl = document.getElementById('fps')!;
@@ -233,6 +234,17 @@ async function main() {
     frame2DBoard(g.x0 + g.width / 2, g.y0 + g.height / 2, z);
   }
 
+  // ── Perf isolation bench ──────────────────────────────────────────────────
+  const bench = new PerfBench();
+  bench.x0 = mathDemo.x0 + mathDemo.width + 500;
+  bench.y0 = -bench.height - 200;
+  s.bench = bench;
+  function frameBench() {
+    const g = bench;
+    const z = Math.min((s.tCanvas.width / (g.width + 160)) * 0.9, (s.tCanvas.height / (g.height + 160)) * 0.9);
+    frame2DBoard(g.x0 + g.width / 2, g.y0 + g.height / 2, z);
+  }
+
   // ── Terminal ──────────────────────────────────────────────────────────────
   // Same renderer, its own world-space panel to the right of the editor.
   const terminal = new Terminal();
@@ -289,6 +301,7 @@ async function main() {
     { icon: '🔷', title: 'windgraph interactive demo (Phase 5): drag the triangle vertices', onClick: () => frameInteractive() },
     { icon: '🗻', title: 'windgraph 3D graphing demo (Phase 7): drag to orbit the surface', onClick: () => frameGraph3d() },
     { icon: '📐', title: 'windgraph math typesetting demo (Phase 6): analytic LaTeX', onClick: () => frameMath() },
+    { icon: '🧪', title: 'perf bench: click to cycle stress modes (watch FPS)', onClick: () => { s.bench!.cycle(); frameBench(); } },
     { icon: '🌙', title: 'Cycle theme: light → dark → high contrast', onClick: () => s.cycleTheme!(), ref: (el) => { s.themeBtn = el; } },
   ]);
 

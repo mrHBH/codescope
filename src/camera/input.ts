@@ -224,7 +224,7 @@ export function attachInput(s: AppState) {
       const t = performance.now(), ddt = t - s.lastMoveT;
       if (ddt > 0) { s.velX = s.velX ? s.velX * .7 + ((b.x - prev.x) / ddt) * .3 : (b.x - prev.x) / ddt; s.velY = s.velY ? s.velY * .7 + ((b.y - prev.y) / ddt) * .3 : (b.y - prev.y) / ddt; s.lastMoveT = t; }
     }
-  });
+  }, { passive: true });
 
   const rel = () => {
     if (s.selecting && s.activeEdit && s.activeEdit.selAnchor === s.activeEdit.caret) s.activeEdit.selAnchor = -1;
@@ -258,7 +258,7 @@ export function attachInput(s: AppState) {
   rCanvas.addEventListener('pointermove', (e) => {
     if (!s.rightDown) return;
     if (Math.abs(e.clientX - rightStart.x) > MOVE_TOL || Math.abs(e.clientY - rightStart.y) > MOVE_TOL) rightMoved = true;
-  });
+  }, { passive: true });
   rCanvas.addEventListener('pointerup', (e) => {
     if (e.button !== 2) return;
     s.rightDown = false;
@@ -352,7 +352,7 @@ export function attachInput(s: AppState) {
   rCanvas.addEventListener('pointermove', (e) => {
     if (!d3.active) return;
     if (Math.abs(e.clientX - d3.x) > 5 || Math.abs(e.clientY - d3.y) > 5) d3.moved = true;
-  });
+  }, { passive: true });
   rCanvas.addEventListener('pointerup', (e) => {
     if (e.button !== 0 || !d3.active) return;
     d3.active = false;
