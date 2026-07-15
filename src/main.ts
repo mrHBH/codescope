@@ -35,10 +35,14 @@ import { createMeshRenderer } from './windfoil/mesh3d';
 import { loadMathFonts, mathExtraFonts } from './windgraph/math/fonts';
 import { MathDemo } from './windgraph/math/demo';
 import { PerfBench } from './perf/bench';
+import { PerfBenchmark } from './perf/benchmark';
 
 async function main() {
   const fpsEl = document.getElementById('fps')!;
-  fpsEl.style.cssText = 'position:fixed;top:10px;left:10px;z-index:100;font:12px/1 monospace;color:#b0b4c0;background:rgba(14,14,18,0.7);padding:5px 10px;border-radius:8px;pointer-events:none;backdrop-filter:blur(4px);';
+  // No backdrop-filter here: blurring over a canvas that repaints every frame
+  // forces the compositor to re-blur that region continuously — measurable,
+  // constant overhead that competes with rendering while the mouse moves.
+  fpsEl.style.cssText = 'position:fixed;top:10px;left:10px;z-index:100;font:12px/1 monospace;color:#b0b4c0;background:rgba(14,14,18,0.9);padding:5px 10px;border-radius:8px;pointer-events:none;';
   const dpr = Math.min(devicePixelRatio, 2);
   const PAGE_W = 1040;
 
@@ -54,7 +58,12 @@ async function main() {
   const [font] = await Promise.all([loadFont('/Lato-Regular.ttf')]);
   const [device, shaderCode] = await Promise.all([requestDevice(), loadShaderCode()]);
   const gpuCtx = tCanvas.getContext('webgpu')!;
-  gpuCtx.configure({ device, format: 'rgba8unorm', alphaMode: 'premultiplied' });
+  // OPAQUE canvas: with 'premultiplied' the compositor must alpha-blend the
+  // full-screen canvas over the page every frame (5+ MP at this dpr) — moving
+  // the mouse adds compositor damage on top and drops frames even when zero JS
+  // runs per event. Opaque lets the compositor treat it as a solid layer; the
+  // backdrop is painted by the render pass clear color instead (see frame.ts).
+  gpuCtx.configure({ device, format: 'rgba8unorm', alphaMode: 'opaque' });
 
   // Build layout DOM (kept in the document, hidden, so themes can be swapped live)
   const container = document.createElement('div');
@@ -245,6 +254,13 @@ async function main() {
     frame2DBoard(g.x0 + g.width / 2, g.y0 + g.height / 2, z);
   }
 
+  // ── Scripted perf benchmark (⏱️) ─────────────────────────────────────────
+  // Results board lives left of the file tree, clear of everything else.
+  const perfBenchmark = new PerfBenchmark(s);
+  perfBenchmark.x0 = fileTree.x0 - perfBenchmark.width - 400;
+  perfBenchmark.y0 = 0;
+  s.perf = perfBenchmark;
+
   // ── Terminal ──────────────────────────────────────────────────────────────
   // Same renderer, its own world-space panel to the right of the editor.
   const terminal = new Terminal();
@@ -290,11 +306,17 @@ async function main() {
   }
 
   // Fixed toolbar (top-right): editor toggle + terminal toggle + theme cycle.
+  let ptrBtn: HTMLButtonElement | null = null;
+  let camBtn: HTMLButtonElement | null = null;
+  const stylePtrBtn = () => { if (ptrBtn) ptrBtn.style.opacity = s.pointerInput ? '1' : '0.4'; };
+  const styleCamBtn = () => { if (camBtn) camBtn.style.opacity = s.cameraInput ? '1' : '0.4'; };
   createToolbar([
     { icon: '📁', title: 'Toggle file tree', onClick: () => setFileTreeMode(!s.fileTreeMode), ref: (el) => { ftBtn = el; } },
     { icon: '⌨️', title: 'Toggle code editor', onClick: () => setEditorMode(!s.editorMode), ref: (el) => { edBtn = el; } },
     { icon: '❯_', title: 'Toggle terminal', onClick: () => setTerminalMode(!s.terminalMode), ref: (el) => { tmBtn = el; } },
     { icon: '🧊', title: 'Toggle 3D free camera (drag = orbit, Shift+drag = pan, wheel = dolly)', onClick: () => toggle3D(s) },
+    { icon: '🖱️', title: 'Toggle pointer input (hover, clicks, drags) — perf isolation', onClick: () => { s.pointerInput = !s.pointerInput; stylePtrBtn(); }, ref: (el) => { ptrBtn = el; stylePtrBtn(); } },
+    { icon: '🧭', title: 'Toggle camera input (drag pan + wheel zoom) — perf isolation', onClick: () => { s.cameraInput = !s.cameraInput; styleCamBtn(); }, ref: (el) => { camBtn = el; styleCamBtn(); } },
     { icon: '🎬', title: 'Play cinematic demo flight (any interaction stops it)', onClick: () => s.demo?.toggle() },
     { icon: '📈', title: 'windgraph stroke demo (Phase 0)', onClick: () => frameWindgraph() },
     { icon: '🎞️', title: 'windgraph animation demo (Phase 4): morph, draw-on, riding point', onClick: () => frameMorph() },
@@ -302,6 +324,7 @@ async function main() {
     { icon: '🗻', title: 'windgraph 3D graphing demo (Phase 7): drag to orbit the surface', onClick: () => frameGraph3d() },
     { icon: '📐', title: 'windgraph math typesetting demo (Phase 6): analytic LaTeX', onClick: () => frameMath() },
     { icon: '🧪', title: 'perf bench: click to cycle stress modes (watch FPS)', onClick: () => { s.bench!.cycle(); frameBench(); } },
+    { icon: '⏱️', title: 'run scripted perf benchmark (~25s; results board + clipboard table)', onClick: () => s.perf!.toggle() },
     { icon: '🌙', title: 'Cycle theme: light → dark → high contrast', onClick: () => s.cycleTheme!(), ref: (el) => { s.themeBtn = el; } },
   ]);
 

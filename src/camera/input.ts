@@ -95,6 +95,7 @@ export function attachInput(s: AppState) {
     // 3D free camera: the camera-controls library owns pointer input on the
     // canvas (left = truck, right = rotate). Don't capture or run 2D logic.
     if (s.cam3d.active) return;
+    if (!s.pointerInput && !s.cameraInput) return; // both inputs disabled
     rCanvas.setPointerCapture(e.pointerId);
     const b = bufCoords(s, e.clientX, e.clientY);
     s.pointers.set(e.pointerId, { x: b.x, y: b.y });
@@ -102,123 +103,133 @@ export function attachInput(s: AppState) {
 
     const w = scrToWorld(s, b.x, b.y);
 
-    // windgraph interactive board: grab a draggable point (takes priority over
-    // panning). Suppresses camera motion for the duration of the drag.
-    if (s.interactive && s.interactive.tryBeginDrag(w.x, w.y, cameraScale(s))) {
-      s.velX = s.velY = 0; s.pressed = null;
-      return;
-    }
-
-    // Editor mode: click inside the panel places the caret + starts a selection.
-    if (s.editorMode && s.editor) {      const ed = s.editor;
-      const inPanel = w.x >= ed.x0 && w.x <= ed.x0 + ed.contentWidth() && w.y >= ed.y0 && w.y <= ed.y0 + ed.contentHeight();
-      if (inPanel) {
-        ed.focused = true;
-        ed.placeCursor(w.x, w.y, e.shiftKey);
-        if (!e.shiftKey) ed.anchor = { line: ed.cursor.line, col: ed.cursor.col };
-        s.editorSelecting = true;
+    // Element interaction (boards, editing, nav) — only when pointer input is on.
+    // When it's off, we still captured the pointer above so camera pan works.
+    if (s.pointerInput) {
+      // windgraph interactive board: grab a draggable point (takes priority over
+      // panning). Suppresses camera motion for the duration of the drag.
+      if (s.interactive && s.interactive.tryBeginDrag(w.x, w.y, cameraScale(s))) {
+        s.velX = s.velY = 0; s.pressed = null;
         return;
       }
-      // click outside the panel → pan the canvas (fall through)
-    }
 
-    // File tree: click inside its panel toggles folders / selects files.
-    // Interactive whenever the pointer is over the panel (it renders as a
-    // persistent side panel), not only while fileTreeMode is engaged.
-    if (s.fileTree) {
-      const ft = s.fileTree;
-      const inPanel = w.x >= ft.x0 && w.x <= ft.x0 + ft.width && w.y >= ft.y0 && w.y <= ft.y0 + ft.contentHeight;
-      if (inPanel) {
-        ft.focused = true;
-        const row = ft.rowAtY(w.y);
-        if (row) {
-          // Folders toggle on any click; files select, but clicking the file's
-          // guide line collapses its parent folder (matching hybridcoder).
-          if (row.node.type === 'folder') {
-            ft.toggleFolder(row.node.path);
-          } else {
-            const viaLine = ft.connectorTarget(w.x, row);
-            if (viaLine) ft.toggleFolder(viaLine);
-            else ft.select(row.node.path);
-          }
+      // Editor mode: click inside the panel places the caret + starts a selection.
+      if (s.editorMode && s.editor) {      const ed = s.editor;
+        const inPanel = w.x >= ed.x0 && w.x <= ed.x0 + ed.contentWidth() && w.y >= ed.y0 && w.y <= ed.y0 + ed.contentHeight();
+        if (inPanel) {
+          ed.focused = true;
+          ed.placeCursor(w.x, w.y, e.shiftKey);
+          if (!e.shiftKey) ed.anchor = { line: ed.cursor.line, col: ed.cursor.col };
+          s.editorSelecting = true;
+          return;
         }
+        // click outside the panel → pan the canvas (fall through)
+      }
+
+      // File tree: click inside its panel toggles folders / selects files.
+      // Interactive whenever the pointer is over the panel (it renders as a
+      // persistent side panel), not only while fileTreeMode is engaged.
+      if (s.fileTree) {
+        const ft = s.fileTree;
+        const inPanel = w.x >= ft.x0 && w.x <= ft.x0 + ft.width && w.y >= ft.y0 && w.y <= ft.y0 + ft.contentHeight;
+        if (inPanel) {
+          ft.focused = true;
+          const row = ft.rowAtY(w.y);
+          if (row) {
+            // Folders toggle on any click; files select, but clicking the file's
+            // guide line collapses its parent folder (matching hybridcoder).
+            if (row.node.type === 'folder') {
+              ft.toggleFolder(row.node.path);
+            } else {
+              const viaLine = ft.connectorTarget(w.x, row);
+              if (viaLine) ft.toggleFolder(viaLine);
+              else ft.select(row.node.path);
+            }
+          }
+          s.pressed = null;
+          return;
+        }
+      }
+
+      const hit = hitTest(s.docRoot, w.x, w.y);
+
+      // Interactive controls take priority over pan/nav/edit.
+      // Slider: begin a drag and set the value from the click x.
+      const sl = sliderOf(hit);
+      if (sl) {
+        sliding = sl;
+        setSliderFromX(sl, w.x);
+        slidingPct = sliderPct(sl);
+        refreshLayout(s);
         s.pressed = null;
         return;
       }
-    }
+      // Toggles, dropdowns, tab selectors — mutate the DOM + rebuild.
+      if (hit && handleClickInteraction(s, hit)) { s.pressed = null; return; }
 
-    const hit = hitTest(s.docRoot, w.x, w.y);
-
-    // Interactive controls take priority over pan/nav/edit.
-    // Slider: begin a drag and set the value from the click x.
-    const sl = sliderOf(hit);
-    if (sl) {
-      sliding = sl;
-      setSliderFromX(sl, w.x);
-      slidingPct = sliderPct(sl);
-      refreshLayout(s);
-      s.pressed = null;
-      return;
+      // Editing: click inside an editable element places the caret and enters edit mode
+      const ed = findEditableAncestor(hit);
+      if (ed) {
+        s.activeEdit = ed;
+        _editTmp.length = 0; _editTmpCrv.length = 0; _editTmpRws.length = 0;
+        layoutEditable(ed, s.font, s.atlas, _editTmp, _editTmpCrv, _editTmpRws, 2 / s.camZ, performance.now(), false, s.themeCol.caret, s.themeCol.sel);
+        placeCaretAtPoint(ed, w.x, w.y);
+        ed.selAnchor = ed.caret; // begin a drag-selection anchored at the click
+        s.selecting = true;
+        s.pressed = null;
+        return;
+      }
+      s.activeEdit = null;
+      s.selecting = false;
+      s.pressed = (hit && hit.hoverable) ? hit : null;
+      let nav: StyledEl | null = hit;
+      while (nav && nav.pageIdx < 0) nav = nav.parent;
+      if (nav) goToPage(s, nav.pageIdx);
     }
-    // Toggles, dropdowns, tab selectors — mutate the DOM + rebuild.
-    if (hit && handleClickInteraction(s, hit)) { s.pressed = null; return; }
-
-    // Editing: click inside an editable element places the caret and enters edit mode
-    const ed = findEditableAncestor(hit);
-    if (ed) {
-      s.activeEdit = ed;
-      _editTmp.length = 0; _editTmpCrv.length = 0; _editTmpRws.length = 0;
-      layoutEditable(ed, s.font, s.atlas, _editTmp, _editTmpCrv, _editTmpRws, 2 / s.camZ, performance.now(), false, s.themeCol.caret, s.themeCol.sel);
-      placeCaretAtPoint(ed, w.x, w.y);
-      ed.selAnchor = ed.caret; // begin a drag-selection anchored at the click
-      s.selecting = true;
-      s.pressed = null;
-      return;
-    }
-    s.activeEdit = null;
-    s.selecting = false;
-    s.pressed = (hit && hit.hoverable) ? hit : null;
-    let nav: StyledEl | null = hit;
-    while (nav && nav.pageIdx < 0) nav = nav.parent;
-    if (nav) goToPage(s, nav.pageIdx);
   });
 
   rCanvas.addEventListener('pointermove', (e) => {
-    const b = bufCoords(s, e.clientX, e.clientY);
-    s.mx = b.x; s.my = b.y;
     if (s.cam3d.active) return; // camera-controls owns pointer input in 3D
-    if (!s.pointers.has(e.pointerId)) return;
+    const tracking = s.pointers.has(e.pointerId);
+    // With pointer input off, the ONLY work left is camera pan while dragging —
+    // an untracked move does nothing (no mx/my, no hover downstream in frame()).
+    if (!s.pointerInput && !tracking) return;
+    const b = bufCoords(s, e.clientX, e.clientY);
+    if (s.pointerInput) { s.mx = b.x; s.my = b.y; }
+    if (!tracking) return;
     const prev = s.pointers.get(e.pointerId)!;
     s.pointers.set(e.pointerId, { x: b.x, y: b.y });
-    // windgraph interactive drag: move the grabbed point + live recompute.
-    if (s.interactive && s.interactive.dragging) {
-      const w = scrToWorld(s, b.x, b.y);
-      s.interactive.dragTo(w.x, w.y);
-      return;
-    }
-    // Slider drag: track the pointer x, rebuild only when the step changes.
-    if (sliding) {
-      const w = scrToWorld(s, b.x, b.y);
-      setSliderFromX(sliding, w.x);
-      const pct = sliderPct(sliding);
-      if (pct !== slidingPct) { slidingPct = pct; refreshLayout(s); }
-      return;
-    }
-    if (s.editorMode && s.editorSelecting && s.editor) {
-      const w = scrToWorld(s, b.x, b.y);
-      s.editor.placeCursor(w.x, w.y, true);
-      return;
-    }
-    if (s.activeEdit) {
-      // Drag-selection: move the caret end while keeping the anchor fixed.
-      if (s.selecting) {
+    if (s.pointerInput) {
+      // windgraph interactive drag: move the grabbed point + live recompute.
+      if (s.interactive && s.interactive.dragging) {
         const w = scrToWorld(s, b.x, b.y);
-        const idx = caretIndexAtPoint(s.activeEdit, w.x, w.y);
-        if (idx >= 0) s.activeEdit.caret = idx;
+        s.interactive.dragTo(w.x, w.y);
+        return;
       }
-      return; // don't pan the camera while editing text
+      // Slider drag: track the pointer x, rebuild only when the step changes.
+      if (sliding) {
+        const w = scrToWorld(s, b.x, b.y);
+        setSliderFromX(sliding, w.x);
+        const pct = sliderPct(sliding);
+        if (pct !== slidingPct) { slidingPct = pct; refreshLayout(s); }
+        return;
+      }
+      if (s.editorMode && s.editorSelecting && s.editor) {
+        const w = scrToWorld(s, b.x, b.y);
+        s.editor.placeCursor(w.x, w.y, true);
+        return;
+      }
+      if (s.activeEdit) {
+        // Drag-selection: move the caret end while keeping the anchor fixed.
+        if (s.selecting) {
+          const w = scrToWorld(s, b.x, b.y);
+          const idx = caretIndexAtPoint(s.activeEdit, w.x, w.y);
+          if (idx >= 0) s.activeEdit.caret = idx;
+        }
+        return; // don't pan the camera while editing text
+      }
     }
-    if (s.pointers.size === 1) {
+    if (s.pointers.size === 1 && s.cameraInput) {
       s.camX -= (b.x - prev.x) / s.camZ; s.camY -= (b.y - prev.y) / s.camZ;
       s.tgtX = s.camX; s.tgtY = s.camY; s.tgtZ = s.camZ;
       const t = performance.now(), ddt = t - s.lastMoveT;
@@ -247,6 +258,7 @@ export function attachInput(s: AppState) {
   const LONG_PRESS_MS = 350, MOVE_TOL = 6;
   rCanvas.addEventListener('pointerdown', (e) => {
     if (e.button !== 2) return;
+    if (!s.pointerInput) return; // pointer input disabled (toolbar toggle)
     // In 3D, right-drag is orbit (owned by camera-controls) — no context menu.
     if (s.cam3d.active) return;
     s.rightDown = true;
@@ -275,6 +287,7 @@ export function attachInput(s: AppState) {
   // ctrlKey set, so we treat that as the zoom gesture.
   rCanvas.addEventListener('wheel', (e) => {
     e.preventDefault();
+    if (!s.cameraInput) return; // camera input disabled (toolbar toggle)
     s.lastWheelT = performance.now();
     // 3D free camera: the camera-controls library handles the wheel (dolly).
     if (s.cam3d.active) return;
@@ -347,6 +360,7 @@ export function attachInput(s: AppState) {
   }
   rCanvas.addEventListener('pointerdown', (e) => {
     if (e.button !== 0 || !s.cam3d.active) return;
+    if (!s.pointerInput) return; // pointer input disabled (toolbar toggle)
     d3 = { x: e.clientX, y: e.clientY, t: performance.now(), moved: false, active: true };
   });
   rCanvas.addEventListener('pointermove', (e) => {

@@ -59,6 +59,11 @@ export interface AppState {
   mx: number; my: number; mwx: number; mwy: number;
   lastWheelT: number;
   rightDown: boolean;
+  // Input kill-switches (toolbar toggles, mainly for perf isolation): when
+  // pointerInput is off, pointer handlers + hover work are skipped entirely;
+  // when cameraInput is off, drag-pan and wheel-zoom don't move the camera.
+  pointerInput: boolean;
+  cameraInput: boolean;
 
   // 3D free camera (Phase 2). When `active`, the document lies flat on the ground
   // and is driven by the `camera-controls` library (same as yasmineOS) for
@@ -134,6 +139,10 @@ export interface AppState {
 
   // Perf isolation bench (world-space; see perf/bench.ts)
   bench: { x0: number; y0: number; width: number; height: number; mode: number; cycle(): void; emit(font: FontFace, atlas: any, inst: number[], crv: number[], rws: number[], now: number, view: { zoom: number; left: number; right: number; top: number; bottom: number }): void } | null;
+
+  // Scripted performance benchmark (camera script + metrics + results board;
+  // see perf/benchmark.ts). Driven from the frame loop like the demo flight.
+  perf: import('./perf/benchmark').PerfBenchmark | null;
 }
 
 export function createAppState(partial: Partial<AppState>): AppState {
@@ -151,6 +160,7 @@ export function createAppState(partial: Partial<AppState>): AppState {
     tgtX: 0, tgtY: 0, tgtZ: 0.5, velX: 0, velY: 0,
     dragging: false, lastMoveT: 0, minZoom: 0.02,
     pointers: new Map(), mx: 0, my: 0, mwx: 0, mwy: 0, lastWheelT: 0, rightDown: false,
+    pointerInput: true, cameraInput: true,
     cam3d: {
       active: false, exiting: false,
     },
@@ -170,6 +180,7 @@ export function createAppState(partial: Partial<AppState>): AppState {
     graph3d: null,
     mathDemo: null,
     bench: null,
+    perf: null,
     meshRenderer: null,
     ...partial,
   } as AppState;

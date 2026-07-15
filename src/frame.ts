@@ -15,6 +15,7 @@ import type { EditorTheme } from './editor/editor';
 import type { TerminalTheme } from './editor/terminal';
 import type { FileTreeTheme } from './editor/fileTree';
 import { DEPTH_FORMAT } from './windfoil/mesh3d';
+import { EmitCache } from './windfoil/emitCache';
 
 // Shared depth texture for the 3D mesh pass, recreated when the canvas resizes.
 let _depthTex: GPUTexture | null = null;
@@ -102,6 +103,13 @@ function editorTheme(s: AppState): EditorTheme {
 
 export function runFrame(s: AppState) {
   let prevTs = 0, fpsDt = 16, lastFpsShown = 0, lastCursor = '';
+  // Emit caches for STATIC world-space boards (see windfoil/emitCache.ts):
+  // their geometry only changes with zoom/clip (windgraph LOD), mode (bench) or
+  // a new benchmark run (results) — not per frame. Animated boards (morph,
+  // interactive, math) are excluded and keep re-emitting.
+  const windgraphCache = new EmitCache();
+  const benchCache = new EmitCache();
+  const resultsCache = new EmitCache();
   // Perf instrumentation (temporary): JS time spent inside frame(), worst frame
   // gap over the HUD window, and pointer-event rate — lets us tell a main-thread
   // (JS/style) stall apart from a compositor/GPU stall while moving the mouse.
@@ -123,12 +131,25 @@ export function runFrame(s: AppState) {
       const zoomStr = z < 1 ? z.toFixed(2) : z < 100 ? z.toFixed(1) : z < 1e4 ? `${(z / 1e3).toFixed(1)}K` : z < 1e7 ? `${(z / 1e6).toFixed(1)}M` : `${(z / 1e9).toFixed(1)}G`;
       const evDt = (t0 - lastEvT) / 1000; lastEvT = t0;
       evPerS = evDt > 0 ? Math.round(evCount / evDt) : 0; evCount = 0;
-      s.fpsEl.textContent = `${Math.round(1000 / fpsDt)} fps  ·  ${zoomStr}×  ·  js ${jsMs.toFixed(1)}ms  ·  worst ${worstDt.toFixed(0)}ms  ·  ev ${evPerS}/s`;
+      const perfTag = s.perf && s.perf.running ? `  ·  ${s.perf.status()}` : '';
+      s.fpsEl.textContent = `${Math.round(1000 / fpsDt)} fps  ·  ${zoomStr}×  ·  js ${jsMs.toFixed(1)}ms  ·  worst ${worstDt.toFixed(0)}ms  ·  ev ${evPerS}/s${perfTag}`;
       worstDt = 0;
     }
 
     if (s.demo && s.demo.running) s.demo.update(now);
+    else if (s.perf && s.perf.running) s.perf.update(now);
     else stepCamera(s, dt, now);
+
+    // Per-segment JS profiling — only while the benchmark runs (performance.now()
+    // per segment is not free). Marks accumulate ms since the previous mark.
+    const prof: Record<string, number> | null = s.perf && s.perf.running ? Object.create(null) : null;
+    let profT = prof ? performance.now() : 0;
+    const mark = (name: string) => {
+      if (!prof) return;
+      const t = performance.now();
+      prof[name] = (prof[name] || 0) + (t - profT);
+      profT = t;
+    };
 
     const Cw = s.tCanvas.width, Ch = s.tCanvas.height;
     s.mwx = (s.mx - Cw / 2) / s.viewZ + s.viewX;
@@ -159,14 +180,16 @@ export function runFrame(s: AppState) {
     const boardVis = (x0: number, y0: number, x1: number, y1: number): boolean =>
       s.cam3d.active ? rect3DVisible(viewProj, x0, y0, x1, y1) : (x0 <= vR && x1 >= vL && y0 <= vB && y1 >= vT);
 
-    // Skip expensive hit-test + resolveStyle during wheel zoom (200ms cooldown)
+    // Skip expensive hit-test + resolveStyle during wheel zoom (200ms cooldown),
+    // or entirely when pointer input is toggled off.
     const wheelCool = (performance.now() - s.lastWheelT) < 200;
-    const hovered = wheelCool ? null : hitTest(s.docRoot, s.mwx, s.mwy);
+    mark('setup');
+    const hovered = (wheelCool || !s.pointerInput) ? null : hitTest(s.docRoot, s.mwx, s.mwy);
     const hoveredSet = new Set<StyledEl>();
     if (hovered) { let cur: StyledEl | null = hovered; while (cur) { hoveredSet.add(cur); cur = cur.parent; } }
 
     // File tree hover detection (world-space panel, not in DOM)
-    if (s.fileTree && !wheelCool) {
+    if (s.fileTree && !wheelCool && s.pointerInput) {
       const ft = s.fileTree;
       if (s.mwx >= ft.x0 && s.mwx <= ft.x0 + ft.width && s.mwy >= ft.y0 && s.mwy <= ft.y0 + ft.contentHeight) {
         const row = ft.rowAtY(s.mwy);
@@ -175,6 +198,7 @@ export function runFrame(s: AppState) {
         ft.hovered = null;
       }
     }
+    mark('hover');
 
     // Build working arrays: base atlas + pre-computed static backgrounds
     const crv: number[] = s.baseCrv as number[];
@@ -191,6 +215,7 @@ export function runFrame(s: AppState) {
       const buf = s.bgByPage[p];
       for (let i = 0; i < buf.length; i++) inst.push(buf[i]);
     }
+    mark('staticCopy');
 
     const k = 1 - Math.pow(0.0015, dt / 1000);
     let cursor = 'grab';
@@ -268,6 +293,7 @@ export function runFrame(s: AppState) {
     if (s.fileTree && s.fileTree.hovered) {
       cursor = 'pointer';
     }
+    mark('dynamic');
 
     // Layer 3: ALL text (static pre-computed + marquee dynamic + editable) — on top of all backgrounds
     for (let p = 0; p < s.textByPage.length; p++) {
@@ -275,6 +301,7 @@ export function runFrame(s: AppState) {
       const buf = s.textByPage[p];
       for (let i = 0; i < buf.length; i++) inst.push(buf[i]);
     }
+    mark('textCopy');
     for (const el of s.marqueeEls) {
       if (el.ownerPage >= 0 && !visible[el.ownerPage]) continue;
       layoutFlow(el, s.font, s.atlas, inst, now);
@@ -284,6 +311,7 @@ export function runFrame(s: AppState) {
       if (el.ownerPage >= 0 && !visible[el.ownerPage] && el !== s.activeEdit) continue;
       layoutEditable(el, s.font, s.atlas, inst, crv, rws, caretW, now, el === s.activeEdit, s.themeCol.caret, s.themeCol.sel);
     }
+    mark('editable');
 
     // Code editor (world-space panel). Rendered when it intersects the viewport.
     if (s.editor) {
@@ -293,6 +321,7 @@ export function runFrame(s: AppState) {
         ed.render(s.font, s.atlas, inst, crv, rws, vT, vB, now, editorTheme(s), caretW);
       }
     }
+    mark('editor');
 
     // Terminal (world-space panel). Rendered when it intersects the viewport.
     if (s.terminal) {
@@ -311,6 +340,7 @@ export function runFrame(s: AppState) {
         ft.render(s.font, s.atlas, inst, crv, rws, vT, vB, now, fileTreeTheme());
       }
     }
+    mark('term+tree');
 
     // windgraph demo board (world-space).
     // In 3D (cinematic flight) the 2D view bounds/zoom are stale, so pass the
@@ -322,9 +352,16 @@ export function runFrame(s: AppState) {
       const g = s.windgraph;
       const gR = g.x0 + g.width, gB = g.y0 + g.height;
       if (boardVis(g.x0, g.y0, gR, gB)) {
-        g.emit(s.font, s.atlas, inst, crv, rws, now, boardView);
+        // Content is static; output depends only on zoom (LOD/stroke widths) and
+        // the view∩board clip rect (plot culling). Both are constant while the
+        // camera idles or the board is fully on screen — replay the cache then.
+        const sig = s.cam3d.active
+          ? `3d|${boardView.zoom}`
+          : `${boardView.zoom.toPrecision(5)}|${Math.max(vL, g.x0).toFixed(0)},${Math.max(vT, g.y0).toFixed(0)},${Math.min(vR, gR).toFixed(0)},${Math.min(vB, gB).toFixed(0)}`;
+        windgraphCache.run(sig, inst, crv, rws, () => g.emit(s.font, s.atlas, inst, crv, rws, now, boardView));
       }
     }
+    mark('windgraph');
 
     // windgraph Phase-4 animation board (world-space).
     if (s.morphDemo) {
@@ -334,6 +371,7 @@ export function runFrame(s: AppState) {
         g.emit(s.font, s.atlas, inst, crv, rws, now, boardView);
       }
     }
+    mark('morph');
 
     // windgraph Phase-5 interactive board (world-space, draggable).
     if (s.interactive) {
@@ -342,11 +380,12 @@ export function runFrame(s: AppState) {
       if (boardVis(g.x0, g.y0, gR, gB)) {
         // Update hover BEFORE emit so the hover ring is current; the cursor is
         // applied once at the end of the frame (deferred write).
-        const over = !wheelCool && (g.dragging || g.updateHover(s.mwx, s.mwy, cameraScale(s)));
+        const over = !wheelCool && s.pointerInput && (g.dragging || g.updateHover(s.mwx, s.mwy, cameraScale(s)));
         g.emit(s.font, s.atlas, inst, crv, rws, now, boardView);
         if (over) cursor = g.dragging ? 'grabbing' : 'grab';
       }
     }
+    mark('interact');
 
     // windgraph Phase-7 3D graphing board is drawn as a TRUE 3D mesh (below, in
     // the render pass) — not as windfoil instances — so it rises off the ground.
@@ -359,15 +398,26 @@ export function runFrame(s: AppState) {
         g.emit(s.font, s.atlas, inst, crv, rws, now, boardView);
       }
     }
+    mark('math');
 
-    // Perf isolation bench (world-space).
+    // Perf isolation bench (world-space). Output depends only on the mode.
     if (s.bench) {
       const g = s.bench;
       const gR = g.x0 + g.width, gB = g.y0 + g.height;
       if (boardVis(g.x0, g.y0, gR, gB)) {
-        g.emit(s.font, s.atlas, inst, crv, rws, now, boardView);
+        benchCache.run(`m${g.mode}`, inst, crv, rws, () => g.emit(s.font, s.atlas, inst, crv, rws, now, boardView));
       }
     }
+
+    // Scripted benchmark results board (world-space; see perf/benchmark.ts).
+    // Static once computed; only changes when a new run finishes (version).
+    if (s.perf && s.perf.showResults) {
+      const g = s.perf;
+      if (boardVis(g.x0, g.y0, g.x0 + g.width, g.y0 + g.height)) {
+        resultsCache.run(`r${g.version}`, inst, crv, rws, () => g.emit(s.font, s.atlas, inst, crv, rws));
+      }
+    }
+    mark('bench');
 
     // Deferred cursor write: mutating style.cursor every frame dirties style and
     // makes each incoming pointer event pay a synchronous style-recalc — a classic
@@ -398,10 +448,15 @@ export function runFrame(s: AppState) {
         for (let j = 2; j < 16; j++) s.instFA[i + j] = inst[i + j];
       }
     }
+    mark('upload');
     const enc = s.device.createCommandEncoder();
     const depthView = ensureDepthView(s.device, Cw, Ch);
+    // Clear to the theme backdrop: the canvas is OPAQUE (see main.ts), so the
+    // backdrop is painted here instead of showing a CSS background through a
+    // transparent canvas (which cost a full-screen compositor blend per frame).
+    const bd = s.themeCol.backdrop;
     const pass = enc.beginRenderPass({
-      colorAttachments: [{ view: s.gpuCtx.getCurrentTexture().createView(), clearValue: { r: 0, g: 0, b: 0, a: 0 }, loadOp: 'clear', storeOp: 'store' }],
+      colorAttachments: [{ view: s.gpuCtx.getCurrentTexture().createView(), clearValue: { r: bd[0], g: bd[1], b: bd[2], a: 1 }, loadOp: 'clear', storeOp: 'store' }],
       depthStencilAttachment: { view: depthView, depthClearValue: 1, depthLoadOp: 'clear', depthStoreOp: 'store' },
     });
     // View-projection: orthographic (2D) or perspective (3D free camera). camScale
@@ -435,7 +490,10 @@ export function runFrame(s: AppState) {
     s.renderer.draw(pass, s.crvFA.subarray(0, crv.length), s.rwsUA.subarray(0, rws.length), s.instFA.subarray(0, inst.length), inst.length / 16);
     pass.end();
     s.device.queue.submit([enc.finish()]);
-    jsMs = jsMs * .9 + (performance.now() - t0) * .1;
+    mark('encode');
+    const frameJs = performance.now() - t0;
+    jsMs = jsMs * .9 + frameJs * .1;
+    if (s.perf && s.perf.running) s.perf.sample(dt, frameJs, inst.length / 16, prof);
   }
   requestAnimationFrame(frame);
 }
