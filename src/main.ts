@@ -58,7 +58,7 @@ async function main() {
 
   // Build layout DOM (kept in the document, hidden, so themes can be swapped live)
   const container = document.createElement('div');
-  container.style.cssText = 'position:absolute;left:0;top:0;opacity:0;pointer-events:none;width:' + PAGE_W + 'px';
+  container.style.cssText = 'position:absolute;left:0;top:0;visibility:hidden;pointer-events:none;contain:layout style;width:' + PAGE_W + 'px';
   document.body.appendChild(container);
   container.innerHTML = `<style>@font-face{font-family:'Lato';src:url('/Lato-Regular.ttf') format('truetype');font-weight:400}@font-face{font-family:'Lato';src:url('/Lato-Regular.ttf') format('truetype');font-weight:700}</style><style id="themeStyle"></style>${HTML_SRC}`;
   const themeStyle = container.querySelector('#themeStyle') as HTMLStyleElement;

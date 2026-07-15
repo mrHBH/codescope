@@ -5,7 +5,6 @@
 
 import type { AppState } from './state';
 import type { StyledEl } from './layout/types';
-import { rgb } from './css/engine';
 import { addRect } from './layout/metrics';
 import { layoutFlow } from './layout/flow';
 import { layoutEditable } from './layout/editable';
@@ -102,12 +101,19 @@ function editorTheme(s: AppState): EditorTheme {
 }
 
 export function runFrame(s: AppState) {
-  let prevTs = 0, fpsDt = 16, lastFpsShown = 0;
+  let prevTs = 0, fpsDt = 16, lastFpsShown = 0, lastCursor = '';
+  // Perf instrumentation (temporary): JS time spent inside frame(), worst frame
+  // gap over the HUD window, and pointer-event rate — lets us tell a main-thread
+  // (JS/style) stall apart from a compositor/GPU stall while moving the mouse.
+  let jsMs = 0, worstDt = 0, evCount = 0, evPerS = 0, lastEvT = performance.now();
+  addEventListener('pointermove', () => { evCount++; }, { capture: true, passive: true });
 
   function frame(now: number) {
     requestAnimationFrame(frame);
+    const t0 = performance.now();
     const dt = prevTs ? now - prevTs : 16; prevTs = now;
     fpsDt = fpsDt * .9 + dt * .1;
+    if (dt > worstDt) worstDt = dt;
     // Throttle the FPS-overlay DOM write to ~8Hz. A textContent write every frame
     // dirties layout, and a pointer event that lands between frames then forces a
     // synchronous layout flush — extra main-thread cost exactly while moving.
@@ -115,7 +121,10 @@ export function runFrame(s: AppState) {
       lastFpsShown = now;
       const z = s.viewZ;
       const zoomStr = z < 1 ? z.toFixed(2) : z < 100 ? z.toFixed(1) : z < 1e4 ? `${(z / 1e3).toFixed(1)}K` : z < 1e7 ? `${(z / 1e6).toFixed(1)}M` : `${(z / 1e9).toFixed(1)}G`;
-      s.fpsEl.textContent = `${Math.round(1000 / fpsDt)} fps  ·  ${zoomStr}×`;
+      const evDt = (t0 - lastEvT) / 1000; lastEvT = t0;
+      evPerS = evDt > 0 ? Math.round(evCount / evDt) : 0; evCount = 0;
+      s.fpsEl.textContent = `${Math.round(1000 / fpsDt)} fps  ·  ${zoomStr}×  ·  js ${jsMs.toFixed(1)}ms  ·  worst ${worstDt.toFixed(0)}ms  ·  ev ${evPerS}/s`;
+      worstDt = 0;
     }
 
     if (s.demo && s.demo.running) s.demo.update(now);
@@ -259,7 +268,6 @@ export function runFrame(s: AppState) {
     if (s.fileTree && s.fileTree.hovered) {
       cursor = 'pointer';
     }
-    s.rCanvas.style.cursor = cursor;
 
     // Layer 3: ALL text (static pre-computed + marquee dynamic + editable) — on top of all backgrounds
     for (let p = 0; p < s.textByPage.length; p++) {
@@ -332,11 +340,11 @@ export function runFrame(s: AppState) {
       const g = s.interactive;
       const gR = g.x0 + g.width, gB = g.y0 + g.height;
       if (boardVis(g.x0, g.y0, gR, gB)) {
-        // Update hover BEFORE emit so the hover ring is current; set the cursor
-        // directly (the frame's earlier cursor assignment already ran).
+        // Update hover BEFORE emit so the hover ring is current; the cursor is
+        // applied once at the end of the frame (deferred write).
         const over = !wheelCool && (g.dragging || g.updateHover(s.mwx, s.mwy, cameraScale(s)));
         g.emit(s.font, s.atlas, inst, crv, rws, now, boardView);
-        if (over) s.rCanvas.style.cursor = g.dragging ? 'grabbing' : 'grab';
+        if (over) cursor = g.dragging ? 'grabbing' : 'grab';
       }
     }
 
@@ -361,8 +369,16 @@ export function runFrame(s: AppState) {
       }
     }
 
-    s.rCtx.fillStyle = rgb(s.themeCol.backdrop);
-    s.rCtx.fillRect(0, 0, Cw, Ch);
+    // Deferred cursor write: mutating style.cursor every frame dirties style and
+    // makes each incoming pointer event pay a synchronous style-recalc — a classic
+    // mouse-move FPS killer. Only touch the DOM when the cursor actually changes.
+    if (cursor !== lastCursor) { lastCursor = cursor; s.rCanvas.style.cursor = cursor; }
+
+    // Backdrop is a static CSS background on the canvas (set on theme change) —
+    // not a per-frame full-screen 2D fill, which the compositor had to re-upload
+    // every frame (extra GPU/composite load that competed with rendering + cursor
+    // compositing while moving the mouse). The WebGPU canvas is transparent where
+    // nothing is drawn, so the CSS backdrop shows through.
     if (crv.length > s.crvFA.length) s.crvFA = new Float32Array(crv.length * 2);
     s.crvFA.set(crv);
     if (rws.length > s.rwsUA.length) s.rwsUA = new Uint32Array(rws.length * 2);
@@ -419,6 +435,7 @@ export function runFrame(s: AppState) {
     s.renderer.draw(pass, s.crvFA.subarray(0, crv.length), s.rwsUA.subarray(0, rws.length), s.instFA.subarray(0, inst.length), inst.length / 16);
     pass.end();
     s.device.queue.submit([enc.finish()]);
+    jsMs = jsMs * .9 + (performance.now() - t0) * .1;
   }
   requestAnimationFrame(frame);
 }

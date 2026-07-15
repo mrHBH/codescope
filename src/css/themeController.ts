@@ -35,6 +35,10 @@ export function createThemeController(
       backdrop: parseColor(p.backdrop), pageBg: parseColor(p.pageBg), prog: parseColor(p.progFill),
       pulse: parseColor(p.pulse), shadow: parseColor(p.shadow), caret: parseColor(p.caret), sel: parseColor(p.sel),
     };
+    // Backdrop as a static CSS background (the WebGPU canvas is transparent where
+    // nothing is drawn, so this shows through) — avoids a per-frame full-screen 2D
+    // fillRect that the compositor re-uploaded every frame.
+    if (s.rCanvas) s.rCanvas.style.background = p.backdrop;
     for (const el of s.styledEls) {
       const cs = getComputedStyle(el.el);
       el.color = parseColor(cs.color);
