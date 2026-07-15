@@ -19,14 +19,36 @@ import { DEPTH_FORMAT } from './windfoil/mesh3d';
 
 // Shared depth texture for the 3D mesh pass, recreated when the canvas resizes.
 let _depthTex: GPUTexture | null = null;
+let _depthView: GPUTextureView | null = null;
 let _depthW = 0, _depthH = 0;
-function ensureDepth(device: GPUDevice, w: number, h: number): GPUTexture {
+function ensureDepthView(device: GPUDevice, w: number, h: number): GPUTextureView {
   if (!_depthTex || _depthW !== w || _depthH !== h) {
     _depthTex?.destroy();
     _depthTex = device.createTexture({ size: [w, h], format: DEPTH_FORMAT, usage: GPUTextureUsage.RENDER_ATTACHMENT });
+    _depthView = _depthTex.createView();
     _depthW = w; _depthH = h;
   }
-  return _depthTex;
+  return _depthView!;
+}
+
+// Conservative clip-space frustum test for a doc-plane rect (z = 0). Returns
+// false only when the whole rect is provably outside a single frustum plane — so
+// in the 3D free camera we skip emitting boards/pages that aren't on screen
+// (otherwise EVERY board + page emits every frame, tanking FPS in 3D).
+function rect3DVisible(vp: ArrayLike<number>, x0: number, y0: number, x1: number, y1: number): boolean {
+  const cs: [number, number][] = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
+  let left = 0, right = 0, top = 0, bot = 0, behind = 0;
+  for (const [x, y] of cs) {
+    const cx = vp[0] * x + vp[4] * y + vp[12];
+    const cy = vp[1] * x + vp[5] * y + vp[13];
+    const cw = vp[3] * x + vp[7] * y + vp[15];
+    if (cx < -cw) left++;
+    if (cx > cw) right++;
+    if (cy < -cw) top++;
+    if (cy > cw) bot++;
+    if (cw <= 1e-6) behind++;
+  }
+  return !(left === 4 || right === 4 || top === 4 || bot === 4 || behind === 4);
 }
 
 function terminalTheme(): TerminalTheme {
@@ -99,6 +121,9 @@ export function runFrame(s: AppState) {
     // In 3D the world-mouse comes from ray-casting the pointer onto the ground.
     if (s.cam3d.active) { const d = scrToDoc(s, s.mx, s.my); s.mwx = d.x; s.mwy = d.y; }
 
+    // This frame's view-projection (used for 3D frustum culling below + the draw).
+    const viewProj = cameraViewProj(s, Cw, Ch);
+
     // Viewport bounds in world space (+margin) → which pages are on screen. Off-screen
     // pages contribute no instances, so we skip their (large) static text/bg buffers.
     const marginX = 200 / s.viewZ, marginY = 200 / s.viewZ;
@@ -109,8 +134,15 @@ export function runFrame(s: AppState) {
     const visible = s.pageVisible;
     for (let p = 0; p < s.pageRoots.length; p++) {
       const pg = s.pageRoots[p];
-      visible[p] = s.cam3d.active || (pg.x <= vR && pg.x + pg.w >= vL && pg.y <= vB && pg.y + pg.h >= vT);
+      visible[p] = s.cam3d.active
+        ? rect3DVisible(viewProj, pg.x, pg.y, pg.x + pg.w, pg.y + pg.h)
+        : (pg.x <= vR && pg.x + pg.w >= vL && pg.y <= vB && pg.y + pg.h >= vT);
     }
+
+    // Visibility test for a world-space board/panel rect (3D frustum cull in the
+    // free camera, 2D viewport-overlap otherwise) so off-screen boards never emit.
+    const boardVis = (x0: number, y0: number, x1: number, y1: number): boolean =>
+      s.cam3d.active ? rect3DVisible(viewProj, x0, y0, x1, y1) : (x0 <= vR && x1 >= vL && y0 <= vB && y1 >= vT);
 
     // Skip expensive hit-test + resolveStyle during wheel zoom (200ms cooldown)
     const wheelCool = (performance.now() - s.lastWheelT) < 200;
@@ -243,7 +275,7 @@ export function runFrame(s: AppState) {
     if (s.editor) {
       const ed = s.editor;
       const edR = ed.x0 + ed.contentWidth(), edB = ed.y0 + ed.contentHeight();
-      if (s.cam3d.active || (ed.x0 <= vR && edR >= vL && ed.y0 <= vB && edB >= vT)) {
+      if (boardVis(ed.x0, ed.y0, edR, edB)) {
         ed.render(s.font, s.atlas, inst, crv, rws, vT, vB, now, editorTheme(s), caretW);
       }
     }
@@ -252,7 +284,7 @@ export function runFrame(s: AppState) {
     if (s.terminal) {
       const tm = s.terminal;
       const tR = tm.x0 + tm.contentW, tB = tm.y0 + tm.contentH;
-      if (s.cam3d.active || (tm.x0 <= vR && tR >= vL && tm.y0 <= vB && tB >= vT)) {
+      if (boardVis(tm.x0, tm.y0, tR, tB)) {
         tm.render(s.font, s.atlas, inst, crv, rws, now, dt, terminalTheme(), caretW);
       }
     }
@@ -261,7 +293,7 @@ export function runFrame(s: AppState) {
     if (s.fileTree) {
       const ft = s.fileTree;
       const fR = ft.x0 + ft.width, fB = ft.y0 + ft.contentHeight;
-      if (s.cam3d.active || (ft.x0 <= vR && fR >= vL && ft.y0 <= vB && fB >= vT)) {
+      if (boardVis(ft.x0, ft.y0, fR, fB)) {
         ft.render(s.font, s.atlas, inst, crv, rws, vT, vB, now, fileTreeTheme());
       }
     }
@@ -275,7 +307,7 @@ export function runFrame(s: AppState) {
     if (s.windgraph) {
       const g = s.windgraph;
       const gR = g.x0 + g.width, gB = g.y0 + g.height;
-      if (s.cam3d.active || (g.x0 <= vR && gR >= vL && g.y0 <= vB && gB >= vT)) {
+      if (boardVis(g.x0, g.y0, gR, gB)) {
         g.emit(s.font, s.atlas, inst, crv, rws, now, boardView);
       }
     }
@@ -284,7 +316,7 @@ export function runFrame(s: AppState) {
     if (s.morphDemo) {
       const g = s.morphDemo;
       const gR = g.x0 + g.width, gB = g.y0 + g.height;
-      if (s.cam3d.active || (g.x0 <= vR && gR >= vL && g.y0 <= vB && gB >= vT)) {
+      if (boardVis(g.x0, g.y0, gR, gB)) {
         g.emit(s.font, s.atlas, inst, crv, rws, now, boardView);
       }
     }
@@ -293,7 +325,7 @@ export function runFrame(s: AppState) {
     if (s.interactive) {
       const g = s.interactive;
       const gR = g.x0 + g.width, gB = g.y0 + g.height;
-      if (s.cam3d.active || (g.x0 <= vR && gR >= vL && g.y0 <= vB && gB >= vT)) {
+      if (boardVis(g.x0, g.y0, gR, gB)) {
         // Update hover BEFORE emit so the hover ring is current; set the cursor
         // directly (the frame's earlier cursor assignment already ran).
         const over = !wheelCool && (g.dragging || g.updateHover(s.mwx, s.mwy, cameraScale(s)));
@@ -309,7 +341,7 @@ export function runFrame(s: AppState) {
     if (s.mathDemo) {
       const g = s.mathDemo;
       const gR = g.x0 + g.width, gB = g.y0 + g.height;
-      if (s.cam3d.active || (g.x0 <= vR && gR >= vL && g.y0 <= vB && gB >= vT)) {
+      if (boardVis(g.x0, g.y0, gR, gB)) {
         g.emit(s.font, s.atlas, inst, crv, rws, now, boardView);
       }
     }
@@ -336,7 +368,7 @@ export function runFrame(s: AppState) {
       }
     }
     const enc = s.device.createCommandEncoder();
-    const depthView = ensureDepth(s.device, Cw, Ch).createView();
+    const depthView = ensureDepthView(s.device, Cw, Ch);
     const pass = enc.beginRenderPass({
       colorAttachments: [{ view: s.gpuCtx.getCurrentTexture().createView(), clearValue: { r: 0, g: 0, b: 0, a: 0 }, loadOp: 'clear', storeOp: 'store' }],
       depthStencilAttachment: { view: depthView, depthClearValue: 1, depthLoadOp: 'clear', depthStoreOp: 'store' },
@@ -345,7 +377,6 @@ export function runFrame(s: AppState) {
     // feeds the AA-skirt pad; camCenter moves camera translation out of the matrix
     // (into the vertex shader) so the matrix terms stay small at extreme zoom.
     const camScale = cameraScale(s);
-    const viewProj = cameraViewProj(s, Cw, Ch);
     // TRUE 3D: draw the surface mesh FIRST (it writes depth + self-occludes); the
     // analytic windfoil pass then renders on top (depth-agnostic), so document +
     // labels stay crisp above the surface. The mesh renders in BOTH modes so the
@@ -354,7 +385,7 @@ export function runFrame(s: AppState) {
     // z ignored → flat); in 3D it shares the orbit view-projection (height rises).
     if (s.graph3d && s.meshRenderer) {
       const g = s.graph3d;
-      const inView3D = s.cam3d.active;
+      const inView3D = s.cam3d.active && rect3DVisible(viewProj, g.cx - g.halfSpan, g.cy - g.halfSpan, g.cx + g.halfSpan, g.cy + g.halfSpan);
       const inView2D = !s.cam3d.active && (g.cx - g.halfSpan <= vR && g.cx + g.halfSpan >= vL && g.cy - g.halfSpan <= vB && g.cy + g.halfSpan >= vT);
       if (inView3D || inView2D) {
         let meshVP: ArrayLike<number> = viewProj;

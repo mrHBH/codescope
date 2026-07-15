@@ -70,9 +70,12 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done
 - [x] Box tree → windfoil instances (glyphs + rule rects + radical strokes)
 - [x] `MathTex`: display math, anchoring, participates in emit
 - [x] Animatable: write-on (reveal) + fade ; [~] true glyph morph (crossfade for now)
-- [x] Constructs: fractions, exponents/subscripts (nested), radicals, sums/
-      integrals with limits, Greek, operators  ·  [ ] matrices (stretch)
-- [x] Demo (📐): gallery of identities + animated headline, sharp at any zoom
+- [x] Constructs: fractions, exponents/subscripts (nested), radicals, Greek, operators
+- [x] Display-style limits: \sum/\prod/\lim ABOVE/BELOW, \int to the SIDE,
+      \int\limits/\nolimits override; \iint/\iiint/\oint (native glyphs); proper
+      integral-limit sizing; function-argument spacing; \,\;\:\!\quad spacing
+- [x] Demo (📐): 2-column gallery + animated headline + symbol showcase, sharp at any zoom
+- [ ] Matrices / growing delimiters (\left(…\right) that scale) — stretch
 
 ## Phase 7 — 3D graphing  (`phase-7-3d-graphing.md`)  ✅ (true 3D; labels pending)
 > **Redone as TRUE 3D.** The surface is a real 3D triangle mesh that rises off the
@@ -81,13 +84,18 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done
 > editor / other boards, so there is no jarring 2D↔3D switch. 🗻 now lifts
 > straight into a tilted 3D view (not a flat top-down colour map); drag orbits.
 > SMOOTH per-vertex (Gouraud) shading from the height-field gradient + res 72 → no
-> faceting / no blockiness (fixes the reported 2D↔3D quality degradation).
+> faceting / no blockiness. Surface floor sits on the ground plane (coplanar with
+> 2D content) and the mesh OCCLUDES 2D content behind it (windfoil depth-tests).
 - [x] Depth buffer added to the windfoil pass (shared; 2D unaffected)
 - [x] 3D mesh pipeline (`src/windfoil/mesh3d.ts`) — triangles + lines, depth-tested
 - [x] Surface `z = f(x,y)` as a true 3D mesh (colormap + SMOOTH Gouraud shading)
 - [x] 3D axes + floor grid + surface wireframe (3D lines)
 - [x] Correct self-occlusion via depth buffer (no painter-sort hack)
 - [x] Seamless: 🗻 enters true 3D; cinematic flight orbits it; drag = orbit
+- [x] PERF: static mesh vertex buffer uploaded ONCE (was re-uploading ~1MB every
+      frame); depth-view cached; AND 3D frustum culling so off-screen boards/pages
+      don't emit in the free camera (the `cam3d.active` force-emit was the real
+      120→90 FPS regression — every board + page emitted each frame in 3D)
 - [ ] Billboarded crisp axis labels (stage 4 — pending: needs per-instance Z)
 - [ ] Parametric surfaces `S(u,v)` + space curves in true 3D (stretch)
 

@@ -57,6 +57,12 @@ export function createMeshRenderer(device: GPUDevice, format: GPUTextureFormat) 
   let triCap = 1 << 16;
   let lineBuf = device.createBuffer({ size: 1 << 16, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
   let lineCap = 1 << 16;
+  // The graph mesh is static (built once, cached), but drawn every frame while in
+  // 3D. Track the last-uploaded array so we only re-upload when it actually
+  // changes (or the backing buffer is reallocated) — avoids a ~1MB writeBuffer
+  // per frame that was tanking FPS in 3D mode.
+  let lastTris: Float32Array | null = null;
+  let lastLines: Float32Array | null = null;
   const grow = (buf: GPUBuffer, cap: number, need: number): [GPUBuffer, number] => {
     if (need <= cap) return [buf, cap];
     const nc = Math.max(cap * 2, need);
@@ -68,14 +74,16 @@ export function createMeshRenderer(device: GPUDevice, format: GPUTextureFormat) 
     setViewProj(vp: ArrayLike<number>) { device.queue.writeBuffer(uniform, 0, new Float32Array(vp as number[])); },
     drawTris(pass: GPURenderPassEncoder, verts: Float32Array) {
       const n = verts.length / 7; if (!n) return;
+      const prev = triBuf;
       [triBuf, triCap] = grow(triBuf, triCap, verts.byteLength);
-      device.queue.writeBuffer(triBuf, 0, verts);
+      if (triBuf !== prev || verts !== lastTris) { device.queue.writeBuffer(triBuf, 0, verts); lastTris = verts; }
       pass.setPipeline(triPipe); pass.setBindGroup(0, triBind); pass.setVertexBuffer(0, triBuf, 0, verts.byteLength); pass.draw(n);
     },
     drawLines(pass: GPURenderPassEncoder, verts: Float32Array) {
       const n = verts.length / 7; if (!n) return;
+      const prev = lineBuf;
       [lineBuf, lineCap] = grow(lineBuf, lineCap, verts.byteLength);
-      device.queue.writeBuffer(lineBuf, 0, verts);
+      if (lineBuf !== prev || verts !== lastLines) { device.queue.writeBuffer(lineBuf, 0, verts); lastLines = verts; }
       pass.setPipeline(linePipe); pass.setBindGroup(0, lineBind); pass.setVertexBuffer(0, lineBuf, 0, verts.byteLength); pass.draw(n);
     },
   };
