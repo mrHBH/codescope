@@ -5,13 +5,13 @@
 // the same frame — JSXGraph's core value, rendered analytically (crisp at any
 // zoom). Lives in world space so the camera gives pan/zoom for free.
 
-import { strokeInto, strokeQuadPath, fillQuads, circleQuads, arcQuads, polygonQuads, type Pt } from '../stroke/stroke';
+import { strokeInto, strokeQuadPath, fillQuads, circleQuads, arcQuads, polygonQuads, type Pt } from '../../windgraph/stroke/stroke';
 import { layoutStr, tw } from '../../layout/metrics';
 import type { FontFace } from '../../windfoil/font';
-import type { PlaneView } from '../coords/numberPlane';
-import { ConstraintGraph } from './graph';
-import { GPoint, Midpoint, Centroid, Circumcircle, Angle, Distance, Glider } from './constraints';
-import { DragController } from './drag';
+import type { PlaneView } from '../../windgraph/coords/numberPlane';
+import { ConstraintGraph } from '../../windgraph/interact/graph';
+import { GPoint, Midpoint, Centroid, Circumcircle, Angle, Distance, Glider } from '../../windgraph/interact/constraints';
+import { DragController } from '../../windgraph/interact/drag';
 
 const INK = [0.90, 0.92, 0.98, 1];
 const DIM = [0.60, 0.64, 0.74, 1];

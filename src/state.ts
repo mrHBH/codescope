@@ -26,6 +26,18 @@ export interface AppState {
   renderer: any;
   font: FontFace;
   atlas: any;
+  // Internal render-resolution multiplier on top of dpr (default 1). The perf
+  // benchmark drops this for its low-resolution comparison phases; setSize reads
+  // it when sizing the canvas backing store.
+  renderScale: number;
+  // Low-res-render + sharpen-upscale pipeline (see windfoil/upscale.ts). When
+  // `lowResSharpen` is on, the analytic coverage pass renders into an offscreen
+  // texture at `integralScale` × the swapchain size, then a contrast-adaptive
+  // sharpen upscales it to full resolution — cheap fill-rate, crisp display.
+  upscaler: import('./windfoil/upscale').Upscaler | null;
+  lowResSharpen: boolean;
+  integralScale: number;
+  sharpenAmount: number;
 
   // DOM + layout tree
   container: HTMLElement;
@@ -59,6 +71,13 @@ export interface AppState {
   mx: number; my: number; mwx: number; mwy: number;
   lastWheelT: number;
   rightDown: boolean;
+  // Pointer-move instrumentation (perf): raw dispatched events, coalesced native
+  // events, and accumulated ms spent inside the single consolidated pointermove
+  // handler — all reset each HUD/benchmark sample. Lets us tell browser event
+  // dispatch cost apart from a GPU/compositor stall while moving the mouse.
+  evCount: number;
+  evCoalesced: number;
+  evHandlerMs: number;
   // Input kill-switches (toolbar toggles, mainly for perf isolation): when
   // pointerInput is off, pointer handlers + hover work are skipped entirely;
   // when cameraInput is off, drag-pan and wheel-zoom don't move the camera.
@@ -137,12 +156,20 @@ export interface AppState {
   // windgraph Phase-6 math typesetting demo (world-space; see windgraph/math/demo.ts)
   mathDemo: { x0: number; y0: number; width: number; height: number; emit(font: FontFace, atlas: any, inst: number[], crv: number[], rws: number[], now: number, view: { zoom: number; left: number; right: number; top: number; bottom: number }): void } | null;
 
-  // Perf isolation bench (world-space; see perf/bench.ts)
+  // Perf isolation bench (world-space; see playground/bench.ts)
   bench: { x0: number; y0: number; width: number; height: number; mode: number; cycle(): void; emit(font: FontFace, atlas: any, inst: number[], crv: number[], rws: number[], now: number, view: { zoom: number; left: number; right: number; top: number; bottom: number }): void } | null;
 
   // Scripted performance benchmark (camera script + metrics + results board;
-  // see perf/benchmark.ts). Driven from the frame loop like the demo flight.
-  perf: import('./perf/benchmark').PerfBenchmark | null;
+  // see playground/benchmark.ts). Driven from the frame loop like the demo
+  // flight. Typed structurally so the engine/substrate never imports the
+  // playground (keeps the showcase → engine dependency one-directional).
+  perf: {
+    x0: number; y0: number; width: number; height: number;
+    running: boolean; showResults: boolean; version: number;
+    toggle(): void; status(): string; update(now: number): void;
+    sample(dt: number, jsMs: number, instCount: number, seg?: Record<string, number> | null, ev?: number, evCoal?: number, evMs?: number): void;
+    emit(font: FontFace, atlas: any, inst: number[], crv: number[], rws: number[]): void;
+  } | null;
 }
 
 export function createAppState(partial: Partial<AppState>): AppState {
@@ -150,6 +177,8 @@ export function createAppState(partial: Partial<AppState>): AppState {
     dpr: 1, PAGE_W: 1040,
     rCanvas: null as any, tCanvas: null as any, rCtx: null as any, gpuCtx: null as any,
     device: null as any, renderer: null, font: null as any, atlas: null,
+    renderScale: 1,
+    upscaler: null, lowResSharpen: false, integralScale: 0.6, sharpenAmount: 0.6,
     container: null as any,
     styledEls: [], pageRoots: [], editableEls: [], dynamicEls: [], marqueeEls: [], pages: [], docH: 0, docRoot: null as any,
     cssRules: [], isDark: false, themeMode: 'light', themeCol: {
@@ -160,6 +189,7 @@ export function createAppState(partial: Partial<AppState>): AppState {
     tgtX: 0, tgtY: 0, tgtZ: 0.5, velX: 0, velY: 0,
     dragging: false, lastMoveT: 0, minZoom: 0.02,
     pointers: new Map(), mx: 0, my: 0, mwx: 0, mwy: 0, lastWheelT: 0, rightDown: false,
+    evCount: 0, evCoalesced: 0, evHandlerMs: 0,
     pointerInput: true, cameraInput: true,
     cam3d: {
       active: false, exiting: false,

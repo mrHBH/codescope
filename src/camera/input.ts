@@ -188,7 +188,19 @@ export function attachInput(s: AppState) {
     }
   });
 
-  rCanvas.addEventListener('pointermove', (e) => {
+  // Single consolidated pointermove handler. The canvas previously had THREE
+  // separate pointermove listeners (camera pan, right-click gesture, 3D pick).
+  // The browser must invoke every registered listener for every dispatched move,
+  // so merging them into one means one callback per event instead of three —
+  // less main-thread work per move, which is exactly what starves rAF (and tanks
+  // FPS) when the mouse flies across the screen, even with input toggled off.
+  function onPointerMove(e: PointerEvent) {
+    // Right-click zoom-vs-menu gesture tracking (2D only; rightDown is never set
+    // in 3D). Folded in from the old dedicated right-click move listener.
+    if (s.rightDown && (Math.abs(e.clientX - rightStart.x) > MOVE_TOL || Math.abs(e.clientY - rightStart.y) > MOVE_TOL)) rightMoved = true;
+    // 3D left-click-vs-truck gesture tracking (folded in from the old 3D-pick
+    // move listener). Cheap guard; does nothing unless a 3D press is active.
+    if (d3.active && (Math.abs(e.clientX - d3.x) > 5 || Math.abs(e.clientY - d3.y) > 5)) d3.moved = true;
     if (s.cam3d.active) return; // camera-controls owns pointer input in 3D
     const tracking = s.pointers.has(e.pointerId);
     // With pointer input off, the ONLY work left is camera pan while dragging —
@@ -235,6 +247,21 @@ export function attachInput(s: AppState) {
       const t = performance.now(), ddt = t - s.lastMoveT;
       if (ddt > 0) { s.velX = s.velX ? s.velX * .7 + ((b.x - prev.x) / ddt) * .3 : (b.x - prev.x) / ddt; s.velY = s.velY ? s.velY * .7 + ((b.y - prev.y) / ddt) * .3 : (b.y - prev.y) / ddt; s.lastMoveT = t; }
     }
+  }
+  // Register the single consolidated handler. Every dispatched move is counted
+  // for the HUD (cheap); the allocating coalesced-event probe + per-event timing
+  // only run while the scripted benchmark is active, so the normal path stays as
+  // light as possible (one increment + one function call per event).
+  rCanvas.addEventListener('pointermove', (e) => {
+    s.evCount++;
+    if (s.perf && s.perf.running) {
+      const t0 = performance.now();
+      s.evCoalesced += (e as any).getCoalescedEvents ? Math.max(1, e.getCoalescedEvents().length) : 1;
+      onPointerMove(e);
+      s.evHandlerMs += performance.now() - t0;
+    } else {
+      onPointerMove(e);
+    }
   }, { passive: true });
 
   const rel = () => {
@@ -267,10 +294,6 @@ export function attachInput(s: AppState) {
     rightStart = { x: e.clientX, y: e.clientY };
     menu.hide();
   });
-  rCanvas.addEventListener('pointermove', (e) => {
-    if (!s.rightDown) return;
-    if (Math.abs(e.clientX - rightStart.x) > MOVE_TOL || Math.abs(e.clientY - rightStart.y) > MOVE_TOL) rightMoved = true;
-  }, { passive: true });
   rCanvas.addEventListener('pointerup', (e) => {
     if (e.button !== 2) return;
     s.rightDown = false;
@@ -363,10 +386,6 @@ export function attachInput(s: AppState) {
     if (!s.pointerInput) return; // pointer input disabled (toolbar toggle)
     d3 = { x: e.clientX, y: e.clientY, t: performance.now(), moved: false, active: true };
   });
-  rCanvas.addEventListener('pointermove', (e) => {
-    if (!d3.active) return;
-    if (Math.abs(e.clientX - d3.x) > 5 || Math.abs(e.clientY - d3.y) > 5) d3.moved = true;
-  }, { passive: true });
   rCanvas.addEventListener('pointerup', (e) => {
     if (e.button !== 0 || !d3.active) return;
     d3.active = false;

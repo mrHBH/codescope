@@ -13,6 +13,8 @@
 import type { AppState } from '../state';
 import type { FontFace } from '../windfoil/font';
 import { addRect, layoutStr } from '../layout/metrics';
+import { setSize, enter3D } from '../camera/camera';
+import { orbitSetPose, orbitDistForZoom, updateOrbit, disableOrbit } from '../camera/orbit';
 
 const INK = [0.90, 0.92, 0.98, 1];
 const DIM = [0.60, 0.64, 0.74, 1];
@@ -48,6 +50,13 @@ const SEG_COL: Record<string, number[]> = {
 interface Phase {
   name: string;
   dur: number; // ms
+  scale?: number; // internal render-resolution multiplier (default 1) for lo-res A/B
+  ptr?: boolean;  // pointerInput during the phase (default true)
+  cam?: boolean;  // cameraInput during the phase (default true)
+  d3?: boolean;   // runs in the 3D free camera (orbit) — enterPhase keeps 3D on
+  pump?: boolean; // fire pointermove events BETWEEN frames (see the pump below)
+  sharpen?: boolean; // enable the low-res-render + CAS-sharpen-upscale pipeline
+  integral?: number; // offscreen integral resolution when sharpen is on
   enter(s: AppState): void;
   tick?(s: AppState, t: number): void; // t = seconds into phase
 }
@@ -55,6 +64,10 @@ interface Phase {
 interface PhaseStat {
   name: string; frames: number; fps: number; avgDt: number; p95Dt: number;
   worstDt: number; avgJs: number; worstJs: number; avgInst: number;
+  dropped: number;   // frames whose gap missed a 60fps deadline (dt > 32ms) = stutter
+  avgEv: number;     // dispatched pointermove events per frame
+  avgEvMs: number;   // ms/frame spent inside the consolidated pointermove handler
+  avgCoal: number;   // native coalesced events per frame (real input only)
   seg: Record<string, number>; // avg ms per frame segment
 }
 
@@ -72,14 +85,19 @@ function fitZoom(s: AppState, w: number, h: number, pad = 0.9) {
 // Park the synthetic mouse off-content so hover work is idle.
 function parkMouse(s: AppState) { s.mx = 2; s.my = 2; }
 
-// Sweep the mouse across the viewport by dispatching a REAL PointerEvent on the
-// canvas each frame (Lissajous path — crosses lots of distinct elements). This
-// exercises the true input path: browser dispatch, every pointermove listener,
-// and the per-frame hover hit-test that follows s.mx/s.my.
-function sweepMouse(s: AppState, t: number) {
+// Toggle the input kill-switches for a phase (restored wholesale in stop()).
+function setInput(s: AppState, ptr: boolean, cam: boolean) { s.pointerInput = ptr; s.cameraInput = cam; }
+
+// Dispatch ONE pointermove at a fast-moving position. Used by the between-frame
+// pump (see PerfBenchmark) — the faithful emulation of a real high-rate mouse,
+// because unlike sweep/storm (which fire inside tick(), i.e. inside the frame)
+// these land as macrotasks BETWEEN rAF callbacks, where real input events land
+// and can actually starve the next frame if the handler path is heavy.
+function stormEvent(s: AppState) {
   const cw = s.rCanvas.clientWidth || 1, ch = s.rCanvas.clientHeight || 1;
-  const cx = cw * (0.5 + 0.42 * Math.sin(t * 2.4));
-  const cy = ch * (0.5 + 0.42 * Math.sin(t * 3.1 + 1.3));
+  const t = performance.now() / 1000;
+  const cx = cw * (0.5 + 0.46 * Math.sin(t * 47.0));
+  const cy = ch * (0.5 + 0.46 * Math.sin(t * 53.0 + 1.3));
   s.rCanvas.dispatchEvent(new PointerEvent('pointermove', {
     clientX: cx, clientY: cy, pointerId: 1, pointerType: 'mouse', bubbles: true,
   }));
@@ -112,67 +130,102 @@ function glyphTarget(s: AppState) {
   return { x: s.PAGE_W / 2, y: 240 };
 }
 
+interface POI { name: string; cx: number; cy: number; w: number; h: number; }
+
+// The actual on-screen items, as centred bounding boxes — the tour visits each so
+// panning/rotation happens OVER real content, never dead canvas between clusters.
+function buildPOIs(s: AppState): POI[] {
+  const p: POI[] = [];
+  const add = (name: string, x: number, y: number, w: number, h: number) => { if (w > 0 && h > 0) p.push({ name, cx: x + w / 2, cy: y + h / 2, w, h }); };
+  add('document', 0, 0, s.PAGE_W, s.docH);
+  if (s.fileTree) add('file tree', s.fileTree.x0, s.fileTree.y0, s.fileTree.width, Math.max(s.fileTree.contentHeight, 600));
+  if (s.editor) add('editor', s.editor.x0, s.editor.y0, s.editor.contentWidth(), s.editor.contentHeight());
+  if (s.terminal) add('terminal', s.terminal.x0, s.terminal.y0, s.terminal.contentW, s.terminal.contentH);
+  if (s.morphDemo) add('morph', s.morphDemo.x0, s.morphDemo.y0, s.morphDemo.width, s.morphDemo.height);
+  if (s.interactive) add('interactive', s.interactive.x0, s.interactive.y0, s.interactive.width, s.interactive.height);
+  if (s.mathDemo) add('math', s.mathDemo.x0, s.mathDemo.y0, s.mathDemo.width, s.mathDemo.height);
+  if (s.windgraph) add('windgraph', s.windgraph.x0, s.windgraph.y0, s.windgraph.width, s.windgraph.height);
+  if (s.bench) add('bench', s.bench.x0, s.bench.y0, s.bench.width, s.bench.height);
+  return p;
+}
+
+// Concise, sleek tour: visit every real item at varied zoom levels with a small
+// local pan (so motion stays over content), a between-frame mouse pump on alternate
+// stops, one dense-cluster pan, a 3D orbit sweep, and a quality A/B (full res vs
+// half res vs low-res+sharpen). ~20s total. Warmup is excluded from the stats.
 function buildPhases(s: AppState): Phase[] {
-  const pageZoom = () => (s.tCanvas.width / s.PAGE_W) * 0.96;
-  const framePage = () => {
-    const z = pageZoom();
-    snap(s, s.PAGE_W / 2, 40 + s.tCanvas.height / (2 * z), z);
-  };
-  const frameDoc = () => snap(s, s.PAGE_W / 2, s.docH / 2, fitZoom(s, s.PAGE_W, s.docH));
   const b = contentBounds(s);
-  const frameAll = () => snap(s, (b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2, fitZoom(s, b.x1 - b.x0, b.y1 - b.y0, 0.95));
-  const g = glyphTarget(s);
+  const cxC = (b.x0 + b.x1) / 2, cyC = (b.y0 + b.y1) / 2;
+  const spanX = Math.max(b.x1 - b.x0, 1), spanY = Math.max(b.y1 - b.y0, 1);
+  const pois = buildPOIs(s);
+
+  const poiZoom = (p: POI, zf: number) => fitZoom(s, p.w, p.h, 0.9) * zf;
+  const poiEnter = (p: POI, zf: number) => () => { snap(s, p.cx, p.cy, poiZoom(p, zf)); parkMouse(s); };
+  // Small local orbit so the camera sweeps OVER the item (not empty space).
+  const poiPan = (p: POI, zf: number, t: number, w: number) => {
+    snap(s, p.cx + Math.cos(t * w) * p.w * 0.28, p.cy + Math.sin(t * w) * p.h * 0.28, poiZoom(p, zf));
+  };
 
   const phases: Phase[] = [
-    { name: 'warmup', dur: 1200, enter: () => { framePage(); parkMouse(s); } },
-    { name: 'page idle', dur: 2500, enter: () => { framePage(); parkMouse(s); } },
-    { name: 'page + mouse', dur: 2500, enter: framePage, tick: (st, t) => sweepMouse(st, t) },
-    { name: 'doc overview idle', dur: 2500, enter: () => { frameDoc(); parkMouse(s); } },
-    { name: 'doc overview + mouse', dur: 2500, enter: frameDoc, tick: (st, t) => sweepMouse(st, t) },
-    { name: 'far out idle', dur: 2500, enter: () => { frameAll(); parkMouse(s); } },
-    { name: 'far out + mouse', dur: 2500, enter: frameAll, tick: (st, t) => sweepMouse(st, t) },
-    {
-      name: 'far out + pan', dur: 3000, enter: () => { frameAll(); parkMouse(s); },
-      tick: (st, t) => {
-        const r = 0.22 * (b.x1 - b.x0);
-        snap(st, (b.x0 + b.x1) / 2 + Math.cos(t * 1.5) * r, (b.y0 + b.y1) / 2 + Math.sin(t * 1.5) * r * 0.4, st.camZ);
-      },
-    },
-    { name: 'deep glyph zoom', dur: 2500, enter: () => { snap(s, g.x, g.y, 140); parkMouse(s); } },
+    { name: 'warmup', dur: 700, enter: poiEnter(pois[0], 0.95) },
   ];
-  if (s.editor) {
-    const ed = s.editor;
+
+  // Item tour — alternating tight/loose/mid zoom for "different zoom numbers",
+  // local pan over the content, mouse pump on every other stop.
+  const ZF = [1.35, 0.7, 1.0];
+  pois.forEach((p, i) => {
+    const zf = ZF[i % ZF.length];
     phases.push({
-      name: 'editor + mouse', dur: 2500,
-      enter: () => snap(s, ed.x0 + ed.contentWidth() / 2, ed.y0 + ed.contentHeight() / 2, fitZoom(s, ed.contentWidth(), ed.contentHeight())),
-      tick: (st, t) => sweepMouse(st, t),
+      name: `tour · ${p.name}`, dur: 1000, pump: i % 2 === 1,
+      enter: poiEnter(p, zf), tick: (_st, t) => poiPan(p, zf, t, 1.3 + (i % 3) * 0.6),
     });
+  });
+
+  // One real content-to-content pan across the dense cluster (document → editor →
+  // terminal are contiguous) — a fast horizontal sweep over ACTUAL panels, plus a
+  // pumped variant (flying around while the mouse moves).
+  if (s.editor && s.terminal) {
+    const x0 = 0, x1 = s.terminal.x0 + s.terminal.contentW, midY = s.docH * 0.42;
+    const z = fitZoom(s, (x1 - x0) * 0.24, s.docH * 0.72, 0.9);
+    const clusterPan = (t: number) => snap(s, (x0 + x1) / 2 + Math.sin(t * 2.2) * (x1 - x0) * 0.42, midY, z);
+    phases.push(
+      { name: 'pan cluster · fast', dur: 1600, enter: () => { snap(s, (x0 + x1) / 2, midY, z); parkMouse(s); }, tick: (_st, t) => clusterPan(t) },
+      { name: 'pan cluster · + PUMP', dur: 1600, pump: true, enter: () => { snap(s, (x0 + x1) / 2, midY, z); parkMouse(s); }, tick: (_st, t) => clusterPan(t) },
+    );
   }
-  if (s.fileTree) {
-    const ft = s.fileTree;
-    phases.push({
-      name: 'file tree + mouse', dur: 2500,
-      enter: () => snap(s, ft.x0 + ft.width / 2, ft.y0 + Math.max(ft.contentHeight, 400) / 2, fitZoom(s, ft.width + 80, Math.max(ft.contentHeight, 400))),
-      tick: (st, t) => sweepMouse(st, t),
-    });
+
+  // Overview + a deep analytic zoom (kept short so we don't dwell on empty space).
+  phases.push(
+    { name: 'overview · all', dur: 1000, enter: () => { snap(s, cxC, cyC, fitZoom(s, spanX, spanY, 0.95)); parkMouse(s); } },
+    { name: 'deep glyph zoom', dur: 1000, enter: () => { const g = glyphTarget(s); snap(s, g.x, g.y, 140); parkMouse(s); } },
+  );
+
+  // 3D orbit around the whole workspace (one concise sweep + a pumped variant).
+  {
+    const d3zoom = fitZoom(s, spanX, spanY, 0.8);
+    const d3dist = () => orbitDistForZoom(d3zoom, s.tCanvas.height);
+    const d3enter = (az: number, polar: number) => () => { snap(s, cxC, cyC, d3zoom); enter3D(s); orbitSetPose(cxC, cyC, d3dist(), az, polar); updateOrbit(16); parkMouse(s); };
+    const d3spin = (t: number, w: number, polar: number) => { orbitSetPose(cxC, cyC, d3dist(), t * w, polar); updateOrbit(16); };
+    phases.push(
+      { name: 'orbit · sweep', dur: 1800, d3: true, enter: d3enter(0, 0.9), tick: (_st, t) => d3spin(t, 0.9, 0.75 + 0.22 * Math.sin(t * 0.7)) },
+      { name: 'orbit · + PUMP', dur: 1600, d3: true, pump: true, enter: d3enter(0, 0.9), tick: (_st, t) => d3spin(t, 1.6, 0.9) },
+    );
   }
-  // Perf-bench stress modes, each framed close (fills the screen — overdraw /
-  // fragment cost) and far (minified — instance/vertex cost).
+
+  // ── Quality A/B (the newly added dials) ────────────────────────────────────
+  // A heavy, fill-rate-bound scene (8000 glyphs filling the screen) under a mouse
+  // pump: full res vs half res vs low-res-render + sharpen upscale. dt/dropped
+  // reflect the GPU savings (js stays ~constant), quantifying the new pipeline.
   if (s.bench) {
     const bb = s.bench;
-    const modeName = ['baseline', 'rect grid', 'glyph grid', 'rect overdraw', 'glyph overdraw'];
-    for (let m = 1; m <= 4; m++) {
-      const zFit = () => fitZoom(s, bb.width + 160, bb.height + 160);
-      phases.push({
-        name: `bench ${modeName[m]} in`, dur: 1600,
-        enter: () => { bb.mode = m; parkMouse(s); snap(s, bb.x0 + bb.width / 2, bb.y0 + bb.height / 2, zFit() * 2.4); },
-      });
-      phases.push({
-        name: `bench ${modeName[m]} out`, dur: 1600,
-        enter: () => { bb.mode = m; parkMouse(s); snap(s, bb.x0 + bb.width / 2, bb.y0 + bb.height / 2, zFit() * 0.25); },
-      });
-    }
+    const frameFill = () => { bb.mode = 2; snap(s, bb.x0 + bb.width / 2, bb.y0 + bb.height / 2, fitZoom(s, bb.width + 160, bb.height + 160) * 2.4); parkMouse(s); };
+    phases.push(
+      { name: 'quality · full res', dur: 1300, pump: true, enter: frameFill },
+      { name: 'quality · half res', dur: 1300, pump: true, scale: 0.5, enter: frameFill },
+      { name: 'quality · lo-res+sharpen', dur: 1300, pump: true, sharpen: true, integral: 0.5, enter: frameFill },
+    );
   }
+
   return phases;
 }
 
@@ -200,11 +253,32 @@ export class PerfBenchmark {
   private sInst: number[] = [];
   private sPhase: number[] = [];
   private sSeg: (Record<string, number> | null)[] = [];
+  private sEv: number[] = [];     // dispatched pointermove events this frame
+  private sEvCoal: number[] = []; // native coalesced events this frame
+  private sEvMs: number[] = [];   // ms in the consolidated pointermove handler
   private stats: PhaseStat[] = [];
   private copyBtn: HTMLButtonElement;
+  // Input kill-switch state captured at start() and restored in stop(), so the
+  // isolation phases can flip pointerInput/cameraInput without leaking state.
+  private savedPtr = true;
+  private savedCam = true;
+  private savedSharpen = false;
+  private savedIntegral = 0.6;
+  // Between-frame input pump (MessageChannel macrotasks). While a pump phase is
+  // active we dispatch pointermove events from a self-reposting message handler,
+  // rate-limited by a per-frame budget. These fire BETWEEN rAF callbacks — the
+  // only faithful way to reproduce real fast-mouse rAF starvation (sweep/storm
+  // fire inside the frame and therefore cannot).
+  private pumpPort: MessagePort;
+  private pumpOn = false;
+  private pumpAlive = false;
+  private pumpBudget = 0;
 
   constructor(s: AppState) {
     this.s = s;
+    const ch = new MessageChannel();
+    ch.port1.onmessage = () => this.pump();
+    this.pumpPort = ch.port2;
     const b = document.createElement('button');
     b.textContent = '📋 copy bench results';
     b.style.cssText = 'position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:20;display:none;'
@@ -231,26 +305,72 @@ export class PerfBenchmark {
     return ph ? `bench ${this.idx + 1}/${this.phases.length}: ${ph.name}` : 'bench';
   }
 
+  // Apply a phase's input kill-switches + render scale, then enter it. Running
+  // this on every phase transition guarantees the isolation/lo-res/3D phases
+  // reset cleanly for the phases that follow.
+  private enterPhase(ph: Phase) {
+    const s = this.s;
+    setInput(s, ph.ptr ?? true, ph.cam ?? true);
+    const scale = ph.scale ?? 1;
+    if ((s.renderScale || 1) !== scale) { s.renderScale = scale; setSize(s); }
+    // Low-res-render + sharpen dials (quality A/B phases).
+    s.lowResSharpen = !!ph.sharpen;
+    if (ph.integral) s.integralScale = ph.integral;
+    // Leaving the 3D free camera when the next phase is 2D (the d3 phases enter
+    // it themselves).
+    if (!ph.d3 && s.cam3d.active) this.exit3DNow();
+    this.pumpOn = !!ph.pump; // between-frame input pump (kicked each frame in update)
+    ph.enter(s);
+  }
+
+  // Self-reposting message handler: dispatch one pointermove between frames,
+  // then schedule the next, until the per-frame budget is spent (then pause; the
+  // next frame refills + re-kicks). Rate-limited so it can never busy-loop.
+  private pump() {
+    if (!this.pumpOn || !this.running || this.pumpBudget <= 0) { this.pumpAlive = false; return; }
+    this.pumpBudget--;
+    stormEvent(this.s);
+    this.pumpPort.postMessage(0);
+  }
+
+  // Hard 2D handoff: disable orbit + clear the 3D flags (mirrors frame2DBoard in
+  // main.ts, minus the camera snap — the following phase's enter() reframes).
+  private exit3DNow() {
+    disableOrbit();
+    this.s.cam3d.active = false; this.s.cam3d.exiting = false;
+  }
+
   start() {
     const s = this.s;
     if (s.cam3d.active) return; // 2D-only script
     if (s.demo?.running) s.demo.stop();
+    this.savedPtr = s.pointerInput; this.savedCam = s.cameraInput;
+    this.savedSharpen = s.lowResSharpen; this.savedIntegral = s.integralScale;
     this.phases = buildPhases(s);
     this.idx = 0;
     this.sDt.length = 0; this.sJs.length = 0; this.sInst.length = 0; this.sPhase.length = 0; this.sSeg.length = 0;
+    this.sEv.length = 0; this.sEvCoal.length = 0; this.sEvMs.length = 0;
     this.stats = [];
     this.showResults = false;
     this.copyBtn.style.display = 'none';
     this.running = true;
     this.startedAt = performance.now();
     this.phaseStart = performance.now();
-    this.phases[0].enter(s);
-    console.log('[perf] benchmark started — hands off for ~40s');
+    this.enterPhase(this.phases[0]);
+    console.log('[perf] benchmark started — hands off for ~20s');
   }
 
   stop(finished: boolean) {
     this.running = false;
+    this.pumpOn = false; // halt the between-frame input pump
     parkMouse(this.s);
+    // Restore input kill-switches + full render resolution (isolation/lo-res
+    // phases may have changed them), and drop out of the 3D free camera if an
+    // orbit phase ran last or was interrupted.
+    setInput(this.s, this.savedPtr, this.savedCam);
+    if ((this.s.renderScale || 1) !== 1) { this.s.renderScale = 1; setSize(this.s); }
+    this.s.lowResSharpen = this.savedSharpen; this.s.integralScale = this.savedIntegral;
+    if (this.s.cam3d.active) this.exit3DNow();
     if (this.s.bench) this.s.bench.mode = 0; // leave the stress board empty
     if (!finished) return;
     this.computeStats();
@@ -274,18 +394,27 @@ export class PerfBenchmark {
       this.idx++;
       if (this.idx >= this.phases.length) { this.stop(true); return; }
       this.phaseStart = now;
-      this.phases[this.idx].enter(s);
+      this.enterPhase(this.phases[this.idx]);
       return;
+    }
+    // Refill the between-frame input pump's budget and re-kick it if it paused
+    // (drained last frame). ~14 events/frame ≈ ~1700/s at 120Hz, dispatched as
+    // macrotasks between rAF callbacks.
+    if (this.pumpOn) {
+      this.pumpBudget = 14;
+      if (!this.pumpAlive) { this.pumpAlive = true; this.pumpPort.postMessage(0); }
     }
     ph.tick?.(s, t / 1000);
   }
 
   // Record one frame (called at the end of the frame loop while running).
-  sample(dt: number, jsMs: number, instCount: number, seg: Record<string, number> | null = null) {
+  sample(dt: number, jsMs: number, instCount: number, seg: Record<string, number> | null = null,
+         ev = 0, evCoal = 0, evMs = 0) {
     if (!this.running || this.sDt.length > 20000) return;
     if (this.phases[this.idx]?.name === 'warmup') return;
     this.sDt.push(dt); this.sJs.push(jsMs); this.sInst.push(instCount); this.sPhase.push(this.idx);
     this.sSeg.push(seg);
+    this.sEv.push(ev); this.sEvCoal.push(evCoal); this.sEvMs.push(evMs);
   }
 
   private computeStats() {
@@ -293,10 +422,13 @@ export class PerfBenchmark {
     for (let p = 0; p < this.phases.length; p++) {
       if (this.phases[p].name === 'warmup') continue;
       const dt: number[] = [], js: number[] = []; let inst = 0, n = 0;
+      let dropped = 0, ev = 0, evMs = 0, coal = 0;
       const seg: Record<string, number> = {};
       for (let i = 0; i < this.sPhase.length; i++) {
         if (this.sPhase[i] !== p) continue;
         dt.push(this.sDt[i]); js.push(this.sJs[i]); inst += this.sInst[i]; n++;
+        if (this.sDt[i] > 32) dropped++; // missed a 60fps deadline = a visible stutter
+        ev += this.sEv[i] || 0; evMs += this.sEvMs[i] || 0; coal += this.sEvCoal[i] || 0;
         const sg = this.sSeg[i];
         if (sg) for (const key in sg) seg[key] = (seg[key] || 0) + sg[key];
       }
@@ -309,21 +441,21 @@ export class PerfBenchmark {
         name: this.phases[p].name, frames: n,
         fps: 1000 / (sum / n), avgDt: sum / n, p95Dt: percentile(sorted, 0.95),
         worstDt: Math.max(...dt), avgJs: jsSum / n, worstJs: Math.max(...js),
-        avgInst: inst / n, seg,
+        avgInst: inst / n, dropped, avgEv: ev / n, avgEvMs: evMs / n, avgCoal: coal / n, seg,
       });
     }
   }
 
   private markdown(): string {
-    const h = '| # | phase | frames | avg fps | avg dt | p95 dt | worst dt | avg js | worst js | avg inst |';
-    const sep = '|---|---|---|---|---|---|---|---|---|---|';
+    const h = '| # | phase | frames | avg fps | avg dt | p95 dt | worst dt | dropped | avg js | worst js | ev/f | ev ms | coal/f | avg inst |';
+    const sep = '|---|---|---|---|---|---|---|---|---|---|---|---|---|---|';
     const rows = this.stats.map((r, i) =>
-      `| ${i + 1} | ${r.name} | ${r.frames} | ${r.fps.toFixed(1)} | ${r.avgDt.toFixed(2)} | ${r.p95Dt.toFixed(2)} | ${r.worstDt.toFixed(1)} | ${r.avgJs.toFixed(2)} | ${r.worstJs.toFixed(1)} | ${Math.round(r.avgInst)} |`);
+      `| ${i + 1} | ${r.name} | ${r.frames} | ${r.fps.toFixed(1)} | ${r.avgDt.toFixed(2)} | ${r.p95Dt.toFixed(2)} | ${r.worstDt.toFixed(1)} | ${r.dropped} | ${r.avgJs.toFixed(2)} | ${r.worstJs.toFixed(1)} | ${r.avgEv.toFixed(1)} | ${r.avgEvMs.toFixed(2)} | ${r.avgCoal.toFixed(1)} | ${Math.round(r.avgInst)} |`);
     const segH = `| # | phase | ${SEG_ORDER.join(' | ')} |`;
     const segSep = `|---|---|${SEG_ORDER.map(() => '---').join('|')}|`;
     const segRows = this.stats.map((r, i) =>
       `| ${i + 1} | ${r.name} | ${SEG_ORDER.map((k) => (r.seg[k] || 0).toFixed(2)).join(' | ')} |`);
-    const env = `canvas ${this.s.tCanvas.width}x${this.s.tCanvas.height} @dpr${this.s.dpr} · ${navigator.userAgent}`;
+    const env = `canvas ${this.s.tCanvas.width}x${this.s.tCanvas.height} @dpr${this.s.dpr} · render ${(this.s.renderScale || 1).toFixed(2)}× · sharpen ${this.s.lowResSharpen ? `on int${this.s.integralScale.toFixed(2)} amt${this.s.sharpenAmount.toFixed(2)}` : 'off'} · ${navigator.userAgent}`;
     return [
       `### windfoil perf benchmark — ${new Date().toISOString()}`, env, '',
       h, sep, ...rows, '',
@@ -336,8 +468,10 @@ export class PerfBenchmark {
     console.log(md);
     console.table(this.stats.map((r) => ({
       phase: r.name, frames: r.frames, 'avg fps': +r.fps.toFixed(1), 'avg dt (ms)': +r.avgDt.toFixed(2),
-      'p95 dt': +r.p95Dt.toFixed(2), 'worst dt': +r.worstDt.toFixed(1),
-      'avg js (ms)': +r.avgJs.toFixed(2), 'worst js': +r.worstJs.toFixed(1), 'avg inst': Math.round(r.avgInst),
+      'p95 dt': +r.p95Dt.toFixed(2), 'worst dt': +r.worstDt.toFixed(1), dropped: r.dropped,
+      'avg js (ms)': +r.avgJs.toFixed(2), 'worst js': +r.worstJs.toFixed(1),
+      'ev/f': +r.avgEv.toFixed(1), 'ev ms': +r.avgEvMs.toFixed(2), 'coal/f': +r.avgCoal.toFixed(1),
+      'avg inst': Math.round(r.avgInst),
     })));
     // Best-effort auto copy (may be blocked without a user gesture — the 📋
     // button at the top of the screen is the reliable path).
@@ -406,8 +540,8 @@ export class PerfBenchmark {
     }
 
     // ── Table (rows colour-swatched to the chart bands) ──
-    const cols = ['#', 'phase', 'frames', 'avg fps', 'avg dt', 'p95 dt', 'worst dt', 'avg js', 'worst js', 'avg inst'];
-    const colX = [0, 110, 700, 900, 1110, 1320, 1530, 1780, 1990, 2240];
+    const cols = ['#', 'phase', 'frames', 'avg fps', 'avg dt', 'p95 dt', 'worst dt', 'dropped', 'avg js', 'worst js', 'ev/f', 'ev ms', 'avg inst'];
+    const colX = [0, 110, 720, 900, 1080, 1260, 1440, 1640, 1810, 1990, 2180, 2360, 2560];
     const ty = py + phh + 110;
     const rowH = 48, fs = 23;
     for (let c = 0; c < cols.length; c++) layoutStr(inst, cols[c], DIM, table, font, { x: X + 90 + colX[c], y: ty, size: fs });
@@ -417,15 +551,15 @@ export class PerfBenchmark {
       const c = phaseCol(i);
       if (i % 2) addRect(X + 80, y - 6, X + W - 80, y + rowH - 14, [1, 1, 1, 0.03], crv, rws, inst);
       addRect(X + 84, y + 2, X + 84 + 18, y + 20, c, crv, rws, inst); // swatch
-      const slow = r.p95Dt > 20;
-      const vals = ['', r.name, String(r.frames), r.fps.toFixed(1), r.avgDt.toFixed(2), r.p95Dt.toFixed(2), r.worstDt.toFixed(1), r.avgJs.toFixed(2), r.worstJs.toFixed(1), String(Math.round(r.avgInst))];
+      const slow = r.p95Dt > 20 || r.dropped > 0;
+      const vals = ['', r.name, String(r.frames), r.fps.toFixed(1), r.avgDt.toFixed(2), r.p95Dt.toFixed(2), r.worstDt.toFixed(1), String(r.dropped), r.avgJs.toFixed(2), r.worstJs.toFixed(1), r.avgEv.toFixed(1), r.avgEvMs.toFixed(2), String(Math.round(r.avgInst))];
       layoutStr(inst, String(i + 1), c, table, font, { x: X + 90 + colX[0] + 26, y, size: fs });
       for (let cI = 1; cI < vals.length; cI++) {
         const col = cI === 1 ? INK : cI >= 3 && slow ? RED : INK;
         layoutStr(inst, vals[cI], col, table, font, { x: X + 90 + colX[cI], y, size: fs });
       }
     });
-    const note = 'red rows: p95 frame gap over 20ms · js close to dt = main-thread bound, js far below dt = GPU/compositor bound';
+    const note = 'red rows: p95 gap > 20ms OR dropped frames · js≈dt = main-thread bound (JS/dispatch); js≪dt = GPU/compositor bound · ev/f = pointermoves/frame, ev ms = handler cost/frame · compare all-on vs all-off + full-res vs lo-res';
     layoutStr(inst, note, DIM, table, font, { x: X + 90, y: ty + rowH * (this.stats.length + 1) + 24, size: 17 });
 
     // ── Segment breakdown (stacked bars, one per phase) ──

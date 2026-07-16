@@ -6,8 +6,8 @@
 
 import { layoutStr } from '../../layout/metrics';
 import type { FontFace } from '../../windfoil/font';
-import type { PlaneView } from '../coords/numberPlane';
-import { MathTex } from './mathtex';
+import type { PlaneView } from '../../windgraph/coords/numberPlane';
+import { MathTex } from '../../windgraph/math/mathtex';
 
 const INK = [0.92, 0.94, 0.99, 1];
 const DIM = [0.60, 0.64, 0.74, 1];

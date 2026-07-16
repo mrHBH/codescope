@@ -11,7 +11,12 @@ import {
 
 export function setSize(s: AppState) {
   const w = innerWidth, h = innerHeight;
-  [s.rCanvas, s.tCanvas].forEach((c) => { c.width = w * s.dpr; c.height = h * s.dpr; c.style.width = w + 'px'; c.style.height = h + 'px'; });
+  // renderScale (default 1) lets the perf benchmark render at a lower internal
+  // resolution than the CSS size (browser upscales) — a direct A/B test for
+  // whether a stall is fill-rate/compositor bound (helped by lower res) or
+  // main-thread bound (unaffected).
+  const rs = s.renderScale || 1;
+  [s.rCanvas, s.tCanvas].forEach((c) => { c.width = Math.round(w * s.dpr * rs); c.height = Math.round(h * s.dpr * rs); c.style.width = w + 'px'; c.style.height = h + 'px'; });
   if (s.pages.length) {
     const allH = Math.max(...s.pages.map(p => p.y + p.h)) + 60;
     s.minZoom = Math.min(s.tCanvas.width / s.PAGE_W, s.tCanvas.height / allH) * 0.95;

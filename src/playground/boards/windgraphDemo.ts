@@ -4,12 +4,12 @@
 // Lives in world space so the camera gives pan/zoom/infinite-zoom for free.
 // Frame it with the 📈 toolbar button.
 
-import { strokeInto, strokeQuadPath, fillQuads, circleQuads, type Pt } from './stroke/stroke';
-import { Group, type RenderCtx } from './mobject/mobject';
-import { Polygon, Circle, Dot, Label, Vector } from './mobject/primitives';
-import { NumberPlane, type PlaneView } from './coords/numberPlane';
-import { plotFunction, areaUnder, scatter, bars, stepSeries, errorBars, riemannRectangles, plotImplicit, plotVectorField, plotSlopeField } from './plot/plot';
-import type { FontFace } from '../windfoil/font';
+import { strokeInto, strokeQuadPath, fillQuads, circleQuads, type Pt } from '../../windgraph/stroke/stroke';
+import { Group, type RenderCtx } from '../../windgraph/mobject/mobject';
+import { Polygon, Circle, Dot, Label, Vector } from '../../windgraph/mobject/primitives';
+import { NumberPlane, type PlaneView } from '../../windgraph/coords/numberPlane';
+import { plotFunction, areaUnder, scatter, bars, stepSeries, errorBars, riemannRectangles, plotImplicit, plotVectorField, plotSlopeField } from '../../windgraph/plot/plot';
+import type { FontFace } from '../../windfoil/font';
 
 const INK = [0.90, 0.92, 0.98, 1];
 const BLUE = [0.30, 0.60, 0.98, 1];

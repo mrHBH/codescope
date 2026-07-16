@@ -5,6 +5,7 @@
 
 import { loadFont } from './windfoil/font';
 import { loadShaderCode, requestDevice, createGlyphRenderer } from './windfoil/gpu';
+import { createUpscaler } from './windfoil/upscale';
 import { buildGlyphAtlas } from './windfoil/bands';
 import { palettes, buildCSS } from './css/theme';
 import { createThemeController } from './css/themeController';
@@ -18,24 +19,24 @@ import { initOrbit } from './camera/orbit';
 import { orbitSetPose, orbitDistForZoom, updateOrbit, disableOrbit } from './camera/orbit';
 import { attachInput } from './camera/input';
 import { runFrame } from './frame';
-import { HTML_SRC } from './content/pages';
-import { ICONS, ILLUSTRATIONS } from './content/art';
+import { HTML_SRC } from './playground/content/pages';
+import { ICONS, ILLUSTRATIONS } from './playground/content/art';
 import { svgPathToQuads } from './windfoil/svg';
 import { CodeEditor, editorAtlasChars } from './editor/editor';
 import { SAMPLE_CODE } from './editor/sample';
 import { Terminal } from './editor/terminal';
 import { FileTree } from './editor/fileTree';
-import { createToolbar } from './ui/toolbar';
-import { createDemo } from './ui/demo';
-import { WindgraphDemo } from './windgraph/demo';
-import { MorphDemo } from './windgraph/anim/demo';
-import { InteractDemo } from './windgraph/interact/demo';
-import { Surface3DDemo } from './windgraph/space3d/demo';
+import { createToolbar } from './playground/toolbar';
+import { createDemo } from './playground/cinematic';
+import { WindgraphDemo } from './playground/boards/windgraphDemo';
+import { MorphDemo } from './playground/boards/morphDemo';
+import { InteractDemo } from './playground/boards/interactDemo';
+import { Surface3DDemo } from './playground/boards/surface3dDemo';
 import { createMeshRenderer } from './windfoil/mesh3d';
 import { loadMathFonts, mathExtraFonts } from './windgraph/math/fonts';
-import { MathDemo } from './windgraph/math/demo';
-import { PerfBench } from './perf/bench';
-import { PerfBenchmark } from './perf/benchmark';
+import { MathDemo } from './playground/boards/mathDemo';
+import { PerfBench } from './playground/bench';
+import { PerfBenchmark } from './playground/benchmark';
 
 async function main() {
   const fpsEl = document.getElementById('fps')!;
@@ -47,7 +48,7 @@ async function main() {
   const PAGE_W = 1040;
 
   const rCanvas = document.createElement('canvas');
-  rCanvas.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;z-index:0;cursor:grab';
+  rCanvas.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;z-index:0;cursor:grab;touch-action:none';
   document.body.appendChild(rCanvas);
   const rCtx = rCanvas.getContext('2d')!;
 
@@ -114,6 +115,7 @@ async function main() {
   const theme = createThemeController(s, themeStyle, buildStatic);
   theme.apply('dark');
   s.cycleTheme = theme.cycle;
+  s.upscaler = createUpscaler(device, 'rgba8unorm');
 
   buildStatic(s);
   s.pageVisible = new Array(s.pageRoots.length).fill(true);
@@ -310,6 +312,58 @@ async function main() {
   let camBtn: HTMLButtonElement | null = null;
   const stylePtrBtn = () => { if (ptrBtn) ptrBtn.style.opacity = s.pointerInput ? '1' : '0.4'; };
   const styleCamBtn = () => { if (camBtn) camBtn.style.opacity = s.cameraInput ? '1' : '0.4'; };
+  // ── Quality panel (bundled behind the 🎛️ toolbar button) ───────────────────
+  // Groups every quality/performance dial. renderScale changes the SWAPCHAIN
+  // (display) resolution — apparent zoom is preserved by scaling camZ so only
+  // sharpness/compositor cost move. The low-res+sharpen toggle instead renders the
+  // analytic coverage into a smaller offscreen texture and CAS-upscales it, cutting
+  // fragment fill-rate while keeping a full-res crisp display (windfoil/upscale.ts).
+  const applyRenderScale = (v: number) => {
+    const old = s.renderScale || 1;
+    if (v === old) return;
+    const f = v / old;
+    s.renderScale = v; s.camZ *= f; s.viewZ *= f; s.tgtZ *= f;
+    setSize(s);
+  };
+  const qPanel = document.createElement('div');
+  qPanel.style.cssText = 'position:fixed;top:64px;right:14px;z-index:15;display:none;width:236px;padding:12px 14px;'
+    + 'border-radius:12px;background:rgba(18,18,32,0.95);color:#cdd2e0;font:12px/1.4 system-ui,sans-serif;box-shadow:0 8px 30px rgba(0,0,0,0.5);';
+  const mkRow = (label: string) => {
+    const row = document.createElement('div'); row.style.cssText = 'margin:10px 0;';
+    const lab = document.createElement('div'); lab.textContent = label;
+    lab.style.cssText = 'display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;color:#aeb4c6;';
+    row.appendChild(lab); return { row, lab };
+  };
+  const mkSlider = (min: number, max: number, step: number, val: number) => {
+    const el = document.createElement('input'); el.type = 'range';
+    el.min = String(min); el.max = String(max); el.step = String(step); el.value = String(val);
+    el.style.cssText = 'width:100%;accent-color:#6b7bd6;cursor:pointer;'; return el;
+  };
+  qPanel.innerHTML = '<div style="font-weight:600;margin-bottom:2px;color:#e6e9f2;">Quality</div>';
+  // Display resolution (swapchain).
+  const rRes = mkRow(''); const sRes = mkSlider(0.25, 2, 0.05, 1); rRes.row.appendChild(sRes); qPanel.appendChild(rRes.row);
+  const updResLbl = () => { rRes.lab.innerHTML = `<span>Display resolution</span><b>${(s.renderScale || 1).toFixed(2)}×</b>`; };
+  sRes.oninput = () => { applyRenderScale(parseFloat(sRes.value)); updResLbl(); };
+  updResLbl();
+  // Low-res render + sharpen toggle.
+  const rTog = mkRow('Low-res render + sharpen');
+  const cTog = document.createElement('input'); cTog.type = 'checkbox'; cTog.checked = s.lowResSharpen; cTog.style.cursor = 'pointer';
+  rTog.lab.appendChild(cTog); qPanel.appendChild(rTog.row);
+  // Integral (offscreen) resolution.
+  const rInt = mkRow(''); const sInt = mkSlider(0.25, 1, 0.05, s.integralScale); rInt.row.appendChild(sInt); qPanel.appendChild(rInt.row);
+  const updIntLbl = () => { rInt.lab.innerHTML = `<span>Integral resolution</span><b>${s.integralScale.toFixed(2)}×</b>`; };
+  sInt.oninput = () => { s.integralScale = parseFloat(sInt.value); updIntLbl(); };
+  updIntLbl();
+  // Sharpen strength.
+  const rShp = mkRow(''); const sShp = mkSlider(0, 1, 0.05, s.sharpenAmount); rShp.row.appendChild(sShp); qPanel.appendChild(rShp.row);
+  const updShpLbl = () => { rShp.lab.innerHTML = `<span>Sharpen</span><b>${s.sharpenAmount.toFixed(2)}</b>`; };
+  sShp.oninput = () => { s.sharpenAmount = parseFloat(sShp.value); updShpLbl(); };
+  updShpLbl();
+  const syncSharpEnable = () => { const on = s.lowResSharpen; sInt.disabled = sShp.disabled = !on; rInt.row.style.opacity = rShp.row.style.opacity = on ? '1' : '0.4'; };
+  cTog.onchange = () => { s.lowResSharpen = cTog.checked; syncSharpEnable(); };
+  syncSharpEnable();
+  document.body.appendChild(qPanel);
+  const toggleQualityPanel = () => { qPanel.style.display = qPanel.style.display === 'none' ? 'block' : 'none'; };
   createToolbar([
     { icon: '📁', title: 'Toggle file tree', onClick: () => setFileTreeMode(!s.fileTreeMode), ref: (el) => { ftBtn = el; } },
     { icon: '⌨️', title: 'Toggle code editor', onClick: () => setEditorMode(!s.editorMode), ref: (el) => { edBtn = el; } },
@@ -317,6 +371,7 @@ async function main() {
     { icon: '🧊', title: 'Toggle 3D free camera (drag = orbit, Shift+drag = pan, wheel = dolly)', onClick: () => toggle3D(s) },
     { icon: '🖱️', title: 'Toggle pointer input (hover, clicks, drags) — perf isolation', onClick: () => { s.pointerInput = !s.pointerInput; stylePtrBtn(); }, ref: (el) => { ptrBtn = el; stylePtrBtn(); } },
     { icon: '🧭', title: 'Toggle camera input (drag pan + wheel zoom) — perf isolation', onClick: () => { s.cameraInput = !s.cameraInput; styleCamBtn(); }, ref: (el) => { camBtn = el; styleCamBtn(); } },
+    { icon: '🎛️', title: 'Quality settings: display resolution, low-res render + sharpen upscale', onClick: toggleQualityPanel },
     { icon: '🎬', title: 'Play cinematic demo flight (any interaction stops it)', onClick: () => s.demo?.toggle() },
     { icon: '📈', title: 'windgraph stroke demo (Phase 0)', onClick: () => frameWindgraph() },
     { icon: '🎞️', title: 'windgraph animation demo (Phase 4): morph, draw-on, riding point', onClick: () => frameMorph() },
@@ -324,7 +379,7 @@ async function main() {
     { icon: '🗻', title: 'windgraph 3D graphing demo (Phase 7): drag to orbit the surface', onClick: () => frameGraph3d() },
     { icon: '📐', title: 'windgraph math typesetting demo (Phase 6): analytic LaTeX', onClick: () => frameMath() },
     { icon: '🧪', title: 'perf bench: click to cycle stress modes (watch FPS)', onClick: () => { s.bench!.cycle(); frameBench(); } },
-    { icon: '⏱️', title: 'run scripted perf benchmark (~25s; results board + clipboard table)', onClick: () => s.perf!.toggle() },
+    { icon: '⏱️', title: 'run scripted perf benchmark (~20s tour of all items + quality A/B; results board + clipboard table)', onClick: () => s.perf!.toggle() },
     { icon: '🌙', title: 'Cycle theme: light → dark → high contrast', onClick: () => s.cycleTheme!(), ref: (el) => { s.themeBtn = el; } },
   ]);
 

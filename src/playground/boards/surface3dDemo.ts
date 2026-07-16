@@ -8,7 +8,7 @@
 // Coordinate note: the ground model maps doc (x, y, z) → world (x, -z, y), so a
 // positive height becomes doc-local -z (which rises to world +y, i.e. UP).
 
-import { colormap, LIGHT_DIR } from './project3d';
+import { colormap, LIGHT_DIR } from '../../windgraph/space3d/project3d';
 
 export interface Mesh3 { tris: Float32Array; lines: Float32Array; }
 

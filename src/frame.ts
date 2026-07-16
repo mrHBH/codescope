@@ -113,8 +113,10 @@ export function runFrame(s: AppState) {
   // Perf instrumentation (temporary): JS time spent inside frame(), worst frame
   // gap over the HUD window, and pointer-event rate — lets us tell a main-thread
   // (JS/style) stall apart from a compositor/GPU stall while moving the mouse.
-  let jsMs = 0, worstDt = 0, evCount = 0, evPerS = 0, lastEvT = performance.now();
-  addEventListener('pointermove', () => { evCount++; }, { capture: true, passive: true });
+  // Pointer-move counting now happens in the single consolidated handler
+  // (input.ts, writing s.evCount) rather than a separate window listener here —
+  // one fewer listener dispatched per event.
+  let jsMs = 0, worstDt = 0, evAccum = 0, evPerS = 0, lastEvT = performance.now();
 
   function frame(now: number) {
     requestAnimationFrame(frame);
@@ -122,6 +124,13 @@ export function runFrame(s: AppState) {
     const dt = prevTs ? now - prevTs : 16; prevTs = now;
     fpsDt = fpsDt * .9 + dt * .1;
     if (dt > worstDt) worstDt = dt;
+    // Snapshot + reset this frame's pointer-move counters (written by the single
+    // consolidated handler in input.ts). Per-frame reset is exactly right: every
+    // move dispatched since the last frame is attributed to this frame, so the
+    // benchmark can correlate a frame gap with the input burst that caused it.
+    const evThisFrame = s.evCount, evCoalThisFrame = s.evCoalesced, evMsThisFrame = s.evHandlerMs;
+    s.evCount = 0; s.evCoalesced = 0; s.evHandlerMs = 0;
+    evAccum += evThisFrame;
     // Throttle the FPS-overlay DOM write to ~8Hz. A textContent write every frame
     // dirties layout, and a pointer event that lands between frames then forces a
     // synchronous layout flush — extra main-thread cost exactly while moving.
@@ -130,7 +139,7 @@ export function runFrame(s: AppState) {
       const z = s.viewZ;
       const zoomStr = z < 1 ? z.toFixed(2) : z < 100 ? z.toFixed(1) : z < 1e4 ? `${(z / 1e3).toFixed(1)}K` : z < 1e7 ? `${(z / 1e6).toFixed(1)}M` : `${(z / 1e9).toFixed(1)}G`;
       const evDt = (t0 - lastEvT) / 1000; lastEvT = t0;
-      evPerS = evDt > 0 ? Math.round(evCount / evDt) : 0; evCount = 0;
+      evPerS = evDt > 0 ? Math.round(evAccum / evDt) : 0; evAccum = 0;
       const perfTag = s.perf && s.perf.running ? `  ·  ${s.perf.status()}` : '';
       s.fpsEl.textContent = `${Math.round(1000 / fpsDt)} fps  ·  ${zoomStr}×  ·  js ${jsMs.toFixed(1)}ms  ·  worst ${worstDt.toFixed(0)}ms  ·  ev ${evPerS}/s${perfTag}`;
       worstDt = 0;
@@ -352,13 +361,32 @@ export function runFrame(s: AppState) {
       const g = s.windgraph;
       const gR = g.x0 + g.width, gB = g.y0 + g.height;
       if (boardVis(g.x0, g.y0, gR, gB)) {
-        // Content is static; output depends only on zoom (LOD/stroke widths) and
-        // the view∩board clip rect (plot culling). Both are constant while the
-        // camera idles or the board is fully on screen — replay the cache then.
-        const sig = s.cam3d.active
-          ? `3d|${boardView.zoom}`
-          : `${boardView.zoom.toPrecision(5)}|${Math.max(vL, g.x0).toFixed(0)},${Math.max(vT, g.y0).toFixed(0)},${Math.min(vR, gR).toFixed(0)},${Math.min(vB, gB).toFixed(0)}`;
-        windgraphCache.run(sig, inst, crv, rws, () => g.emit(s.font, s.atlas, inst, crv, rws, now, boardView));
+        // Cache by ZOOM + a TILE-QUANTIZED clip. The board's emit re-runs marching-
+        // squares / field-sampling / stroking on every call (~10-14ms) and the old
+        // signature embedded the exact per-frame clip rect, so it MISSED every pan
+        // frame → that cost recurred each frame (the dominant movement stutter).
+        // Fix: snap the view∩board clip OUTWARD to a coarse world grid. Within a
+        // tile the signature — and the emitted, clipped geometry — is constant, so
+        // panning replays the cache instead of rebuilding; a rebuild happens only
+        // when the camera crosses a tile boundary (a few times/sec, not per frame).
+        // Expanding outward keeps the cached clip a strict SUPERSET of the viewport
+        // (nothing pops in mid-tile) while staying viewport-bounded (no full-board
+        // instance bloat — the mistake that made a naive "emit everything" regress).
+        let wgView: { zoom: number; left: number; right: number; top: number; bottom: number };
+        let sig: string;
+        if (s.cam3d.active) {
+          wgView = { zoom: cameraScale(s), left: -1e12, right: 1e12, top: -1e12, bottom: 1e12 };
+          sig = `3d|${wgView.zoom}`;
+        } else {
+          const TILE = 1200; // world px; larger = fewer rebuilds but more instances/rebuild
+          const eL = Math.floor(Math.max(vL, g.x0) / TILE) * TILE;
+          const eT = Math.floor(Math.max(vT, g.y0) / TILE) * TILE;
+          const eR = Math.ceil(Math.min(vR, gR) / TILE) * TILE;
+          const eB = Math.ceil(Math.min(vB, gB) / TILE) * TILE;
+          wgView = { zoom: s.viewZ, left: eL, right: eR, top: eT, bottom: eB };
+          sig = `2d|${s.viewZ.toPrecision(5)}|${eL},${eT},${eR},${eB}`;
+        }
+        windgraphCache.run(sig, inst, crv, rws, () => g.emit(s.font, s.atlas, inst, crv, rws, now, wgView));
       }
     }
     mark('windgraph');
@@ -450,13 +478,25 @@ export function runFrame(s: AppState) {
     }
     mark('upload');
     const enc = s.device.createCommandEncoder();
-    const depthView = ensureDepthView(s.device, Cw, Ch);
+    // Low-res-render + sharpen-upscale: when enabled, the analytic coverage pass
+    // draws into an offscreen texture at integralScale × the swapchain, then a
+    // contrast-adaptive sharpen upscales it to the full-res swapchain. viewProj is
+    // UNCHANGED — clip space is resolution-independent and the resolve is a 1:1
+    // NDC fullscreen pass, so content lands identically; only the per-pixel
+    // coverage footprint (dpdx/dpdy) grows, giving correct cheaper low-res shading.
+    const sharpen = s.lowResSharpen && !!s.upscaler;
+    const iScale = sharpen ? Math.min(Math.max(s.integralScale, 0.25), 1) : 1;
+    const renderW = sharpen ? Math.max(1, Math.round(Cw * iScale)) : Cw;
+    const renderH = sharpen ? Math.max(1, Math.round(Ch * iScale)) : Ch;
+    const depthView = ensureDepthView(s.device, renderW, renderH);
+    const swapView = s.gpuCtx.getCurrentTexture().createView();
+    const colorView = sharpen ? s.upscaler!.target(renderW, renderH) : swapView;
     // Clear to the theme backdrop: the canvas is OPAQUE (see main.ts), so the
     // backdrop is painted here instead of showing a CSS background through a
     // transparent canvas (which cost a full-screen compositor blend per frame).
     const bd = s.themeCol.backdrop;
     const pass = enc.beginRenderPass({
-      colorAttachments: [{ view: s.gpuCtx.getCurrentTexture().createView(), clearValue: { r: bd[0], g: bd[1], b: bd[2], a: 1 }, loadOp: 'clear', storeOp: 'store' }],
+      colorAttachments: [{ view: colorView, clearValue: { r: bd[0], g: bd[1], b: bd[2], a: 1 }, loadOp: 'clear', storeOp: 'store' }],
       depthStencilAttachment: { view: depthView, depthClearValue: 1, depthLoadOp: 'clear', depthStoreOp: 'store' },
     });
     // View-projection: orthographic (2D) or perspective (3D free camera). camScale
@@ -486,14 +526,16 @@ export function runFrame(s: AppState) {
         s.meshRenderer.drawLines(pass, m.lines);
       }
     }
-    s.renderer.setUniforms({ width: Cw, height: Ch, camScale: [camScale, camScale], camCenter: [0, 0], viewProj });
+    s.renderer.setUniforms({ width: renderW, height: renderH, camScale: [camScale, camScale], camCenter: [0, 0], viewProj });
     s.renderer.draw(pass, s.crvFA.subarray(0, crv.length), s.rwsUA.subarray(0, rws.length), s.instFA.subarray(0, inst.length), inst.length / 16);
     pass.end();
+    // Sharpen-upscale the low-res render to the full-res swapchain.
+    if (sharpen) s.upscaler!.resolve(enc, swapView, renderW, renderH, Cw, Ch, s.sharpenAmount);
     s.device.queue.submit([enc.finish()]);
     mark('encode');
     const frameJs = performance.now() - t0;
     jsMs = jsMs * .9 + frameJs * .1;
-    if (s.perf && s.perf.running) s.perf.sample(dt, frameJs, inst.length / 16, prof);
+    if (s.perf && s.perf.running) s.perf.sample(dt, frameJs, inst.length / 16, prof, evThisFrame, evCoalThisFrame, evMsThisFrame);
   }
   requestAnimationFrame(frame);
 }

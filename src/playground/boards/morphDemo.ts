@@ -4,14 +4,14 @@
 // polynomial — every step eased and continuous (no popping), looping cleanly.
 // Lives in world space so the camera gives pan/zoom/infinite-zoom for free.
 
-import { Mobject, Group, type DrawOp, type RenderCtx } from '../mobject/mobject';
-import { Polyline, Dot, Label } from '../mobject/primitives';
-import { polygonQuads, type Pt } from '../stroke/stroke';
-import { NumberPlane, type PlaneView } from '../coords/numberPlane';
-import { Scene } from './scene';
-import { Create, FadeIn, Transform } from './animations';
-import { ValueTracker, TrackerAnim } from './timeline';
-import { easeInOutCubic, easeOutCubic, smootherstep } from './easing';
+import { Mobject, Group, type DrawOp, type RenderCtx } from '../../windgraph/mobject/mobject';
+import { Polyline, Dot, Label } from '../../windgraph/mobject/primitives';
+import { polygonQuads, type Pt } from '../../windgraph/stroke/stroke';
+import { NumberPlane, type PlaneView } from '../../windgraph/coords/numberPlane';
+import { Scene } from '../../windgraph/anim/scene';
+import { Create, FadeIn, Transform } from '../../windgraph/anim/animations';
+import { ValueTracker, TrackerAnim } from '../../windgraph/anim/timeline';
+import { easeInOutCubic, easeOutCubic, smootherstep } from '../../windgraph/anim/easing';
 import { layoutStr } from '../../layout/metrics';
 import type { FontFace } from '../../windfoil/font';
 

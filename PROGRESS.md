@@ -407,5 +407,50 @@ wheel, Esc, or Space — ends the flight** and returns to a flat 2D overview.
 Verified: the camera stays in 3D throughout, distance sweeps 20 → 6751 across 19
 distinct targets, and it exits cleanly to 2D on stop.
 
+---
+
+## Open optimization work (perf backlog)
+
+Performance is measured with the scripted benchmark (⏱️ toolbar button) — a POI
+tour that pans/orbits the real content at several zooms and reports, per phase:
+avg fps, avg/p95/worst frame gap, **dropped** frames (dt > 32ms), main-thread js,
+pointer-events/frame, handler ms, and instance count. Findings + status:
+
+- **Input path is clean (resolved).** Consolidated the 3 canvas `pointermove`
+  listeners into one passive handler + `touch-action:none`. A between-frame input
+  pump (MessageChannel macrotasks, ~14 moves/frame) confirms real fast-mouse input
+  does **not** starve rAF: 120fps / 0 dropped even with everything off.
+
+- **Cursor-move tank is GPU/compositor fill-rate, not JS.** Lowering render
+  resolution demonstrably smooths a moving OS cursor over the fullscreen WebGPU
+  canvas. Levers shipped: a zoom-preserving **Display-resolution** slider and a
+  **low-res-render + CAS-sharpen-upscale** pipeline (🎛️ Quality panel).
+
+- **⏳ OPEN: low-res render + sharpen upscale** (`src/windfoil/upscale.ts`). Renders
+  the analytic coverage into an offscreen texture at `integralScale ×` the
+  swapchain, then a contrast-adaptive sharpen (CAS) upscales to full res — cuts
+  fragment fill-rate while keeping a crisp display. Works, behind the 🎛️ toggle.
+  Remaining ideas: (a) upgrade CAS → full FSR-1 EASU+RCAS for sharper upscales;
+  (b) **adaptive** quality — auto-drop integral resolution during camera/cursor
+  motion and snap back to full when idle (smooth while moving, crisp at rest);
+  (c) it currently saves fragment cost only — the swapchain stays full-res, so
+  pair with the display-resolution slider to also cut compositor cost, or explore
+  a lower-res swapchain with the sharpen writing directly to it.
+
+- **⏳ OPEN: per-frame board re-emit during pan.** Heavy world-space boards rebuild
+  every frame. windgraph (marching-squares/field-sampling, ~10-14ms) is now cached
+  by zoom + a **tile-quantized clip** so panning within a tile replays instead of
+  recomputing; a rebuild fires only at tile crossings. Still open: the animated
+  morph/math/interact boards re-emit every frame when visible (~6ms combined when
+  several are in view during an orbit) — cache them while their animation is idle,
+  or trim their per-frame emit cost.
+
+- **⏳ OPEN: typed-array instance assembly.** The per-frame build pushes into a JS
+  `number[]` then copies into the Float32Array with the camera subtraction — two
+  O(n) passes. Measured small (upload segment ~0.2-0.5ms) so low priority, but a
+  direct-to-typed-array assembly would remove it.
+
+
+
 
 
