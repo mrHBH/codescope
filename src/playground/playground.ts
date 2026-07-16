@@ -3,108 +3,40 @@
 // static buffers, attaches input, and starts the frame loop. All logic lives in
 // the focused modules under css/, layout/, camera/, content/, and frame.ts.
 
-import { loadFont } from './windfoil/font';
-import { loadShaderCode, requestDevice, createGlyphRenderer } from './windfoil/gpu';
-import { createUpscaler } from './windfoil/upscale';
-import { buildGlyphAtlas } from './windfoil/bands';
-import { palettes, buildCSS } from './css/theme';
-import { createThemeController } from './css/themeController';
-import { buildStyledEls } from './layout/walk';
-import type { StyledEl } from './layout/types';
-import { createAppState } from './state';
-import { buildStatic } from './precompute';
-import { setSize, goToPage } from './camera/camera';
-import { toggle3D, enter3D } from './camera/camera';
-import { initOrbit } from './camera/orbit';
-import { orbitSetPose, orbitDistForZoom, updateOrbit, disableOrbit } from './camera/orbit';
-import { attachInput } from './camera/input';
-import { runFrame } from './frame';
-import { HTML_SRC } from './playground/content/pages';
-import { ICONS, ILLUSTRATIONS } from './playground/content/art';
-import { svgPathToQuads } from './windfoil/svg';
-import { CodeEditor, editorAtlasChars } from './editor/editor';
-import { SAMPLE_CODE } from './editor/sample';
-import { Terminal } from './editor/terminal';
-import { FileTree } from './editor/fileTree';
-import { createToolbar } from './playground/toolbar';
-import { createDemo } from './playground/cinematic';
-import { WindgraphDemo } from './playground/boards/windgraphDemo';
-import { MorphDemo } from './playground/boards/morphDemo';
-import { InteractDemo } from './playground/boards/interactDemo';
-import { Surface3DDemo } from './playground/boards/surface3dDemo';
-import { createMeshRenderer } from './windfoil/mesh3d';
-import { loadMathFonts, mathExtraFonts } from './windgraph/math/fonts';
-import { MathDemo } from './playground/boards/mathDemo';
-import { PerfBench } from './playground/bench';
-import { PerfBenchmark } from './playground/benchmark';
+import type { Engine } from './engine';
+import { createThemeController } from '../css/themeController';
+import { createAppState } from '../state';
+import { buildStatic } from '../precompute';
+import { setSize, goToPage } from '../camera/camera';
+import { toggle3D, enter3D } from '../camera/camera';
+import { orbitSetPose, orbitDistForZoom, updateOrbit, disableOrbit } from '../camera/orbit';
+import { attachInput } from '../camera/input';
+import { runFrame } from '../frame';
+import { CodeEditor } from '../editor/editor';
+import { SAMPLE_CODE } from '../editor/sample';
+import { Terminal } from '../editor/terminal';
+import { FileTree } from '../editor/fileTree';
+import { createToolbar } from './toolbar';
+import { createDemo } from './cinematic';
+import { WindgraphDemo } from './boards/windgraphDemo';
+import { MorphDemo } from './boards/morphDemo';
+import { InteractDemo } from './boards/interactDemo';
+import { Surface3DDemo } from './boards/surface3dDemo';
+import { MathDemo } from './boards/mathDemo';
+import { PerfBench } from './bench';
+import { PerfBenchmark } from './benchmark';
 
-async function main() {
-  const fpsEl = document.getElementById('fps')!;
-  // No backdrop-filter here: blurring over a canvas that repaints every frame
-  // forces the compositor to re-blur that region continuously — measurable,
-  // constant overhead that competes with rendering while the mouse moves.
-  fpsEl.style.cssText = 'position:fixed;top:10px;left:10px;z-index:100;font:12px/1 monospace;color:#b0b4c0;background:rgba(14,14,18,0.9);padding:5px 10px;border-radius:8px;pointer-events:none;';
-  const dpr = Math.min(devicePixelRatio, 2);
-  const PAGE_W = 1040;
-
-  const rCanvas = document.createElement('canvas');
-  rCanvas.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;z-index:0;cursor:grab;touch-action:none';
-  document.body.appendChild(rCanvas);
-  const rCtx = rCanvas.getContext('2d')!;
-
-  const tCanvas = document.createElement('canvas');
-  tCanvas.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;z-index:1;pointer-events:none';
-  document.body.appendChild(tCanvas);
-
-  const [font] = await Promise.all([loadFont('/Lato-Regular.ttf')]);
-  const [device, shaderCode] = await Promise.all([requestDevice(), loadShaderCode()]);
-  const gpuCtx = tCanvas.getContext('webgpu')!;
-  // OPAQUE canvas: with 'premultiplied' the compositor must alpha-blend the
-  // full-screen canvas over the page every frame (5+ MP at this dpr) — moving
-  // the mouse adds compositor damage on top and drops frames even when zero JS
-  // runs per event. Opaque lets the compositor treat it as a solid layer; the
-  // backdrop is painted by the render pass clear color instead (see frame.ts).
-  gpuCtx.configure({ device, format: 'rgba8unorm', alphaMode: 'opaque' });
-
-  // Build layout DOM (kept in the document, hidden, so themes can be swapped live)
-  const container = document.createElement('div');
-  container.style.cssText = 'position:absolute;left:0;top:0;visibility:hidden;pointer-events:none;contain:layout style;width:' + PAGE_W + 'px';
-  document.body.appendChild(container);
-  container.innerHTML = `<style>@font-face{font-family:'Lato';src:url('/Lato-Regular.ttf') format('truetype');font-weight:400}@font-face{font-family:'Lato';src:url('/Lato-Regular.ttf') format('truetype');font-weight:700}</style><style id="themeStyle"></style>${HTML_SRC}`;
-  const themeStyle = container.querySelector('#themeStyle') as HTMLStyleElement;
-  // Apply the stylesheet BEFORE measuring boxes — buildStyledEls reads computed
-  // styles, so the CSS must be live when the layout tree is built.
-  themeStyle.textContent = buildCSS(palettes.light);
-  await document.fonts.ready;
-
-  const { styledEls, pageRoots } = buildStyledEls(container);
-  const docH = Math.max(...styledEls.map(e => e.y + e.h)) + 60;
-  const pages = pageRoots.map(r => ({ x: r.x, y: r.y, w: r.w, h: r.h }));
-  const docRoot: StyledEl = {
-    tag: 'BODY', classes: [], id: '', x: 0, y: 0, w: PAGE_W, h: docH, pad: [0, 0, 0, 0], text: '',
-    children: pageRoots, parent: null, el: container,
-    fs: 16, lh: 16, radius: 0, color: [0, 0, 0, 1], bg: [0, 0, 0, 0], textAlign: 'left', upper: false,
-    curBg: [0, 0, 0, 0], curShadow: 0, borderW: [0, 0, 0, 0], borderC: [[0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0]],
-    inline: false, skipText: true, hasFlow: false, isPre: false, inlineText: false,
-    editable: false, editText: '', caret: 0, selAnchor: -1, originText: '', caretXs: null, caretLines: null, lineTops: null,
-    pageIdx: -1, hoverable: false, shadowable: false, anim: '', dynamic: false, ownerPage: -1, icon: '',
-  };
-
-  const allChars = new Set<string>();
-  for (const el of styledEls) for (const ch of (el.editText || el.text)) allChars.add(ch);
-  for (const ch of editorAtlasChars()) allChars.add(ch); // full ASCII for the code editor
-  // Bake filled icon/illustration vector art into the same atlas as glyphs, keyed
-  // as "icon:name" / "art:name" so layout can reference them like a character.
-  const shapes: Record<string, { quads: number[]; bbox: number[] }> = {};
-  for (const name in ICONS) shapes['icon:' + name] = svgPathToQuads(ICONS[name]);
-  for (const name in ILLUSTRATIONS) shapes['art:' + name] = svgPathToQuads(ILLUSTRATIONS[name]);
-  // Math fonts (KaTeX TTFs) baked into the same atlas under mi:/mn:/sz: prefixes.
-  const mathFonts = await loadMathFonts();
-  const atlas = buildGlyphAtlas(font, [...allChars].join(' '), shapes, mathExtraFonts(mathFonts));
+// Boot the full showcase (every board + editor/terminal/file-tree + toolbar +
+// cinematic) against the shared engine. Returns a disposer that stops the frame
+// loop and removes all listeners + DOM chrome, so the launcher can tear it down
+// and return to the menu.
+export function bootPlayground(engine: Engine, onBack?: () => void): () => void {
+  const { fpsEl, dpr, PAGE_W, rCanvas, tCanvas, rCtx, gpuCtx, device, font, renderer, atlas, upscaler, meshRenderer } = engine;
+  const { container, themeStyle, styledEls, pageRoots, docH, pages, docRoot } = engine.ref;
 
   const s = createAppState({
     dpr, PAGE_W, rCanvas, tCanvas, rCtx, gpuCtx, device,
-    renderer: createGlyphRenderer(device, { code: shaderCode, format: 'rgba8unorm' }),
+    renderer,
     font, atlas, container,
     styledEls, pageRoots, editableEls: styledEls.filter(e => e.editable),
     dynamicEls: styledEls.filter(e => e.dynamic),
@@ -115,7 +47,7 @@ async function main() {
   const theme = createThemeController(s, themeStyle, buildStatic);
   theme.apply('dark');
   s.cycleTheme = theme.cycle;
-  s.upscaler = createUpscaler(device, 'rgba8unorm');
+  s.upscaler = upscaler;
 
   buildStatic(s);
   s.pageVisible = new Array(s.pageRoots.length).fill(true);
@@ -213,7 +145,7 @@ async function main() {
   graph3d.cx = PAGE_W + 1000;
   graph3d.cy = 500;
   s.graph3d = graph3d;
-  s.meshRenderer = createMeshRenderer(device, 'rgba8unorm');
+  s.meshRenderer = meshRenderer;
 
   function frameGraph3d() {
     // Always show the surface as a TRUE 3D object (no jarring flat 2D colour map):
@@ -364,7 +296,8 @@ async function main() {
   syncSharpEnable();
   document.body.appendChild(qPanel);
   const toggleQualityPanel = () => { qPanel.style.display = qPanel.style.display === 'none' ? 'block' : 'none'; };
-  createToolbar([
+  const toolbarDestroy = createToolbar([
+    ...(onBack ? [{ icon: '🏠', title: 'Back to launcher', onClick: onBack }] : []),
     { icon: '📁', title: 'Toggle file tree', onClick: () => setFileTreeMode(!s.fileTreeMode), ref: (el) => { ftBtn = el; } },
     { icon: '⌨️', title: 'Toggle code editor', onClick: () => setEditorMode(!s.editorMode), ref: (el) => { edBtn = el; } },
     { icon: '❯_', title: 'Toggle terminal', onClick: () => setTerminalMode(!s.terminalMode), ref: (el) => { tmBtn = el; } },
@@ -383,15 +316,22 @@ async function main() {
     { icon: '🌙', title: 'Cycle theme: light → dark → high contrast', onClick: () => s.cycleTheme!(), ref: (el) => { s.themeBtn = el; } },
   ]);
 
-  addEventListener('resize', () => setSize(s));
+  const onResize = () => setSize(s);
+  addEventListener('resize', onResize);
   setSize(s); goToPage(s, 0);
   s.camX = s.tgtX; s.camY = s.tgtY; s.camZ = s.tgtZ;
   s.viewX = s.camX; s.viewY = s.camY; s.viewZ = s.camZ;
 
-  initOrbit(rCanvas);
-  attachInput(s);
+  const inputDispose = attachInput(s);
   s.demo = createDemo(s);
-  runFrame(s);
-}
+  const frameStop = runFrame(s);
 
-main().catch(e => { const el = document.getElementById('error')!; el.style.display = 'block'; el.textContent = e.message || String(e); console.error(e); });
+  return () => {
+    frameStop();
+    inputDispose();
+    toolbarDestroy();
+    removeEventListener('resize', onResize);
+    qPanel.remove();
+    perfBenchmark.dispose();
+  };
+}

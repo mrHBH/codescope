@@ -55,8 +55,14 @@ function pasteClipboard(el: StyledEl) {
 
 function selectAll(el: StyledEl) { el.selAnchor = 0; el.caret = el.editText.length; }
 
-export function attachInput(s: AppState) {
+export function attachInput(s: AppState): () => void {
   const { rCanvas } = s;
+  // AbortController so a standalone demo can detach ALL of its listeners at once
+  // on teardown: every addEventListener below goes through `on`, which threads the
+  // signal. attachInput returns a disposer that aborts them.
+  const ac = new AbortController();
+  const { signal } = ac;
+  const on = (t: EventTarget, type: string, h: (e: any) => void, opts?: AddEventListenerOptions) => t.addEventListener(type, h, { ...opts, signal });
   const menu = new ContextMenu();
 
   // Slider drag state: the DOM slider being dragged + the last integer percent
@@ -90,7 +96,7 @@ export function attachInput(s: AppState) {
     ];
   }
 
-  rCanvas.addEventListener('pointerdown', (e) => {
+  on(rCanvas, 'pointerdown', (e) => {
     if (e.button !== 0) return; // only the primary (left) button drives editing/nav
     // 3D free camera: the camera-controls library owns pointer input on the
     // canvas (left = truck, right = rotate). Don't capture or run 2D logic.
@@ -252,7 +258,7 @@ export function attachInput(s: AppState) {
   // for the HUD (cheap); the allocating coalesced-event probe + per-event timing
   // only run while the scripted benchmark is active, so the normal path stays as
   // light as possible (one increment + one function call per event).
-  rCanvas.addEventListener('pointermove', (e) => {
+  on(rCanvas, 'pointermove', (e) => {
     s.evCount++;
     if (s.perf && s.perf.running) {
       const t0 = performance.now();
@@ -272,8 +278,8 @@ export function attachInput(s: AppState) {
     sliding = null; slidingPct = -1;
     s.pointers.clear(); s.dragging = false; s.pressed = null; if (performance.now() - s.lastMoveT > 80) s.velX = s.velY = 0;
   };
-  rCanvas.addEventListener('pointerup', rel);
-  rCanvas.addEventListener('pointercancel', rel);
+  on(rCanvas, 'pointerup', rel);
+  on(rCanvas, 'pointercancel', rel);
 
   s.lastWheelT = 0;
   s.rightDown = false;
@@ -283,7 +289,7 @@ export function attachInput(s: AppState) {
   let rightDownT = 0, rightWheeled = false, rightMoved = false;
   let rightStart = { x: 0, y: 0 };
   const LONG_PRESS_MS = 350, MOVE_TOL = 6;
-  rCanvas.addEventListener('pointerdown', (e) => {
+  on(rCanvas, 'pointerdown', (e) => {
     if (e.button !== 2) return;
     if (!s.pointerInput) return; // pointer input disabled (toolbar toggle)
     // In 3D, right-drag is orbit (owned by camera-controls) — no context menu.
@@ -294,7 +300,7 @@ export function attachInput(s: AppState) {
     rightStart = { x: e.clientX, y: e.clientY };
     menu.hide();
   });
-  rCanvas.addEventListener('pointerup', (e) => {
+  on(rCanvas, 'pointerup', (e) => {
     if (e.button !== 2) return;
     s.rightDown = false;
     const shortPress = performance.now() - rightDownT < LONG_PRESS_MS;
@@ -302,13 +308,13 @@ export function attachInput(s: AppState) {
       menu.show(e.clientX, e.clientY, buildMenuItems());
     }
   });
-  rCanvas.addEventListener('pointercancel', () => { s.rightDown = false; });
-  rCanvas.addEventListener('contextmenu', (e) => e.preventDefault());
+  on(rCanvas, 'pointercancel', () => { s.rightDown = false; });
+  on(rCanvas, 'contextmenu', (e) => e.preventDefault());
 
   // Wheel: normal = smooth scroll, right-click held OR trackpad pinch (ctrlKey)
   // = zoom to cursor. Trackpad pinch-zoom is delivered as a wheel event with
   // ctrlKey set, so we treat that as the zoom gesture.
-  rCanvas.addEventListener('wheel', (e) => {
+  on(rCanvas, 'wheel', (e) => {
     e.preventDefault();
     if (!s.cameraInput) return; // camera input disabled (toolbar toggle)
     s.lastWheelT = performance.now();
@@ -381,12 +387,12 @@ export function attachInput(s: AppState) {
     }
     s.activeEdit = null;
   }
-  rCanvas.addEventListener('pointerdown', (e) => {
+  on(rCanvas, 'pointerdown', (e) => {
     if (e.button !== 0 || !s.cam3d.active) return;
     if (!s.pointerInput) return; // pointer input disabled (toolbar toggle)
     d3 = { x: e.clientX, y: e.clientY, t: performance.now(), moved: false, active: true };
   });
-  rCanvas.addEventListener('pointerup', (e) => {
+  on(rCanvas, 'pointerup', (e) => {
     if (e.button !== 0 || !d3.active) return;
     d3.active = false;
     if (d3.moved || performance.now() - d3.t > 400) return; // was a truck drag, not a click
@@ -395,7 +401,7 @@ export function attachInput(s: AppState) {
   });
 
   // ── Text editing ────────────────────────────────────────────────────────
-  addEventListener('keydown', (e) => {
+  on(window, 'keydown', (e) => {
     // Code editor / terminal take precedence when active.
     if (s.terminalMode && s.terminal) { handleTerminalKey(s, e); return; }
     if (s.editorMode && s.editor) { handleEditorKey(s, e); return; }
@@ -456,4 +462,5 @@ export function attachInput(s: AppState) {
       e.preventDefault(); return;
     }
   });
+  return () => ac.abort();
 }

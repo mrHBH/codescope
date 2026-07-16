@@ -101,7 +101,8 @@ function editorTheme(s: AppState): EditorTheme {
   };
 }
 
-export function runFrame(s: AppState) {
+export function runFrame(s: AppState): () => void {
+  let alive = true;
   let prevTs = 0, fpsDt = 16, lastFpsShown = 0, lastCursor = '';
   // Emit caches for STATIC world-space boards (see windfoil/emitCache.ts):
   // their geometry only changes with zoom/clip (windgraph LOD), mode (bench) or
@@ -119,6 +120,7 @@ export function runFrame(s: AppState) {
   let jsMs = 0, worstDt = 0, evAccum = 0, evPerS = 0, lastEvT = performance.now();
 
   function frame(now: number) {
+    if (!alive) return; // demo torn down → stop the loop
     requestAnimationFrame(frame);
     const t0 = performance.now();
     const dt = prevTs ? now - prevTs : 16; prevTs = now;
@@ -538,4 +540,5 @@ export function runFrame(s: AppState) {
     if (s.perf && s.perf.running) s.perf.sample(dt, frameJs, inst.length / 16, prof, evThisFrame, evCoalThisFrame, evMsThisFrame);
   }
   requestAnimationFrame(frame);
+  return () => { alive = false; }; // stop handle: cancels the loop for demo teardown
 }

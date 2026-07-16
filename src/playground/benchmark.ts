@@ -293,6 +293,12 @@ export class PerfBenchmark {
     this.copyBtn = b;
   }
 
+  // Tear down: stop any run + remove the fixed DOM button (demo teardown).
+  dispose() {
+    if (this.running) this.stop(false);
+    this.copyBtn.remove();
+  }
+
   toggle() {
     // Ignore a second click within 2s — with no visible motion in the first
     // phases it's almost always an accidental double-start, not a cancel.

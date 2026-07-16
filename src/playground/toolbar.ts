@@ -2,7 +2,7 @@
 // Fixed-position DOM controls that float above the GPU canvas (never affected by
 // the world-space camera). Kept out of main.ts so the entry point stays wiring.
 
-interface ToolbarButton {
+export interface ToolbarButton {
   icon: string;
   title: string;
   onClick: () => void;
@@ -14,7 +14,9 @@ const BTN_CSS =
   'border:none;cursor:pointer;font-size:18px;background:rgba(22,22,46,0.85);color:#fff;';
 
 // Create the top-right toolbar. Buttons are laid out right-to-left in order.
-export function createToolbar(buttons: ToolbarButton[]) {
+// Returns a disposer that removes every button (for demo teardown).
+export function createToolbar(buttons: ToolbarButton[]): () => void {
+  const els: HTMLButtonElement[] = [];
   buttons.forEach((b, i) => {
     const el = document.createElement('button');
     el.textContent = b.icon;
@@ -23,5 +25,7 @@ export function createToolbar(buttons: ToolbarButton[]) {
     el.onclick = b.onClick;
     document.body.appendChild(el);
     b.ref?.(el);
+    els.push(el);
   });
+  return () => { for (const el of els) el.remove(); };
 }
