@@ -1,13 +1,15 @@
-// ── Explainer demo ───────────────────────────────────────────────────────────
-// A persistent analytic canvas plus a guided tour. The tour explains the core
-// renderer math, then stops and leaves the whole canvas available for pan/zoom
-// and interactive plot inspection.
+// ── Explainer demo (v6) ──────────────────────────────────────────────────────
+// Infinite-canvas analytic explainer. Chapters stay alive and keep animating even
+// when the user interrupts the tour and manually pans/orbits. Real glyph rendered
+// four ways from its true outline: bitmap, distance field, tessellation, analytic.
+// Layouts use wide reference-style copy blocks and large visuals that fill frame.
 
 import type { Engine } from './engine';
 import type { AppState } from '../state';
 import { createBaseApp, finishApp } from './app';
 import { addRect, layoutStr, tw } from '../layout/metrics';
 import { fillQuads, strokeInto, strokeQuadPath, polygonQuads, circleQuads, type Pt } from '../windgraph/stroke/stroke';
+import { glyphQuads } from '../windfoil/font';
 import { EmitCache } from '../windfoil/emitCache';
 import { MathTex } from '../windgraph/math/mathtex';
 import { enter3D } from '../camera/camera';
@@ -16,749 +18,185 @@ import { disableOrbit, orbitDistForZoom, orbitSetPose, updateOrbit } from '../ca
 type BoardView = { zoom: number; left: number; right: number; top: number; bottom: number };
 type EmitCtx = { font: any; atlas: any; inst: number[]; crv: number[]; rws: number[]; view: BoardView; now: number };
 type Handle = 'coverageCenter' | 'coverageRadius' | 'windingPoint' | 'bandProbe' | null;
+type Move = 'drop' | 'sweep' | 'rise' | 'arc' | 'pull' | 'dive';
 
-const SEC_W = 900;
-const SEC_H = 760;
-const SEC_POS: Pt[] = [[0, 90], [1160, -160], [2360, 220], [760, 1180], [2140, 1220]];
-const TOUR_STEP = 7.2;
-const TOUR_TRAVEL = 1.45;
+const SEC_W = 1260;
+const SEC_H = 820;
+const TRAVEL = 1.9;
+const GLYPH = 'a';
+const LX = 76;
+const RX = 700;
+const TW = 580;
+const VXW = 470;
 
 const C = {
-  bg: [0.045, 0.050, 0.066, 1],
-  panel: [0.070, 0.078, 0.104, 0.94],
-  panel2: [0.095, 0.105, 0.136, 0.88],
-  border: [0.22, 0.25, 0.34, 1],
-  faint: [0.55, 0.60, 0.72, 1],
-  text: [0.90, 0.93, 0.98, 1],
-  dim: [0.58, 0.64, 0.76, 1],
-  blue: [0.32, 0.58, 1.00, 1],
-  cyan: [0.34, 0.84, 0.94, 1],
-  green: [0.54, 0.90, 0.58, 1],
-  gold: [0.92, 0.73, 0.34, 1],
-  rose: [0.96, 0.45, 0.55, 1],
-  violet: [0.66, 0.62, 1.00, 1],
+  head: [0.94, 0.95, 0.97, 1], body: [0.73, 0.74, 0.77, 1], dim: [0.55, 0.56, 0.60, 1],
+  border: [0.25, 0.26, 0.30, 1], panelBg: [0.10, 0.105, 0.12, 1], cardBg: [0.13, 0.135, 0.15, 1],
+  accent: [0.12, 0.60, 0.95, 1], accent2: [0.66, 0.42, 0.92, 1],
+  green: [0.30, 0.80, 0.40, 1], rose: [0.93, 0.36, 0.34, 1], gold: [0.97, 0.73, 0.33, 1],
+  cyan: [0.36, 0.85, 0.97, 1], blue: [0.40, 0.64, 1.0, 1], ink: [0.85, 0.87, 0.91, 1],
 };
 
-function sx(i: number) { return SEC_POS[i][0]; }
-function sy(i: number) { return SEC_POS[i][1]; }
+interface Chapter { id: string; pos: Pt; dur: number; title: string; sub: string; polar: number; move: Move; flip: boolean; dive?: [number, number, number]; }
+const CH: Chapter[] = [
+  { id: 'splash',   pos: [0, 0],        dur: 5,  title: 'windfoil',              sub: 'analytic text & vector rendering', polar: 0.05, move: 'drop',  flip: false },
+  { id: 'problem',  pos: [1450, -430],  dur: 12, title: 'Text is curves',       sub: 'the problem',                      polar: 0.06, move: 'sweep', flip: false },
+  { id: 'bitmap',   pos: [3100, 230],   dur: 12, title: 'Bitmaps',              sub: 'attempt 01 · store pixels',        polar: 0.06, move: 'dive',  flip: true,  dive: [0.78, 0.55, 8.5] },
+  { id: 'sdf',      pos: [3000, -1120], dur: 13, title: 'Distance fields',      sub: 'attempt 02 · store distance',      polar: 0.06, move: 'dive',  flip: false, dive: [0.62, 0.26, 7.5] },
+  { id: 'tess',     pos: [4740, -430],  dur: 12, title: 'Tessellation',         sub: 'attempt 03 · store triangles',     polar: 0.06, move: 'dive',  flip: true,  dive: [0.78, 0.60, 8.0] },
+  { id: 'answer',   pos: [4560, 900],   dur: 12, title: 'Compute the coverage', sub: 'the windfoil answer',              polar: 0.06, move: 'dive',  flip: false, dive: [0.78, 0.55, 8.5] },
+  { id: 'inside',   pos: [6340, 250],   dur: 12, title: 'Inside or outside',    sub: 'winding number',                   polar: 0.06, move: 'arc',   flip: true },
+  { id: 'pixel',    pos: [6200, -970],  dur: 12, title: 'A pixel is an area',   sub: 'the coverage integral',            polar: 0.06, move: 'sweep', flip: false },
+  { id: 'bands',    pos: [7920, -170],  dur: 13, title: 'Only nearby edges',    sub: 'row bands',                        polar: 0.06, move: 'rise',  flip: true },
+  { id: 'same',     pos: [7740, 1100],  dur: 8,  title: 'One rule',             sub: 'text · icons · math · UI',         polar: 0.06, move: 'pull',  flip: false },
+  { id: 'gpu',      pos: [9600, 420],   dur: 10, title: 'One GPU pass',         sub: 'cpu builds · gpu integrates',      polar: 0.06, move: 'sweep', flip: true },
+  { id: 'infinite', pos: [11220, -240], dur: 10, title: 'Infinite zoom',        sub: 'recomputed, never stored',         polar: 0.05, move: 'dive',  flip: false, dive: [0.78, 0.55, 11.0] },
+];
+const N = CH.length;
+const CI_INSIDE = 6, CI_PIXEL = 7, CI_BANDS = 8;
+
+function cx0(i: number) { return CH[i].pos[0]; }
+function cy0(i: number) { return CH[i].pos[1]; }
+function txOff(i: number) { return CH[i].flip ? RX : LX; }
+function vxOff(i: number) { return CH[i].flip ? LX : RX; }
 function clamp(v: number, lo: number, hi: number) { return v < lo ? lo : v > hi ? hi : v; }
 function clamp01(v: number) { return clamp(v, 0, 1); }
 function smooth(v: number) { v = clamp01(v); return v * v * (3 - 2 * v); }
-function easeInOut(v: number) { v = clamp01(v); return v < 0.5 ? 4 * v * v * v : 1 - Math.pow(-2 * v + 2, 3) / 2; }
+function bump(v: number) { return Math.sin(clamp01(v) * Math.PI); }
 function rgba(c: number[], a = 1): number[] { return [c[0], c[1], c[2], (c[3] ?? 1) * a]; }
 function lerp(a: number, b: number, t: number) { return a + (b - a) * t; }
+function loop01(t: number, period: number, phase = 0) { return ((t / period + phase) % 1 + 1) % 1; }
+function ping(t: number, period: number, phase = 0) { return 0.5 - 0.5 * Math.cos(loop01(t, period, phase) * Math.PI * 2); }
 
-function text(ctx: EmitCtx, s: string, x: number, y: number, size: number, color = C.text, alpha = 1, anchor: 'start' | 'middle' | 'end' = 'start') {
-  let tx = x;
-  if (anchor !== 'start') {
-    const w = tw(s, ctx.font, size);
-    tx -= anchor === 'middle' ? w / 2 : w;
-  }
+function text(ctx: EmitCtx, s: string, x: number, y: number, size: number, color = C.body, alpha = 1, anchor: 'start' | 'middle' | 'end' = 'start') {
+  let tx = x; if (anchor !== 'start') { const w = tw(s, ctx.font, size); tx -= anchor === 'middle' ? w / 2 : w; }
   layoutStr(ctx.inst, s, rgba(color, alpha), ctx.atlas.table, ctx.font, { x: tx, y, size });
 }
-
-function line(ctx: EmitCtx, pts: Pt[], color: number[], width = 3, alpha = 1, dash?: number[]) {
-  strokeInto(pts, { width, cap: 'round', join: 'round', dash }, rgba(color, alpha), ctx.inst, ctx.crv, ctx.rws);
-}
-
+function line(ctx: EmitCtx, pts: Pt[], color: number[], width = 3, alpha = 1, dash?: number[]) { strokeInto(pts, { width, cap: 'round', join: 'round', dash }, rgba(color, alpha), ctx.inst, ctx.crv, ctx.rws); }
+function rect(ctx: EmitCtx, x0: number, y0: number, x1: number, y1: number, color: number[], alpha = 1) { addRect(x0, y0, x1, y1, rgba(color, alpha), ctx.crv, ctx.rws, ctx.inst); }
 function rectStroke(ctx: EmitCtx, x0: number, y0: number, x1: number, y1: number, color: number[], width = 2, alpha = 1) {
-  const c = rgba(color, alpha);
-  const h = width / 2;
-  addRect(x0 - h, y0 - h, x1 + h, y0 + h, c, ctx.crv, ctx.rws, ctx.inst);
-  addRect(x1 - h, y0 - h, x1 + h, y1 + h, c, ctx.crv, ctx.rws, ctx.inst);
-  addRect(x0 - h, y1 - h, x1 + h, y1 + h, c, ctx.crv, ctx.rws, ctx.inst);
-  addRect(x0 - h, y0 - h, x0 + h, y1 + h, c, ctx.crv, ctx.rws, ctx.inst);
+  const c = rgba(color, alpha), h = width / 2;
+  addRect(x0 - h, y0 - h, x1 + h, y0 + h, c, ctx.crv, ctx.rws, ctx.inst); addRect(x1 - h, y0 - h, x1 + h, y1 + h, c, ctx.crv, ctx.rws, ctx.inst);
+  addRect(x0 - h, y1 - h, x1 + h, y1 + h, c, ctx.crv, ctx.rws, ctx.inst); addRect(x0 - h, y0 - h, x0 + h, y1 + h, c, ctx.crv, ctx.rws, ctx.inst);
 }
-
-function fillPoly(ctx: EmitCtx, pts: Pt[], color: number[], alpha = 1) {
-  fillQuads(polygonQuads(pts, true), rgba(color, alpha), ctx.inst, ctx.crv, ctx.rws);
-}
-
-function fillCircle(ctx: EmitCtx, x: number, y: number, r: number, color: number[], alpha = 1) {
-  fillQuads(circleQuads(x, y, r, 16), rgba(color, alpha), ctx.inst, ctx.crv, ctx.rws);
-}
-
-function strokeCircle(ctx: EmitCtx, x: number, y: number, r: number, color: number[], width = 3, alpha = 1) {
-  const quads: number[] = [];
-  strokeQuadPath(circleQuads(x, y, r, 10), { width, cap: 'round', join: 'round' }, true, quads);
-  fillQuads(quads, rgba(color, alpha), ctx.inst, ctx.crv, ctx.rws);
-}
-
+function fillPoly(ctx: EmitCtx, pts: Pt[], color: number[], alpha = 1) { fillQuads(polygonQuads(pts, true), rgba(color, alpha), ctx.inst, ctx.crv, ctx.rws); }
+function fillCircle(ctx: EmitCtx, x: number, y: number, r: number, color: number[], alpha = 1) { fillQuads(circleQuads(x, y, r, 16), rgba(color, alpha), ctx.inst, ctx.crv, ctx.rws); }
+function strokeCircle(ctx: EmitCtx, x: number, y: number, r: number, color: number[], width = 3, alpha = 1) { const q: number[] = []; strokeQuadPath(circleQuads(x, y, r, 14), { width, cap: 'round', join: 'round' }, true, q); fillQuads(q, rgba(color, alpha), ctx.inst, ctx.crv, ctx.rws); }
 function arrow(ctx: EmitCtx, x0: number, y0: number, x1: number, y1: number, color: number[], width = 4, alpha = 1) {
   line(ctx, [[x0, y0], [x1, y1]], color, width, alpha);
-  const a = Math.atan2(y1 - y0, x1 - x0);
-  const l = width * 5.2;
-  const w = width * 3.3;
-  fillPoly(ctx, [
-    [x1, y1],
-    [x1 - Math.cos(a) * l + Math.sin(a) * w, y1 - Math.sin(a) * l - Math.cos(a) * w],
-    [x1 - Math.cos(a) * l - Math.sin(a) * w, y1 - Math.sin(a) * l + Math.cos(a) * w],
-  ], color, alpha);
+  const a = Math.atan2(y1 - y0, x1 - x0), l = width * 5, w = width * 3.2;
+  fillPoly(ctx, [[x1, y1], [x1 - Math.cos(a) * l + Math.sin(a) * w, y1 - Math.sin(a) * l - Math.cos(a) * w], [x1 - Math.cos(a) * l - Math.sin(a) * w, y1 - Math.sin(a) * l + Math.cos(a) * w]], color, alpha);
 }
+function starPoints(cx: number, cy: number, R: number, rot = -Math.PI / 2): Pt[] { const p: Pt[] = []; for (let i = 0; i < 10; i++) { const a = rot + i * Math.PI / 5, r = i % 2 ? R * 0.42 : R; p.push([cx + Math.cos(a) * r, cy + Math.sin(a) * r]); } return p; }
 
-function starPoints(cx: number, cy: number, R: number, rot = -Math.PI / 2): Pt[] {
-  const pts: Pt[] = [];
-  for (let i = 0; i < 10; i++) {
-    const a = rot + i * Math.PI / 5;
-    const r = i % 2 ? R * 0.42 : R;
-    pts.push([cx + Math.cos(a) * r, cy + Math.sin(a) * r]);
+function head(ctx: EmitCtx, x: number, y: number, kicker: string, ttl: string, a: number, accent = C.accent) {
+  rect(ctx, x - 28, y + 2, x - 22, y + 78, accent, a);
+  text(ctx, kicker.toUpperCase(), x, y, 14, C.dim, a);
+  text(ctx, ttl, x, y + 30, 40, C.head, a);
+}
+function body(ctx: EmitCtx, x: number, y: number, lines: string[], a: number, size = 20, gap = 32, col = C.body) { lines.forEach((l, k) => { if (l) text(ctx, l, x, y + k * gap, size, col, a); }); }
+function card(ctx: EmitCtx, x: number, y: number, w: number, h: number, a: number, accent?: number[]) { rect(ctx, x, y, x + w, y + h, C.cardBg, a); rectStroke(ctx, x, y, x + w, y + h, C.border, 1.3, a); if (accent) rect(ctx, x, y, x + 4, y + h, accent, a); }
+function verdictChip(ctx: EmitCtx, x: number, y: number, label: string, col: number[], a: number) { rect(ctx, x, y, x + 14, y + 28, col, 0.9 * a); text(ctx, label, x + 26, y + 2, 23, col, a); }
+
+// real glyph outline sampled once
+type Seg = [number, number, number, number];
+interface GlyphAsset { quadsN: number[]; W: number; H: number; segs: Seg[]; sdf: Float32Array; gw: number; gh: number; step: number; }
+function flattenNorm(quadsN: number[], sub: number): Seg[] {
+  const segs: Seg[] = [];
+  for (let i = 0; i + 5 < quadsN.length; i += 6) {
+    const x0 = quadsN[i], y0 = quadsN[i + 1], cx = quadsN[i + 2], cy = quadsN[i + 3], x1 = quadsN[i + 4], y1 = quadsN[i + 5];
+    let px = x0, py = y0;
+    for (let s = 1; s <= sub; s++) { const t = s / sub, u = 1 - t; const qx = u * u * x0 + 2 * u * t * cx + t * t * x1, qy = u * u * y0 + 2 * u * t * cy + t * t * y1; segs.push([px, py, qx, qy]); px = qx; py = qy; }
   }
-  return pts;
+  return segs;
 }
-
-function plotFrame(ctx: EmitCtx, x: number, y: number, w: number, h: number, alpha: number) {
-  addRect(x, y, x + w, y + h, rgba([0.035, 0.039, 0.052, 1], alpha), ctx.crv, ctx.rws, ctx.inst);
-  rectStroke(ctx, x, y, x + w, y + h, C.border, 1.5, alpha);
-  line(ctx, [[x + 34, y + 18], [x + 34, y + h - 30], [x + w - 18, y + h - 30]], C.faint, 1.5, alpha * 0.55);
+function insidePoly(segs: Seg[], px: number, py: number): boolean { let c = false; for (const [ax, ay, bx, by] of segs) if ((ay > py) !== (by > py)) { const t = (py - ay) / (by - ay); if (px < ax + t * (bx - ax)) c = !c; } return c; }
+function distSeg(px: number, py: number, ax: number, ay: number, bx: number, by: number): number { const dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy; let t = l2 > 0 ? ((px - ax) * dx + (py - ay) * dy) / l2 : 0; t = clamp01(t); return Math.hypot(px - (ax + t * dx), py - (ay + t * dy)); }
+function signedDist(segs: Seg[], px: number, py: number): number { let d = 1e9; for (const s of segs) d = Math.min(d, distSeg(px, py, s[0], s[1], s[2], s[3])); return insidePoly(segs, px, py) ? -d : d; }
+function buildGlyphAsset(font: any, ch: string): GlyphAsset {
+  const g = glyphQuads(font, ch)!; const [minx, miny, maxx, maxy] = g.bbox; const w = maxx - minx, h = maxy - miny, H = Math.max(w, h);
+  const quadsN = g.quads.map((v, i) => (i % 2 === 0 ? (v - minx) : (v - miny)) / H); const W = w / H, Hn = h / H;
+  const segs = flattenNorm(quadsN, 6); const G = 22, gw = Math.max(2, Math.round(G * W)), gh = Math.max(2, Math.round(G * Hn)), step = 1 / G;
+  const sdf = new Float32Array((gw + 1) * (gh + 1));
+  for (let j = 0; j <= gh; j++) for (let i = 0; i <= gw; i++) sdf[j * (gw + 1) + i] = signedDist(segs, i * step, j * step);
+  return { quadsN, W, H: Hn, segs, sdf, gw, gh, step };
 }
-
-function panel(ctx: EmitCtx, x: number, y: number, w: number, h: number, title: string, sub: string, alpha: number, active: boolean) {
-  text(ctx, title, x + 12, y + 35, active ? 32 : 29, C.text, alpha);
-  text(ctx, sub, x + 14, y + 64, 15, C.dim, alpha * 0.95);
-  line(ctx, [[x + 14, y + 84], [x + Math.min(w - 24, 560), y + 84]], active ? C.cyan : C.border, active ? 3 : 2, alpha * 0.8);
-}
+function place(as: GlyphAsset, bx: number, by: number, bw: number, bh: number) { const sc = Math.min(bw / as.W, bh / as.H) * 0.95; return { sc, ox: bx + (bw - as.W * sc) / 2, oy: by + (bh - as.H * sc) / 2 }; }
+function sampleSDF(as: GlyphAsset, nx: number, ny: number): number { const gx = clamp(nx / as.step, 0, as.gw - 1e-4), gy = clamp(ny / as.step, 0, as.gh - 1e-4), i = Math.floor(gx), j = Math.floor(gy), fx = gx - i, fy = gy - j, w1 = as.gw + 1; return lerp(lerp(as.sdf[j * w1 + i], as.sdf[j * w1 + i + 1], fx), lerp(as.sdf[(j + 1) * w1 + i], as.sdf[(j + 1) * w1 + i + 1], fx), fy); }
+function glyphAnalytic(ctx: EmitCtx, as: GlyphAsset, bx: number, by: number, bw: number, bh: number, color: number[], a: number) { const { sc, ox, oy } = place(as, bx, by, bw, bh); fillQuads(as.quadsN.map((v, i) => (i % 2 === 0 ? ox + v * sc : oy + v * sc)), rgba(color, a), ctx.inst, ctx.crv, ctx.rws); }
+function glyphOutline(ctx: EmitCtx, as: GlyphAsset, bx: number, by: number, bw: number, bh: number, color: number[], width: number, a: number) { const { sc, ox, oy } = place(as, bx, by, bw, bh); const wq = as.quadsN.map((v, i) => (i % 2 === 0 ? ox + v * sc : oy + v * sc)); const q: number[] = []; strokeQuadPath(wq, { width, cap: 'round', join: 'round' }, false, q); fillQuads(q, rgba(color, a), ctx.inst, ctx.crv, ctx.rws); }
+function glyphBitmap(ctx: EmitCtx, as: GlyphAsset, bx: number, by: number, bw: number, bh: number, cells: number, color: number[], a: number, t = 1) { const { sc, ox, oy } = place(as, bx, by, bw, bh), cs = Math.max(as.W, as.H) / cells, cols = Math.ceil(as.W / cs), rows = Math.ceil(as.H / cs), sweep = Math.floor(rows * t); for (let j = 0; j < rows; j++) for (let i = 0; i < cols; i++) { const nx = (i + 0.5) * cs, ny = (j + 0.5) * cs; if (!insidePoly(as.segs, nx, ny)) continue; const X0 = ox + i * cs * sc, Y0 = oy + j * cs * sc, X1 = ox + (i + 1) * cs * sc, Y1 = oy + (j + 1) * cs * sc; if (j <= sweep) rect(ctx, X0 + 1, Y0 + 1, X1 - 1, Y1 - 1, color, a); } if (t < 1) { const yy = oy + sweep * cs * sc; line(ctx, [[ox - 18, yy], [ox + as.W * sc + 18, yy]], C.cyan, 6, a); } }
+function glyphField(ctx: EmitCtx, as: GlyphAsset, bx: number, by: number, bw: number, bh: number, fine: number, a: number, t = 1) { const { sc, ox, oy } = place(as, bx, by, bw, bh), cs = Math.max(as.W, as.H) / fine, iso = 0.05, ext = 0.06 + 0.30 * t, cols = Math.ceil(as.W / cs) + 2, rows = Math.ceil(as.H / cs) + 2; for (let j = -1; j < rows; j++) for (let i = -1; i < cols; i++) { const nx = (i + 0.5) * cs, ny = (j + 0.5) * cs, d = sampleSDF(as, nx, ny), ad = Math.abs(d); if (ad > ext) continue; const X0 = ox + i * cs * sc, Y0 = oy + j * cs * sc, X1 = ox + (i + 1) * cs * sc, Y1 = oy + (j + 1) * cs * sc; if (d < 0) rect(ctx, X0, Y0, X1, Y1, C.gold, (0.12 + 0.10 * clamp01(-d / 0.35)) * a); else rect(ctx, X0, Y0, X1, Y1, C.cyan, 0.08 * (1 - ad / ext) * a); const band = (ad / iso) % 1; if (band < 0.16 || band > 0.84) rect(ctx, X0, Y0, X1, Y1, d < 0 ? C.gold : C.cyan, 0.28 * a); if (ad < iso * 0.4) rect(ctx, X0, Y0, X1, Y1, C.head, 0.82 * a); } glyphOutline(ctx, as, bx, by, bw, bh, C.head, 3, 0.62 * a); }
+function glyphTess(ctx: EmitCtx, as: GlyphAsset, bx: number, by: number, bw: number, bh: number, sub: number, color: number[], a: number, t = 1) { const { sc, ox, oy } = place(as, bx, by, bw, bh), coarse = flattenNorm(as.quadsN, sub), lq: number[] = []; for (const [x0, y0, x1, y1] of coarse) { const ax = ox + x0 * sc, ay = oy + y0 * sc, b1 = ox + x1 * sc, c1 = oy + y1 * sc; lq.push(ax, ay, (ax + b1) / 2, (ay + c1) / 2, b1, c1); } fillQuads(lq, rgba(color, a), ctx.inst, ctx.crv, ctx.rws); const oq: number[] = []; strokeQuadPath(lq, { width: 2, cap: 'butt', join: 'bevel' }, false, oq); fillQuads(oq, rgba(C.gold, 0.9 * a), ctx.inst, ctx.crv, ctx.rws); glyphOutline(ctx, as, bx, by, bw, bh, C.head, 1.6, 0.35 * a); const { sc: sc2, ox: ox2, oy: oy2 } = place(as, bx, by, bw, bh), cxp = ox2 + as.W * sc2 * 0.5, cyp = oy2 + as.H * sc2 * 0.5, nFan = Math.max(5, Math.floor(34 * t)), step = Math.max(1, Math.floor(coarse.length / nFan)); for (let k = 0; k < coarse.length; k += step) { const s = coarse[k]; line(ctx, [[cxp, cyp], [ox2 + s[0] * sc2, oy2 + s[1] * sc2]], C.gold, 2.2, a * 0.72); } }
 
 class ExplainerBoard {
-  x0 = -260;
-  y0 = -430;
-  width = 3600;
-  height = 2680;
-
-  private coverageCx = sx(0) + 250;
-  private coverageCy = sy(0) + 410;
-  private coverageR = 168;
-  private testX = sx(1) + 270;
-  private testY = sy(1) + 385;
-  private bandY = sy(2) + 382;
-  private hover: Handle = null;
-  private grabbed: Handle = null;
-  private lastNow = -1;
-  private manualSection = -1;
-  playing = true;
-  tourT = 0;
-
-  private coverageEq = new MathTex('F = \\frac{1}{A}\\iint_B w\\,dA');
-  private windingEq = new MathTex('w(p)=\\frac{1}{2\\pi}\\oint_{\\partial S} d\\theta');
-  private rowEq = new MathTex('B_y \\to rows[y_0..y_1]');
-  private frameEq = new MathTex('color = \\sum_i coverage_i');
-  private sectionCaches = [new EmitCache(), new EmitCache(), new EmitCache(), new EmitCache(), new EmitCache()];
-  private angleKey = '';
-  private anglePts: Pt[] = [];
-  private coverageKey = '';
-  private coverageCached = 0;
-
-  private captions = [
-    ['The edge problem', 'Point samples, fixed grids, and cached zooms all lose information at boundaries.'],
-    ['Winding number', 'Inside and outside are decided by accumulated boundary angle, not by sampling guesses.'],
-    ['Bands and pieces', 'Curves are split into row bands so each pixel only visits nearby boundary pieces.'],
-    ['Glyphs are contours', 'Text uses the same fill rule and the same per-pixel integral as every vector shape.'],
-    ['One draw call', 'Instances point at shared curve and row buffers; the shader gathers coverage for each pixel.'],
-  ];
-
+  x0 = -900; y0 = -2200; width = 14500; height = 5200;
+  private covCx = cx0(CI_PIXEL) + vxOff(CI_PIXEL) + 120; private covCy = cy0(CI_PIXEL) + 340; private covR = 100;
+  private testX = cx0(CI_INSIDE) + vxOff(CI_INSIDE) + 190; private testY = cy0(CI_INSIDE) + 400; private bandY = cy0(CI_BANDS) + 400;
+  private hover: Handle = null; private grabbed: Handle = null; private lastNow = -1; private manualSection = -1; playing = true; tourT = 0;
+  private glyph: GlyphAsset | null = null; private eqTurn = new MathTex('F = \\frac{1}{A}\\iint_B w(x,y)\\,dA'); private eqCover = new MathTex('F = \\frac{1}{A}\\iint_B w\\,dA'); private eqWind = new MathTex('w(p)=\\frac{1}{2\\pi}\\oint_{\\partial S} d\\theta'); private eqRow = new MathTex('rows[y_0 .. y_1]'); private eqFrame = new MathTex('color = \\sum_i c_i');
+  private caches = CH.map(() => new EmitCache()); private staticPass = false; private covKey = ''; private covVal = 0;
   get dragging() { return this.grabbed !== null; }
+  replay(s: AppState) { this.playing = true; this.tourT = 0; this.lastNow = -1; this.manualSection = -1; enter3D(s); this.applyPose(s); }
+  resume(s: AppState) { this.playing = true; this.lastNow = -1; this.manualSection = -1; enter3D(s); this.applyPose(s); }
+  stopTour(_s: AppState) { this.playing = false; }
+  jumpTo(s: AppState, i: number) { this.playing = false; this.tourT = this.total(); this.manualSection = clamp(i, 0, N - 1); if (!s.cam3d.active) enter3D(s); const p = this.pose(s, this.manualSection); orbitSetPose(p.x, p.y, orbitDistForZoom(p.z, s.tCanvas.height), 0, p.polar); updateOrbit(16); s.velX = s.velY = 0; }
+  update(now: number, s: AppState) { if (!this.playing) return; const dt = this.lastNow < 0 ? 0 : Math.min((now - this.lastNow) / 1000, 0.05); this.lastNow = now; this.tourT += dt; if (this.tourT >= this.total()) { this.tourT = this.total(); this.playing = false; this.manualSection = -1; return; } const { i, local } = this.chapterAt(this.tourT), dur = CH[i].dur, travel = Math.min(TRAVEL, dur * 0.42); let p = this.poseAt(s, i, local); if (local > dur - travel && i < N - 1) { const tt = smooth((local - (dur - travel)) / travel), q = this.poseAt(s, i + 1, 0); p = { x: lerp(p.x, q.x, tt), y: lerp(p.y, q.y, tt), z: p.z * Math.pow(q.z / p.z, tt), az: lerp(p.az, q.az, tt), polar: lerp(p.polar, q.polar, tt) }; } orbitSetPose(p.x, p.y, orbitDistForZoom(p.z, s.tCanvas.height), p.az, clamp(p.polar, 0.03, 1.4)); updateOrbit(16); s.velX = s.velY = 0; }
+  private poseAt(s: AppState, i: number, local: number) { const b = this.pose(s, i); let x = b.x, y = b.y, z = b.z, az = 0, polar = b.polar; const e = 1 - smooth(local / 2.6); switch (CH[i].move) { case 'drop': z = b.z * (1 + 0.8 * e); break; case 'sweep': x = b.x - 340 * e; break; case 'rise': y = b.y - 260 * e; break; case 'arc': az = 0.16 * Math.sin(local * 0.5); x = b.x + Math.sin(local * 0.5) * 12; break; case 'pull': z = b.z * (1 + 0.45 * bump(local / CH[i].dur)); break; case 'dive': { const dv = CH[i].dive!, d = smooth((local - 3.2) / 2.2), gb = this.glyphBox(i); x = lerp(b.x, gb.x + gb.w * dv[0], d); y = lerp(b.y, gb.y + gb.h * dv[1], d); z = b.z * (1 + d * dv[2]); break; } } if (CH[i].move !== 'dive') { x += Math.sin(local * 0.42 + i) * 6; y += Math.cos(local * 0.36 + i) * 4; } return { x, y, z, az, polar }; }
+  emit(font: any, atlas: any, inst: number[], crv: number[], rws: number[], now: number, view: BoardView) { if (!this.glyph) this.glyph = buildGlyphAsset(font, GLYPH); const ctx: EmitCtx = { font, atlas, inst, crv, rws, view, now }; this.grid(ctx); const cur = this.current(); for (let i = 0; i < N; i++) { const a = this.alpha(i); if (a <= 0.02 || !this.visible(i, view)) continue; const active = i === cur && this.playing; const manual3D = view.left < -1e11 && !this.playing; if (active || this.onScreen2D(view)) this.chapter(ctx, i, a); else { this.staticPass = true; this.caches[i].run(this.sig(i, a) + '|static', inst, crv, rws, () => this.chapter(ctx, i, a)); this.staticPass = false; if (manual3D) this.animOverlay(ctx, i, a); } } this.staticPass = false; this.drawCaption(ctx); }
+  tryBeginDrag(wx: number, wy: number, sc: number) { this.grabbed = this.pick(wx, wy, sc); return this.grabbed !== null; } endDrag() { this.grabbed = null; } updateHover(wx: number, wy: number, sc: number) { this.hover = this.pick(wx, wy, sc); return this.hover !== null; } autoDrive() {} caption() { const c = CH[this.current()]; return { title: c.title, sub: c.sub }; }
+  dragTo(wx: number, wy: number) { if (this.grabbed === 'coverageCenter') { this.covCx = clamp(wx, cx0(CI_PIXEL) + vxOff(CI_PIXEL) + 20, cx0(CI_PIXEL) + vxOff(CI_PIXEL) + 220); this.covCy = clamp(wy, cy0(CI_PIXEL) + 230, cy0(CI_PIXEL) + 450); } else if (this.grabbed === 'coverageRadius') this.covR = clamp(Math.hypot(wx - this.covCx, wy - this.covCy), 40, 120); else if (this.grabbed === 'windingPoint') { this.testX = clamp(wx, cx0(CI_INSIDE) + vxOff(CI_INSIDE) + 10, cx0(CI_INSIDE) + vxOff(CI_INSIDE) + 390); this.testY = clamp(wy, cy0(CI_INSIDE) + 210, cy0(CI_INSIDE) + 580); } else if (this.grabbed === 'bandProbe') this.bandY = clamp(wy, cy0(CI_BANDS) + 220, cy0(CI_BANDS) + 590); }
+  private total() { let t = 0; for (const c of CH) t += c.dur; return t; } private cum(i: number) { let t = 0; for (let k = 0; k < i; k++) t += CH[k].dur; return t; } private chapterAt(t: number) { let acc = 0; for (let i = 0; i < N; i++) { if (t < acc + CH[i].dur || i === N - 1) return { i, local: t - acc }; acc += CH[i].dur; } return { i: N - 1, local: 0 }; } private current() { if (this.manualSection >= 0) return this.manualSection; return this.chapterAt(Math.min(this.tourT, this.total() - 0.001)).i; } private alpha(i: number) { if (this.manualSection >= 0 || (!this.playing && this.tourT >= this.total())) return 1; return smooth((this.tourT - this.cum(i) + 0.5) / 1.5); } private localOf(i: number) { const c = this.chapterAt(Math.min(this.tourT, this.total() - 0.001)); return c.i === i ? c.local : -1; } private activeLocal(i: number) { return this.playing && this.current() === i ? this.localOf(i) : -1; }
+  private loop(i: number, period: number, phase = 0) { if (this.staticPass) return 1; const t = this.activeLocal(i); return t >= 0 ? ping(t, period, phase) : ping(performance.now() / 1000, period, phase); }
+  private buildReveal(i: number) { if (this.staticPass) return 1; const t = this.activeLocal(i); return t >= 0 ? smooth(t / 2.8) : ping(performance.now() / 1000, 4.0); }
+  private glyphBox(i: number) { return { x: cx0(i) + vxOff(i), y: cy0(i) + 150, w: VXW, h: 540 }; } private pose(s: AppState, i: number) { const z = Math.min(s.tCanvas.width / (SEC_W - 80), s.tCanvas.height / (SEC_H - 20)) * 1.02; return { x: cx0(i) + SEC_W / 2, y: cy0(i) + SEC_H / 2, z, polar: CH[i].polar }; } private applyPose(s: AppState) { const p = this.poseAt(s, this.current(), 0); if (!s.cam3d.active) enter3D(s); orbitSetPose(p.x, p.y, orbitDistForZoom(p.z, s.tCanvas.height), p.az, p.polar); updateOrbit(16); s.velX = s.velY = 0; } private visible(i: number, view: BoardView) { if (view.left < -1e11) return true; const m = 160 / Math.max(view.zoom, 0.05); return cx0(i) - m <= view.right && cx0(i) + SEC_W + m >= view.left && cy0(i) - m <= view.bottom && cy0(i) + SEC_H + m >= view.top; } private onScreen2D(view: BoardView) { return view.left > -1e11; } private sig(i: number, a: number) { const s = a.toFixed(2); if (i === CI_PIXEL) return `${s}|${this.covCx.toFixed(1)},${this.covCy.toFixed(1)},${this.covR.toFixed(1)}`; if (i === CI_INSIDE) return `${s}|${this.testX.toFixed(1)},${this.testY.toFixed(1)}`; if (i === CI_BANDS) return `${s}|${this.bandY.toFixed(1)}`; return s; }
+  private grid(ctx: EmitCtx) { const step = 260, left = Math.floor(this.x0 / step) * step, right = this.x0 + this.width, top = Math.floor(this.y0 / step) * step, bottom = this.y0 + this.height; for (let x = left; x <= right; x += step) { const M = x % (step * 4) === 0, w = M ? 1.4 : 0.8; rect(ctx, x - w / 2, top, x + w / 2, bottom, C.border, M ? 0.22 : 0.10); } for (let y = top; y <= bottom; y += step) { const M = y % (step * 4) === 0, w = M ? 1.4 : 0.8; rect(ctx, left, y - w / 2, right, y + w / 2, C.border, M ? 0.22 : 0.10); } }
+  private animOverlay(ctx: EmitCtx, i: number, a: number) { const y = cy0(i), vx = cx0(i) + vxOff(i), t = ping(performance.now() / 1000, 4.0); if (CH[i].id === 'bitmap') { const gb = this.glyphBox(i), yy = gb.y + gb.h * t; line(ctx, [[gb.x - 20, yy], [gb.x + gb.w + 20, yy]], C.cyan, 6, a * 0.9); } else if (CH[i].id === 'sdf') { const gb = this.glyphBox(i); rectStroke(ctx, gb.x + gb.w * (0.42 + 0.18 * Math.sin(t * Math.PI * 2)), gb.y + gb.h * 0.20, gb.x + gb.w * 0.82, gb.y + gb.h * 0.82, C.gold, 3, a * 0.55); } else if (CH[i].id === 'tess') { const gb = this.glyphBox(i), cx = gb.x + gb.w * 0.5, cy = gb.y + gb.h * 0.5; for (let k = 0; k < 10; k++) { const ang = (k / 10 + t) * Math.PI * 2; line(ctx, [[cx, cy], [cx + Math.cos(ang) * gb.w * 0.42, cy + Math.sin(ang) * gb.h * 0.42]], C.gold, 1.6, a * 0.35); } } else if (CH[i].id === 'pixel') { const px = vx, py = y + 220, ps = 260, yy = py + t * ps; line(ctx, [[px - 16, yy], [px + ps + 16, yy]], C.gold, 4, a); } else if (CH[i].id === 'bands') { const bx = vx, by = y + 210, bw = 300, bh = 420, yy = by + t * bh; line(ctx, [[bx - 30, yy], [bx + bw + 30, yy]], C.cyan, 4, a); } else if (CH[i].id === 'gpu') { const k = Math.floor(loop01(performance.now() / 1000, 5) * 5), bx = vx, by = y + 175 + k * 98; rectStroke(ctx, bx - 6, by - 6, bx + 366, by + 84, C.accent, 4, a * 0.85); } }  private chapter(ctx: EmitCtx, i: number, a: number) { const x = cx0(i), y = cy0(i), g = this.glyph!, tx = x + txOff(i), vx = x + vxOff(i); switch (CH[i].id) { case 'splash': return this.chSplash(ctx, x, y, a); case 'problem': return this.chProblem(ctx, x, y, tx, vx, a, i, g); case 'bitmap': return this.chBitmap(ctx, tx, vx, a, i, g); case 'sdf': return this.chSDF(ctx, tx, vx, a, i, g); case 'tess': return this.chTess(ctx, tx, vx, a, i, g); case 'answer': return this.chAnswer(ctx, tx, vx, a, i, g); case 'inside': return this.chInside(ctx, tx, vx, a, i); case 'pixel': return this.chPixel(ctx, tx, vx, a, i); case 'bands': return this.chBands(ctx, tx, vx, a, i); case 'same': return this.chSame(ctx, tx, vx, a, g); case 'gpu': return this.chGPU(ctx, tx, vx, a, i, g); case 'infinite': return this.chInfinite(ctx, tx, vx, a, i, g); } }
 
-  replay(s: AppState) {
-    this.playing = true;
-    this.tourT = 0;
-    this.lastNow = -1;
-    this.manualSection = -1;
-    enter3D(s);
-    this.setCamera(s, this.poseForSection(s, 0));
-  }
+  private chSplash(ctx: EmitCtx, x: number, y: number, a: number) { const cxp = x + SEC_W / 2, cyp = y + SEC_H / 2; if (this.glyph) glyphAnalytic(ctx, this.glyph, cxp - 230, cyp - 250, 460, 460, C.accent, 0.12 * a); text(ctx, 'windfoil', cxp, cyp - 80, 160, C.head, a, 'middle'); text(ctx, 'ANALYTIC TEXT & VECTOR RENDERING', cxp, cyp + 84, 22, C.dim, a * 0.9, 'middle'); }
+  private chProblem(ctx: EmitCtx, x: number, y: number, tx: number, vx: number, a: number, i: number, g: GlyphAsset) { head(ctx, tx, y + 80, 'The problem', 'Text is curves.', a); body(ctx, tx, y + 200, ['A glyph is a smooth outline — Bezier curves, not pixels.', 'But a screen is a grid of pixels. So for every pixel,', 'the renderer must answer one deceptively simple question:'], a); text(ctx, 'how much of this pixel is covered by ink?', tx, y + 340, 28, C.cyan, a); const gb = { x: vx, y: y + 125, w: VXW, h: 585 }; glyphAnalytic(ctx, g, gb.x, gb.y, gb.w, gb.h, C.ink, 0.92 * a); const gs = 42, t = this.loop(i, 3.5); for (let px = gb.x; px <= gb.x + gb.w; px += gs) line(ctx, [[px, gb.y], [px, gb.y + gb.h]], C.border, 1, a * 0.4); for (let py = gb.y; py <= gb.y + gb.h; py += gs) line(ctx, [[gb.x, py], [gb.x + gb.w, py]], C.border, 1, a * 0.4); const hx = gb.x + gs * (4 + Math.round(1 + Math.sin(t * Math.PI * 2))), hy = gb.y + gs * 8; rectStroke(ctx, hx, hy, hx + gs, hy + gs, C.green, 3, a); }
+  private chBitmap(ctx: EmitCtx, tx: number, vx: number, a: number, i: number, g: GlyphAsset) { const y = cy0(i); head(ctx, tx, y + 80, 'Attempt 01', 'Bitmaps.', a, C.rose); body(ctx, tx, y + 200, ['Bake the glyph into a fixed grid of pixels once, then paste it.', 'Fast and dead simple — but the answer is frozen at one size.', 'Zoom in and the pixels themselves become the picture.'], a); verdictChip(ctx, tx, y + 340, 'coverage = guessed', C.rose, a); glyphBitmap(ctx, g, vx, y + 125, VXW, 585, 16, C.rose, 0.94 * a, this.buildReveal(i)); }
+  private chSDF(ctx: EmitCtx, tx: number, vx: number, a: number, i: number, g: GlyphAsset) { const y = cy0(i); head(ctx, tx, y + 80, 'Attempt 02', 'Distance fields.', a, C.gold); body(ctx, tx, y + 200, ['Store distance to the nearest edge, not the color — the bands.', 'It scales better than a bitmap, but the field is still sampled.', 'Corners round off, and thin strokes pinch away.'], a); verdictChip(ctx, tx, y + 340, 'coverage = approximated', C.gold, a); glyphField(ctx, g, vx, y + 125, VXW, 585, 44, 0.95 * a, this.buildReveal(i)); }
+  private chTess(ctx: EmitCtx, tx: number, vx: number, a: number, i: number, g: GlyphAsset) { const y = cy0(i); head(ctx, tx, y + 80, 'Attempt 03', 'Tessellation.', a, C.accent2); body(ctx, tx, y + 200, ['Flatten curves into triangles the GPU can rasterize directly.', 'White is the true curve; gold is the faceted approximation that replaces it.'], a); verdictChip(ctx, tx, y + 340, 'coverage = still sampled', C.accent2, a); const r = this.buildReveal(i), sub = 1 + Math.round(r * 2); glyphTess(ctx, g, vx, y + 125, VXW, 585, sub, C.accent2, 0.82 * a, r); }
+  private chAnswer(ctx: EmitCtx, tx: number, vx: number, a: number, i: number, g: GlyphAsset) { const y = cy0(i); head(ctx, tx, y + 80, 'The windfoil answer', 'Compute the coverage.', a, C.green); body(ctx, tx, y + 200, ['Don\u2019t store the answer. Don\u2019t approximate it.', 'For each pixel, integrate exactly how much area the curve covers.', 'Recomputed at every zoom — sharp at any scale.'], a); this.eqTurn.emit(ctx.atlas, ctx.inst, ctx.crv, ctx.rws, { x: tx, y: y + 360, size: 40, color: rgba(C.head, a), reveal: a }); glyphAnalytic(ctx, g, vx, y + 125, VXW, 585, C.green, (0.55 + 0.4 * this.buildReveal(i)) * a); }
+  private chInside(ctx: EmitCtx, tx: number, vx: number, a: number, i: number) { const y = cy0(i); head(ctx, tx, y + 80, 'Winding number', 'Inside or outside?', a); body(ctx, tx, y + 200, ['Shoot a ray from a point and count boundary crossings.', 'Odd means inside; even means outside. Drag the point.'], a); const local = this.activeLocal(i), cxp = vx + 220, cyp = y + 410, r = 165, shape = starPoints(cxp, cyp, r, -Math.PI / 2 + 0.2); fillPoly(ctx, shape, C.accent2, 0.07 * a); line(ctx, [...shape, shape[0]], C.accent2, 4, a); line(ctx, [[this.testX, this.testY], [vx + 430, this.testY]], C.gold, 3, a, [12, 10]); fillCircle(ctx, this.testX, this.testY, 8, C.gold, a); this.handle(ctx, this.testX, this.testY, 'windingPoint', a); const inside = Math.hypot(this.testX - cxp, this.testY - cyp) < r * 0.62; text(ctx, inside ? 'inside · w = 1' : 'outside · w = 0', vx, y + 650, 24, inside ? C.green : C.rose, a); if (local >= 0) { const t = loop01(local, 5), seg = t * 10, k = Math.floor(seg) % 10, f = seg - Math.floor(seg), p0 = shape[k], p1 = shape[(k + 1) % 10]; fillCircle(ctx, lerp(p0[0], p1[0], f), lerp(p0[1], p1[1], f), 7, C.cyan, a); } this.eqWind.emit(ctx.atlas, ctx.inst, ctx.crv, ctx.rws, { x: tx, y: y + 360, size: 34, color: rgba(C.ink, a), reveal: a }); }
+  private chPixel(ctx: EmitCtx, tx: number, vx: number, a: number, i: number) { const y = cy0(i); head(ctx, tx, y + 80, 'The coverage integral', 'A pixel is an area.', a); body(ctx, tx, y + 200, ['Sweep across the pixel footprint. Each scanline contributes', 'a covered length; their sum is exact coverage F. Drag the circle.'], a); const t = this.loop(i, 4), px = vx, py = y + 220, ps = 260, n = 6, scan = t, scanY = py + scan * ps; rect(ctx, px, py, px + ps, py + ps, [0.02, 0.025, 0.035, 1], a); fillCircle(ctx, this.covCx, this.covCy, this.covR, C.blue, 0.14 * a); strokeCircle(ctx, this.covCx, this.covCy, this.covR, C.blue, 4, a); for (let j = 0; j < n; j++) for (let k = 0; k < n; k++) { const gx = px + k * ps / n, gy = py + j * ps / n, ins = this.inCov(gx + ps / (2 * n), gy + ps / (2 * n)); rect(ctx, gx + 1.5, gy + 1.5, gx + ps / n - 1.5, gy + ps / n - 1.5, ins ? C.blue : [0.09, 0.10, 0.13, 1], (ins ? 0.5 : 0.6) * a); } rectStroke(ctx, px, py, px + ps, py + ps, C.green, 4, a); line(ctx, [[px - 16, scanY], [px + ps + 16, scanY]], C.gold, 4, a); this.handle(ctx, this.covCx, this.covCy, 'coverageCenter', a); this.handle(ctx, this.covCx + this.covR, this.covCy, 'coverageRadius', a); const plotX = vx + 290, plotY = y + 220, plotW = 135, plotH = 250; card(ctx, plotX, plotY, plotW, plotH, a); line(ctx, [[plotX + 24, plotY + 14], [plotX + 24, plotY + plotH - 20], [plotX + plotW - 12, plotY + plotH - 20]], C.dim, 1.5, a * 0.6); const pts: Pt[] = []; const S = 28; for (let k = 0; k <= S; k++) { const yy = py + (k / S) * ps, c = this.covAtY(px, ps, yy); pts.push([plotX + 28 + c * (plotW - 46), plotY + 14 + (k / S) * (plotH - 40)]); } line(ctx, pts, C.cyan, 3.5, a); fillPoly(ctx, [[plotX + 28, plotY + plotH - 20], ...pts, [plotX + 28, pts[pts.length - 1][1]]], C.cyan, 0.16 * a); const sc = this.covAtY(px, ps, scanY); fillCircle(ctx, plotX + 28 + sc * (plotW - 46), plotY + 14 + scan * (plotH - 40), 6, C.gold, a); text(ctx, `F = ${this.covValue(px, py, ps).toFixed(3)}`, vx, y + 530, 30, C.head, a); this.eqCover.emit(ctx.atlas, ctx.inst, ctx.crv, ctx.rws, { x: tx, y: y + 360, size: 40, color: rgba(C.head, a), reveal: a }); }
+  private chBands(ctx: EmitCtx, tx: number, vx: number, a: number, i: number) { const y = cy0(i); head(ctx, tx, y + 80, 'Row bands', 'Only nearby edges.', a); body(ctx, tx, y + 200, ['A glyph has hundreds of curve pieces. Bands sort by row,', 'so each pixel tests only nearby edges. Drag the probe line.'], a); const t = this.loop(i, 4), bx = vx, by = y + 210, bw = 300, bh = 420, probeY = by + t * bh; rect(ctx, bx, by, bx + bw, by + bh, [0.025, 0.03, 0.04, 1], a); const shape = starPoints(bx + 150, by + 210, 135, -Math.PI / 2 + 0.25); fillPoly(ctx, shape, C.gold, 0.10 * a); line(ctx, [...shape, shape[0]], C.gold, 4, a); const bands = 12, bandH = bh / bands, ab = clamp(Math.floor((probeY - by) / bandH), 0, bands - 1); for (let k = 0; k < bands; k++) { const yy = by + k * bandH; if (k === ab) rect(ctx, bx, yy, bx + bw, yy + bandH, C.cyan, 0.16 * a); line(ctx, [[bx, yy], [bx + bw, yy]], k === ab ? C.cyan : C.border, k === ab ? 3 : 1.1, a * (k === ab ? 0.85 : 0.4)); } rectStroke(ctx, bx, by, bx + bw, by + bh, C.border, 1.6, a); line(ctx, [[bx - 30, probeY], [bx + bw + 30, probeY]], C.cyan, 4, a); this.handle(ctx, bx - 30, probeY, 'bandProbe', a); const rtx = bx + bw + 50, rows = 5; for (let k = 0; k < rows; k++) { const yy = y + 240 + k * 52, on = k === Math.min(rows - 1, Math.floor(ab * rows / bands)); card(ctx, rtx, yy, 120, 38, on ? a : 0.8 * a, on ? C.cyan : undefined); text(ctx, `row ${k}`, rtx + 14, yy + 9, 16, on ? C.head : C.dim, a); } text(ctx, `pixel → row ${ab}`, vx, y + 650, 22, C.cyan, a); this.eqRow.emit(ctx.atlas, ctx.inst, ctx.crv, ctx.rws, { x: tx, y: y + 360, size: 34, color: rgba(C.ink, a), reveal: a }); }
+  private chSame(ctx: EmitCtx, tx: number, vx: number, a: number, g: GlyphAsset) { const y = cy0(9); head(ctx, tx, y + 80, 'One rule', 'Everything is contours.', a); body(ctx, tx, y + 200, ['Once every shape is a filled outline, a single coverage rule', 'renders text, icons, math and UI — no special cases.'], a); const items = ['text', 'icon', 'math', 'ui']; for (let k = 0; k < 4; k++) { const gx = vx + (k % 2) * 215, gy = y + 200 + Math.floor(k / 2) * 245; card(ctx, gx, gy, 190, 215, a); if (k === 0) glyphAnalytic(ctx, g, gx + 30, gy + 24, 130, 164, C.head, 0.9 * a); else if (k === 1) fillPoly(ctx, starPoints(gx + 95, gy + 105, 60), C.gold, a); else if (k === 2) this.eqCover.emit(ctx.atlas, ctx.inst, ctx.crv, ctx.rws, { x: gx + 18, y: gy + 116, size: 24, color: rgba(C.accent2, a) }); else { rect(ctx, gx + 44, gy + 70, gx + 146, gy + 146, C.accent, 0.5 * a); rectStroke(ctx, gx + 44, gy + 70, gx + 146, gy + 146, C.accent, 3, a); } text(ctx, items[k], gx + 95, gy + 190, 14, C.body, a, 'middle'); } }
+  private chGPU(ctx: EmitCtx, tx: number, vx: number, a: number, i: number, g: GlyphAsset) { const y = cy0(i); head(ctx, tx, y + 80, 'The pipeline', 'One GPU pass.', a); body(ctx, tx, y + 200, ['Here is one actual glyph moving through windfoil:', 'outline curves become row-indexed pieces; an instance', 'points at those rows; the shader asks only nearby edges.'], a); const local = this.activeLocal(i), hot = local >= 0 ? Math.floor(loop01(local, 6) * 5) : Math.floor(loop01(performance.now() / 1000, 6) * 5); const gx = vx, gy = y + 140, gw = 280, gh = 330; card(ctx, gx, gy, gw, gh, a, hot === 0 ? C.accent : undefined); glyphAnalytic(ctx, g, gx + 25, gy + 34, gw - 50, gh - 70, C.ink, 0.22 * a); glyphOutline(ctx, g, gx + 25, gy + 34, gw - 50, gh - 70, hot === 0 ? C.accent : C.head, hot === 0 ? 4 : 2, a); text(ctx, '1 � true glyph outline', gx + 20, gy + gh - 22, 15, hot === 0 ? C.accent : C.dim, a); const rx = vx + 320, ry = y + 140; for (let k = 0; k < 5; k++) { const yy = ry + k * 72; card(ctx, rx, yy, 250, 52, a, hot === k ? C.accent : undefined); const label = k === 0 ? 'outline curves' : k === 1 ? 'monotone pieces' : k === 2 ? 'row bands' : k === 3 ? 'instance: bbox + rowBase' : 'shader: gather + integrate'; text(ctx, label, rx + 16, yy + 17, 17, hot === k ? C.head : C.body, a); if (k < 4) arrow(ctx, rx + 125, yy + 55, rx + 125, yy + 70, hot === k ? C.accent : C.dim, 3, a); } const bx = gx + 70, by = gy + 80, bw = 150, bh = 175; if (hot === 2 || hot === 4) { for (let r = 0; r < 7; r++) { const yy = by + r * bh / 7; line(ctx, [[bx, yy], [bx + bw, yy]], r === 3 ? C.cyan : C.border, r === 3 ? 3 : 1.2, a * (r === 3 ? 0.9 : 0.35)); } } if (hot === 3 || hot === 4) rectStroke(ctx, bx + 20, by + 70, bx + 72, by + 122, C.green, 3, a); if (hot === 4) { fillCircle(ctx, bx + 46, by + 96, 7, C.gold, a); arrow(ctx, bx + 46, by + 96, rx + 230, ry + 4 * 72 + 26, C.gold, 3, a); } this.eqFrame.emit(ctx.atlas, ctx.inst, ctx.crv, ctx.rws, { x: tx, y: y + 430, size: 34, color: rgba(C.ink, a), reveal: a }); }
+  private chInfinite(ctx: EmitCtx, tx: number, vx: number, a: number, i: number, g: GlyphAsset) { const y = cy0(i); head(ctx, tx, y + 80, 'The payoff', 'Infinite zoom.', a, C.green); body(ctx, tx, y + 200, ['Dive far past UI scale — the edge stays perfectly smooth,', 'because it is recomputed on the spot, never stored.', 'Everything you just watched is drawn exactly this way.'], a); glyphAnalytic(ctx, g, vx, y + 125, VXW, 585, C.head, 0.95 * a); }
 
-  jumpTo(s: AppState, i: number) {
-    this.playing = false;
-    this.tourT = this.totalTime();
-    this.manualSection = clamp(i, 0, 4);
-    const p = this.poseForSection(s, this.manualSection);
-    if (!s.cam3d.active) enter3D(s);
-    orbitSetPose(p.x, p.y, orbitDistForZoom(p.z, s.tCanvas.height), p.az, p.polar);
-    updateOrbit(16);
-  }
-
-  resume(s: AppState) {
-    this.playing = true;
-    this.lastNow = -1;
-    this.manualSection = -1;
-    enter3D(s);
-    this.setCamera(s, this.poseForSection(s, this.currentSection()));
-  }
-
-  stopTour(s: AppState) {
-    this.playing = false;
-  }
-
-  update(now: number, s: AppState) {
-    if (!this.playing) return;
-    const dt = this.lastNow < 0 ? 0 : Math.min((now - this.lastNow) / 1000, 0.05);
-    this.lastNow = now;
-    this.tourT += dt;
-    if (this.tourT >= this.totalTime()) {
-      this.tourT = this.totalTime();
-      this.playing = false;
-      this.manualSection = -1;
-      return;
-    }
-    const section = Math.min(4, Math.floor(this.tourT / TOUR_STEP));
-    const local = this.tourT - section * TOUR_STEP;
-    const next = Math.min(4, section + 1);
-    const move = smooth((local - (TOUR_STEP - TOUR_TRAVEL)) / TOUR_TRAVEL);
-    const a = this.poseForSection(s, section);
-    const b = this.poseForSection(s, next);
-    const drift = this.poseDrift(section, local);
-    this.setCamera(s, {
-      x: lerp(a.x, b.x, move) + drift.x,
-      y: lerp(a.y, b.y, move) + drift.y,
-      z: a.z * Math.pow(b.z / a.z, move) * drift.z,
-      az: lerp(a.az, b.az, move) + drift.az,
-      polar: lerp(a.polar, b.polar, move) + drift.polar,
-    });
-  }
-
-  emit(font: any, atlas: any, inst: number[], crv: number[], rws: number[], now: number, view: BoardView) {
-    const ctx: EmitCtx = { font, atlas, inst, crv, rws, view, now };
-    this.drawBackdrop(ctx);
-    const current = this.currentSection();
-    for (let i = 0; i < 5; i++) {
-      const a = this.sectionAlpha(i);
-      if (a <= 0.02 || !this.sectionVisible(i, view, current)) continue;
-      const active = i === current && this.playing;
-      if (active) this.drawSection(ctx, i, a, true);
-      else this.sectionCaches[i].run(this.sectionSig(i, a), inst, crv, rws, () => this.drawSection(ctx, i, a, false));
-    }
-    this.drawCaption(ctx);
-  }
-
-  tryBeginDrag(wx: number, wy: number, scale: number): boolean {
-    this.grabbed = this.pick(wx, wy, scale);
-    return this.grabbed !== null;
-  }
-
-  dragTo(wx: number, wy: number) {
-    if (this.grabbed === 'coverageCenter') {
-      this.coverageCx = clamp(wx, sx(0) + 20, sx(0) + 395);
-      this.coverageCy = clamp(wy, sy(0) + 185, sy(0) + 620);
-    } else if (this.grabbed === 'coverageRadius') {
-      this.coverageR = clamp(Math.hypot(wx - this.coverageCx, wy - this.coverageCy), 54, 245);
-    } else if (this.grabbed === 'windingPoint') {
-      this.testX = clamp(wx, sx(1) + 70, sx(1) + 445);
-      this.testY = clamp(wy, sy(1) + 165, sy(1) + 600);
-    } else if (this.grabbed === 'bandProbe') {
-      this.bandY = clamp(wy, sy(2) + 210, sy(2) + 560);
-    }
-  }
-
-  endDrag() { this.grabbed = null; }
-
-  updateHover(wx: number, wy: number, scale: number): boolean {
-    this.hover = this.pick(wx, wy, scale);
-    return this.hover !== null;
-  }
-
-  autoDrive() {}
-
-  caption() {
-    const cap = this.captions[this.currentSection()];
-    return { title: cap[0], sub: cap[1] };
-  }
-
-  private totalTime() { return TOUR_STEP * 5; }
-
-  private poseForSection(s: AppState, i: number) {
-    const z = Math.min(s.tCanvas.width / (SEC_W + 230), s.tCanvas.height / (SEC_H + 250)) * 0.92;
-    const az = [-0.32, 0.22, -0.18, 0.30, -0.10][i] ?? 0;
-    const polar = [0.50, 0.46, 0.56, 0.42, 0.48][i] ?? 0.48;
-    return { x: sx(i) + SEC_W / 2, y: sy(i) + SEC_H / 2, z, az, polar };
-  }
-
-  private poseDrift(section: number, local: number) {
-    const u = local / TOUR_STEP;
-    if (section === 0) {
-      const down = easeInOut((local - 3.2) / 2.2);
-      return { x: 0, y: lerp(-120, 95, down), z: lerp(1.16, 1.0, down), az: Math.sin(local * 0.3) * 0.018, polar: 0.02 + down * 0.02 };
-    }
-    const amp = 14 + section * 2;
-    return {
-      x: Math.sin(local * 0.62 + section) * amp,
-      y: Math.cos(local * 0.48 + section * 0.7) * amp * 0.45,
-      z: 1 + Math.sin(local * 0.52) * 0.025,
-      az: Math.sin(local * 0.34 + section) * 0.025,
-      polar: Math.sin(u * Math.PI) * 0.035,
-    };
-  }
-
-  private setCamera(s: AppState, p: { x: number; y: number; z: number; az?: number; polar?: number }) {
-    if (this.playing) {
-      if (!s.cam3d.active) enter3D(s);
-      orbitSetPose(p.x, p.y, orbitDistForZoom(p.z, s.tCanvas.height), p.az ?? 0, p.polar ?? 0.48);
-      updateOrbit(16);
-    } else {
-      s.camX = s.viewX = s.tgtX = p.x;
-      s.camY = s.viewY = s.tgtY = p.y;
-      s.camZ = s.viewZ = s.tgtZ = p.z;
-    }
-    s.velX = s.velY = 0;
-  }
-
-  private currentSection() {
-    if (this.manualSection >= 0) return this.manualSection;
-    return Math.min(4, Math.floor(Math.min(this.tourT, this.totalTime() - 0.001) / TOUR_STEP));
-  }
-
-  private sectionAlpha(i: number) {
-    if (!this.playing && this.tourT >= this.totalTime()) return 1;
-    if (this.manualSection >= 0) return 1;
-    return smooth((this.tourT - i * TOUR_STEP + 0.45) / 1.6);
-  }
-
-  private sectionVisible(i: number, view: BoardView, current: number) {
-    if (view.left < -1e11) return true;
-    const margin = 120 / Math.max(view.zoom, 0.05);
-    const x0 = sx(i) - margin, x1 = sx(i) + SEC_W + margin;
-    const y0 = sy(i) - margin, y1 = sy(i) + SEC_H + margin;
-    return x0 <= view.right && x1 >= view.left && y0 <= view.bottom && y1 >= view.top;
-  }
-
-  private localT(i: number) { return clamp(this.tourT - i * TOUR_STEP, 0, TOUR_STEP); }
-
-  private activeLocal(i: number) {
-    return this.playing && this.currentSection() === i ? this.localT(i) : -1;
-  }
-
-  private sectionSig(i: number, alpha: number) {
-    const a = alpha.toFixed(2);
-    if (i === 0) return `${a}|${this.coverageCx.toFixed(1)},${this.coverageCy.toFixed(1)},${this.coverageR.toFixed(1)}`;
-    if (i === 1) return `${a}|${this.testX.toFixed(1)},${this.testY.toFixed(1)}`;
-    if (i === 2) return `${a}|${this.bandY.toFixed(1)}`;
-    return a;
-  }
-
-  private drawBackdrop(ctx: EmitCtx) {
-    const step = 240;
-    const left = Math.floor(this.x0 / step) * step;
-    const right = this.x0 + this.width;
-    const top = Math.floor(this.y0 / step) * step;
-    const bottom = this.y0 + this.height;
-    for (let x = left; x <= right; x += step) {
-      const major = x % (step * 4) === 0;
-      const w = major ? 1.6 : 0.8;
-      addRect(x - w / 2, top, x + w / 2, bottom, rgba(C.border, major ? 0.34 : 0.18), ctx.crv, ctx.rws, ctx.inst);
-    }
-    for (let y = top; y <= bottom; y += step) {
-      const major = y % (step * 4) === 0;
-      const w = major ? 1.6 : 0.8;
-      addRect(left, y - w / 2, right, y + w / 2, rgba(C.border, major ? 0.34 : 0.18), ctx.crv, ctx.rws, ctx.inst);
-    }
-    text(ctx, 'windfoil analytic renderer', this.x0 + 80, this.y0 + 90, 44, C.text, 0.9);
-    text(ctx, 'an infinite canvas of renderer facts: text methods, coverage, winding, bands, glyphs, frame assembly', this.x0 + 82, this.y0 + 126, 18, C.dim, 0.9);
-  }
-
-  private drawSection(ctx: EmitCtx, i: number, alpha: number, active: boolean) {
-    if (i === 0) this.drawCoverage(ctx, sx(0), sy(0), alpha, active);
-    else if (i === 1) this.drawWinding(ctx, sx(1), sy(1), alpha, active);
-    else if (i === 2) this.drawBands(ctx, sx(2), sy(2), alpha, active);
-    else if (i === 3) this.drawGlyphs(ctx, sx(3), sy(3), alpha, active);
-    else this.drawPipeline(ctx, sx(4), sy(4), alpha, active);
-  }
-
-  private drawCoverage(ctx: EmitCtx, x: number, y: number, a: number, active: boolean) {
-    panel(ctx, x, y, SEC_W, SEC_H, '1. How do we render text?', 'Bitmaps, SDFs, and tessellation all trade one failure mode for another', a, active);
-    const tileY = y + 128;
-    const methods = [
-      ['bitmap atlas', 'fast', 'breaks under zoom', C.rose],
-      ['SDF / MSDF', 'smooth edges', 'field error at corners', C.gold],
-      ['triangulated glyph', 'real outline', 'sampled coverage', C.violet],
-      ['analytic coverage', 'exact edge area', 'shader integrates', C.green],
-    ] as const;
-    for (let i = 0; i < methods.length; i++) {
-      const tx = x + 72 + i * 198;
-      const col = methods[i][3];
-      addRect(tx, tileY, tx + 158, tileY + 106, rgba([0.030, 0.034, 0.046, 1], 0.72 * a), ctx.crv, ctx.rws, ctx.inst);
-      rectStroke(ctx, tx, tileY, tx + 158, tileY + 106, i === 3 ? C.green : C.border, i === 3 ? 2.4 : 1.4, a);
-      if (i === 0) {
-        for (let gy = 0; gy < 5; gy++) for (let gx = 0; gx < 5; gx++) addRect(tx + 18 + gx * 14, tileY + 17 + gy * 14, tx + 30 + gx * 14, tileY + 29 + gy * 14, rgba(gx + gy > 4 ? C.text : col, gx + gy > 4 ? 0.72 * a : 0.24 * a), ctx.crv, ctx.rws, ctx.inst);
-      } else if (i === 1) {
-        for (let k = 0; k < 4; k++) strokeCircle(ctx, tx + 72, tileY + 48, 12 + k * 10, col, 1.5, a * (0.16 + k * 0.06));
-        line(ctx, [[tx + 34, tileY + 78], [tx + 116, tileY + 18]], col, 4, a);
-      } else if (i === 2) {
-        const pts: Pt[] = [[tx + 35, tileY + 82], [tx + 58, tileY + 22], [tx + 91, tileY + 62], [tx + 123, tileY + 21], [tx + 121, tileY + 84]];
-        line(ctx, pts, col, 3.5, a);
-        line(ctx, [[pts[0][0], pts[0][1]], [pts[2][0], pts[2][1]], [pts[4][0], pts[4][1]], [pts[0][0], pts[0][1]]], col, 1.3, a * 0.65);
-      } else {
-        line(ctx, [[tx + 24, tileY + 82], [tx + 47, tileY + 24], [tx + 76, tileY + 79], [tx + 113, tileY + 18], [tx + 134, tileY + 84]], col, 4, a);
-        addRect(tx + 82, tileY + 48, tx + 112, tileY + 78, rgba(col, 0.24 * a), ctx.crv, ctx.rws, ctx.inst);
-        rectStroke(ctx, tx + 82, tileY + 48, tx + 112, tileY + 78, col, 2, a);
-      }
-      text(ctx, methods[i][0], tx, tileY + 132, 15, C.text, a);
-      text(ctx, methods[i][1], tx, tileY + 154, 12, C.green, a * 0.92);
-      text(ctx, methods[i][2], tx, tileY + 173, 12, i === 3 ? C.cyan : C.rose, a * 0.92);
-    }
-    text(ctx, 'windfoil keeps the outline, but replaces edge guesses with an area integral per pixel', x + 95, y + 330, 17, C.green, a);
-    const cmpX = x + 95, cmpY = y + 350, cmpW = 700, cmpH = 78;
-    line(ctx, [[cmpX, cmpY + cmpH], [cmpX + cmpW, cmpY + cmpH]], C.border, 1.5, a * 0.65);
-    text(ctx, 'zoom behaviour', cmpX, cmpY - 10, 13, C.dim, a);
-    line(ctx, [[cmpX, cmpY + 58], [cmpX + 170, cmpY + 58], [cmpX + 210, cmpY + 28], [cmpX + 260, cmpY + 28]], C.rose, 2.4, a);
-    line(ctx, [[cmpX + 280, cmpY + 50], [cmpX + 365, cmpY + 34], [cmpX + 450, cmpY + 46]], C.gold, 2.4, a);
-    line(ctx, [[cmpX + 470, cmpY + 48], [cmpX + 555, cmpY + 32], [cmpX + 630, cmpY + 28], [cmpX + cmpW, cmpY + 28]], C.green, 2.8, a);
-    text(ctx, 'bitmap stair-steps', cmpX + 6, cmpY + cmpH + 18, 12, C.rose, a);
-    text(ctx, 'field rounds corners', cmpX + 286, cmpY + cmpH + 18, 12, C.gold, a);
-    text(ctx, 'analytic stays stable', cmpX + 515, cmpY + cmpH + 18, 12, C.green, a);
-
-    const px = x + 95, py = y + 455, ps = 205;
-    const local = this.activeLocal(0);
-    const integralA = local >= 0 ? smooth((local - 3.0) / 1.25) : 1;
-    if (integralA <= 0.015) return;
-    const n = 5;
-    const scan = local >= 0 ? 0.5 + 0.5 * Math.sin(local * 1.25) : 0.62;
-    const scanY = py + scan * ps;
-    addRect(px, py, px + ps, py + ps, rgba([0.025, 0.030, 0.040, 1], a * integralA), ctx.crv, ctx.rws, ctx.inst);
-    fillCircle(ctx, this.coverageCx, this.coverageCy, this.coverageR, C.blue, 0.13 * a * integralA);
-    strokeCircle(ctx, this.coverageCx, this.coverageCy, this.coverageR + (local >= 0 ? Math.sin(local * 2.2) * 3 : 0), C.blue, 4, a * integralA);
-    for (let j = 0; j < n; j++) for (let k = 0; k < n; k++) {
-      const x0 = px + k * ps / n, y0 = py + j * ps / n;
-      const cx = x0 + ps / (2 * n), cy = y0 + ps / (2 * n);
-      const inside = this.insideCoverage(cx, cy);
-      addRect(x0 + 1.5, y0 + 1.5, x0 + ps / n - 1.5, y0 + ps / n - 1.5, rgba(inside ? C.blue : [0.10, 0.11, 0.14, 1], (inside ? 0.50 * a : 0.60 * a) * integralA), ctx.crv, ctx.rws, ctx.inst);
-    }
-    rectStroke(ctx, px, py, px + ps, py + ps, C.green, 4, a * integralA);
-    line(ctx, [[px - 18, scanY], [px + ps + 18, scanY]], C.gold, 4, a * integralA * (local >= 0 ? 0.95 : 0.55));
-    text(ctx, 'pixel footprint B', px, py - 18, 17, C.green, a * integralA);
-    this.drawHandle(ctx, this.coverageCx, this.coverageCy, 'coverageCenter', a * integralA);
-    this.drawHandle(ctx, this.coverageCx + this.coverageR, this.coverageCy, 'coverageRadius', a * integralA);
-
-    const plotX = x + 455, plotY = y + 455, plotW = 342, plotH = 205;
-    plotFrame(ctx, plotX, plotY, plotW, plotH, a * integralA);
-    const pts: Pt[] = [];
-    const plotSamples = 32;
-    for (let i = 0; i <= plotSamples; i++) {
-      const yy = py + (i / plotSamples) * ps;
-      const c = this.coverageAtY(px, py, ps, yy);
-      pts.push([plotX + 36 + c * (plotW - 64), plotY + 20 + (i / plotSamples) * (plotH - 54)]);
-    }
-    line(ctx, pts, C.cyan, 4, a * integralA);
-    const fill: Pt[] = [[plotX + 36, plotY + plotH - 30], ...pts, [plotX + 36, pts[pts.length - 1][1]]];
-    fillPoly(ctx, fill, C.cyan, 0.16 * a * integralA);
-    text(ctx, 'coverage by scanline', plotX + 46, plotY + 32, 15, C.dim, a * integralA);
-    const scanCoverage = this.coverageAtY(px, py, ps, scanY);
-    fillCircle(ctx, plotX + 36 + scanCoverage * (plotW - 64), plotY + 20 + scan * (plotH - 54), 7, C.gold, a * integralA);
-    const cov = this.coverageValue(px, py, ps);
-    text(ctx, `F = ${cov.toFixed(3)}`, plotX + 44, plotY + plotH + 40, 28, C.text, a * integralA);
-    this.coverageEq.emit(ctx.atlas, ctx.inst, ctx.crv, ctx.rws, { x: x + 455, y: y + 640, size: 54, color: rgba(C.text, a * integralA), reveal: a * integralA });
-  }
-
-  private drawWinding(ctx: EmitCtx, x: number, y: number, a: number, active: boolean) {
-    panel(ctx, x, y, SEC_W, SEC_H, '2. Winding number', 'A boundary turns around points inside it exactly once', a, active);
-    const cx = x + 245, cy = y + 390, r = 155;
-    const local = this.activeLocal(1);
-    const sweep = local >= 0 ? clamp01(local / (TOUR_STEP - 1.0)) : 1;
-    const qa = sweep * Math.PI * 2;
-    const qx = cx + Math.cos(qa) * r, qy = cy + Math.sin(qa) * r;
-    fillCircle(ctx, cx, cy, r, C.violet, 0.08 * a);
-    strokeCircle(ctx, cx, cy, r, C.violet, 5, a);
-    arrow(ctx, cx + r * 0.15, cy - r * 0.99, cx + r * 0.52, cy - r * 0.86, C.violet, 4, a);
-    line(ctx, [[this.testX, this.testY], [x + 430, this.testY]], C.gold, 3, a, [12, 10]);
-    line(ctx, [[this.testX, this.testY], [qx, qy]], C.cyan, 2.4, a * 0.75);
-    fillCircle(ctx, qx, qy, 8, C.cyan, a);
-    fillCircle(ctx, this.testX, this.testY, 8, C.gold, a);
-    this.drawHandle(ctx, this.testX, this.testY, 'windingPoint', a);
-    const inside = Math.hypot(this.testX - cx, this.testY - cy) < r;
-    text(ctx, inside ? 'inside: net turn = 1' : 'outside: net turn = 0', x + 82, y + 620, 24, inside ? C.green : C.rose, a);
-
-    const plotX = x + 480, plotY = y + 205, plotW = 330, plotH = 300;
-    plotFrame(ctx, plotX, plotY, plotW, plotH, a);
-    const pts = this.anglePlot(cx, cy, r, this.testX, this.testY, plotX, plotY, plotW, plotH);
-    const visiblePts = pts.slice(0, Math.max(2, Math.floor(pts.length * sweep)));
-    line(ctx, visiblePts, inside ? C.green : C.rose, 4, a);
-    text(ctx, 'accumulated angle', plotX + 48, plotY + 32, 15, C.dim, a);
-    this.windingEq.emit(ctx.atlas, ctx.inst, ctx.crv, ctx.rws, { x: x + 480, y: y + 625, size: 43, color: rgba(C.text, a), reveal: a });
-  }
-
-  private drawBands(ctx: EmitCtx, x: number, y: number, a: number, active: boolean) {
-    panel(ctx, x, y, SEC_W, SEC_H, '3. Bands and curve pieces', 'The shader searches only rows touched by the pixel footprint', a, active);
-    const bx = x + 95, by = y + 180, bw = 345, bh = 390;
-    const local = this.activeLocal(2);
-    const probeY = local >= 0 ? by + (0.5 + 0.5 * Math.sin(local * 1.35)) * bh : this.bandY;
-    addRect(bx, by, bx + bw, by + bh, rgba([0.030, 0.034, 0.046, 1], a), ctx.crv, ctx.rws, ctx.inst);
-    const shape = starPoints(bx + 170, by + 205, 150, -Math.PI / 2 + 0.25);
-    fillPoly(ctx, shape, C.gold, 0.10 * a);
-    line(ctx, [...shape, shape[0]], C.gold, 4, a);
-    const bands = 12, bandH = bh / bands;
-    const activeBand = clamp(Math.floor((probeY - by) / bandH), 0, bands - 1);
-    for (let i = 0; i < bands; i++) {
-      const yy = by + i * bandH;
-      if (i === activeBand) addRect(bx, yy, bx + bw, yy + bandH, rgba(C.cyan, 0.16 * a), ctx.crv, ctx.rws, ctx.inst);
-      line(ctx, [[bx, yy], [bx + bw, yy]], i === activeBand ? C.cyan : C.border, i === activeBand ? 3 : 1.3, a * (i === activeBand ? 0.85 : 0.45));
-    }
-    rectStroke(ctx, bx, by, bx + bw, by + bh, C.border, 2, a);
-    line(ctx, [[bx - 35, probeY], [bx + bw + 35, probeY]], C.cyan, 4, a);
-    this.drawHandle(ctx, bx - 35, probeY, 'bandProbe', a);
-    text(ctx, `active row ${activeBand}`, bx + 16, by + bh + 38, 22, C.cyan, a);
-
-    const tx = x + 500, ty = y + 205;
-    text(ctx, 'row table', tx, ty, 24, C.text, a);
-    const rowRows = 5;
-    for (let i = 0; i < rowRows; i++) {
-      const yy = ty + 34 + i * 42;
-      const on = i === Math.min(rowRows - 1, Math.floor(activeBand * rowRows / bands));
-      addRect(tx, yy, tx + 295, yy + 30, rgba(on ? C.cyan : C.panel2, on ? 0.30 * a : 0.72 * a), ctx.crv, ctx.rws, ctx.inst);
-      rectStroke(ctx, tx, yy, tx + 295, yy + 30, on ? C.cyan : C.border, 1.4, a);
-      text(ctx, `row ${i}: start ${120 + i * 9}  count ${3 + (i % 4)}`, tx + 14, yy + 21, 15, on ? C.text : C.dim, a);
-    }
-    arrow(ctx, bx + bw + 10, probeY, tx - 18, ty + 34 + Math.min(rowRows - 1, Math.floor(activeBand * rowRows / bands)) * 42 + 15, C.cyan, 3, a);
-    this.rowEq.emit(ctx.atlas, ctx.inst, ctx.crv, ctx.rws, { x: tx, y: y + 645, size: 43, color: rgba(C.text, a), reveal: a });
-  }
-
-  private drawGlyphs(ctx: EmitCtx, x: number, y: number, a: number, active: boolean) {
-    panel(ctx, x, y, SEC_W, SEC_H, '4. Glyphs are filled contours', 'Text becomes outline geometry; the pixel math is unchanged', a, active);
-    const gx = x + 115, gy = y + 575;
-    const local = this.activeLocal(3);
-    const sweep = local >= 0 ? 0.5 + 0.5 * Math.sin(local * 1.4) : 0.48;
-    layoutStr(ctx.inst, 'a', rgba(C.text, 0.16 * a), ctx.atlas.table, ctx.font, { x: gx, y: gy, size: 430 });
-    layoutStr(ctx.inst, 'a', rgba(C.text, 0.85 * a), ctx.atlas.table, ctx.font, { x: gx + 385, y: gy - 80, size: 120 });
-    const bandLeft = x + 100, bandRight = x + 405;
-    for (let i = 0; i < 15; i++) {
-      const yy = y + 190 + i * 28;
-      line(ctx, [[bandLeft, yy], [bandRight, yy]], i % 3 === 0 ? C.cyan : C.border, i % 3 === 0 ? 2.2 : 1.1, a * (i % 3 === 0 ? 0.62 : 0.38));
-    }
-    addRect(x + 305, y + 332, x + 356, y + 383, rgba(C.green, 0.20 * a), ctx.crv, ctx.rws, ctx.inst);
-    rectStroke(ctx, x + 305, y + 332, x + 356, y + 383, C.green, 3, a);
-    line(ctx, [[bandLeft, y + 190 + sweep * 392], [bandRight, y + 190 + sweep * 392]], C.gold, 4, a * 0.9);
-    arrow(ctx, x + 380, y + 356, x + 520, y + 356, C.green, 4, a);
-    addRect(x + 535, y + 260, x + 805, y + 455, rgba([0.030, 0.034, 0.046, 1], a), ctx.crv, ctx.rws, ctx.inst);
-    rectStroke(ctx, x + 535, y + 260, x + 805, y + 455, C.border, 2, a);
-    text(ctx, 'deep zoom stays analytic', x + 560, y + 304, 21, C.text, a);
-    text(ctx, 'the glyph is not a bitmap', x + 560, y + 336, 16, C.dim, a);
-    text(ctx, 'the shader integrates the same', x + 560, y + 385, 16, C.dim, a);
-    text(ctx, 'edge coverage per pixel', x + 560, y + 410, 16, C.dim, a);
-    this.frameEq.emit(ctx.atlas, ctx.inst, ctx.crv, ctx.rws, { x: x + 140, y: y + 670, size: 42, color: rgba(C.text, a), reveal: a });
-  }
-
-  private drawPipeline(ctx: EmitCtx, x: number, y: number, a: number, active: boolean) {
-    panel(ctx, x, y, SEC_W, SEC_H, '5. One analytic pass', 'Buffers describe contours; one shader evaluates coverage for the frame', a, active);
-    const local = this.activeLocal(4);
-    const activeStage = local >= 0 ? Math.min(4, Math.floor((local / TOUR_STEP) * 5)) : 3;
-    const stages = [
-      ['instances', 'bbox, color, rowBase'],
-      ['rows', 'band start + count'],
-      ['curves', 'monotone pieces'],
-      ['shader', 'gather local rows'],
-      ['framebuffer', 'resolved color'],
-    ];
-    const y0 = y + 255;
-    for (let i = 0; i < stages.length; i++) {
-      const bx = x + 55 + i * 165;
-      const hot = i === activeStage;
-      const pulse = hot && local >= 0 ? 0.75 + 0.25 * Math.sin(local * 5.0) : 1;
-      addRect(bx, y0, bx + 132, y0 + 118, rgba(hot ? C.cyan : C.panel2, (hot ? 0.26 * pulse : 0.82) * a), ctx.crv, ctx.rws, ctx.inst);
-      rectStroke(ctx, bx, y0, bx + 132, y0 + 118, hot ? C.cyan : C.border, hot ? 3 : 2.2, a);
-      text(ctx, stages[i][0], bx + 15, y0 + 40, 20, C.text, a);
-      text(ctx, stages[i][1], bx + 15, y0 + 72, 12.5, C.dim, a);
-      if (i < stages.length - 1) arrow(ctx, bx + 138, y0 + 59, bx + 160, y0 + 59, i === activeStage ? C.cyan : C.faint, 3, a);
-    }
-    const tableX = x + 105, tableY = y + 450;
-    text(ctx, 'instance buffer sample', tableX, tableY, 22, C.text, a);
-    const cols = ['xy', 'scale', 'rowBase', 'rgba'];
-    for (let i = 0; i < cols.length; i++) {
-      addRect(tableX + i * 136, tableY + 24, tableX + i * 136 + 124, tableY + 56, rgba(C.panel2, a), ctx.crv, ctx.rws, ctx.inst);
-      text(ctx, cols[i], tableX + i * 136 + 12, tableY + 46, 14, C.dim, a);
-    }
-    for (let r = 0; r < 2; r++) for (let i = 0; i < cols.length; i++) {
-      const xx = tableX + i * 136, yy = tableY + 64 + r * 34;
-      addRect(xx, yy, xx + 124, yy + 28, rgba([0.035, 0.039, 0.052, 1], a), ctx.crv, ctx.rws, ctx.inst);
-      const val = i === 0 ? `${240 + r * 18},${180 + r * 21}` : i === 1 ? '1.0' : i === 2 ? `${96 + r * 12}` : 'color';
-      text(ctx, val, xx + 12, yy + 20, 13, C.text, a);
-    }
-    text(ctx, 'CPU work: build compact references. GPU work: evaluate exact coverage at each pixel.', x + 110, y + 675, 18, C.dim, a);
-  }
-
-  private drawCaption(ctx: EmitCtx) {
-    if (!this.playing) return;
-    if (ctx.view.left < -1e11) return;
-    const idx = this.currentSection();
-    const cap = this.captions[idx];
-    const z = ctx.view.zoom;
-    const cullMargin = 200 / z;
-    const pad = 46 / z;
-    const x = ctx.view.left + cullMargin + pad;
-    const h = 96 / z;
-    const y = ctx.view.bottom - cullMargin - pad - h;
-    const exactW = ctx.view.right - ctx.view.left - cullMargin * 2;
-    const w = Math.min(760 / z, exactW * 0.72);
-    addRect(x, y, x + w, y + h, rgba([0.025, 0.028, 0.038, 1], 0.86), ctx.crv, ctx.rws, ctx.inst);
-    rectStroke(ctx, x, y, x + w, y + h, C.border, 1.5 / z, 0.8);
-    text(ctx, cap[0], x + 22 / z, y + 39 / z, 28 / z, C.text, 1);
-    text(ctx, cap[1], x + 22 / z, y + 70 / z, 14 / z, C.dim, 1);
-  }
-
-  private drawHandle(ctx: EmitCtx, x: number, y: number, h: Exclude<Handle, null>, a: number) {
-    const hot = this.hover === h || this.grabbed === h;
-    fillCircle(ctx, x, y, hot ? 12 : 9, hot ? C.rose : C.green, a);
-    strokeCircle(ctx, x, y, hot ? 18 : 14, hot ? C.rose : C.green, 2, a * 0.75);
-  }
-
-  private pick(wx: number, wy: number, scale: number): Handle {
-    const r = Math.max(12, 18 / Math.max(scale, 0.05));
-    const near = (x: number, y: number) => Math.hypot(wx - x, wy - y) <= r;
-    if (near(this.coverageCx, this.coverageCy)) return 'coverageCenter';
-    if (near(this.coverageCx + this.coverageR, this.coverageCy)) return 'coverageRadius';
-    if (near(this.testX, this.testY)) return 'windingPoint';
-    if (near(sx(2) + 60, this.bandY)) return 'bandProbe';
-    return null;
-  }
-
-  private insideCoverage(x: number, y: number) {
-    return Math.hypot(x - this.coverageCx, y - this.coverageCy) <= this.coverageR;
-  }
-
-  private coverageAtY(px: number, _py: number, ps: number, y: number) {
-    const dy = y - this.coverageCy;
-    const rr = this.coverageR * this.coverageR - dy * dy;
-    if (rr <= 0) return 0;
-    const dx = Math.sqrt(rr);
-    const left = Math.max(px, this.coverageCx - dx);
-    const right = Math.min(px + ps, this.coverageCx + dx);
-    return Math.max(0, right - left) / ps;
-  }
-
-  private coverageValue(px: number, py: number, ps: number) {
-    const key = `${px.toFixed(1)},${py.toFixed(1)},${ps.toFixed(1)},${this.coverageCx.toFixed(1)},${this.coverageCy.toFixed(1)},${this.coverageR.toFixed(1)}`;
-    if (key === this.coverageKey) return this.coverageCached;
-    const n = 24;
-    let inside = 0;
-    for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
-      if (this.insideCoverage(px + (i + 0.5) * ps / n, py + (j + 0.5) * ps / n)) inside++;
-    }
-    this.coverageKey = key;
-    this.coverageCached = inside / (n * n);
-    return this.coverageCached;
-  }
-
-  private anglePlot(cx: number, cy: number, r: number, px: number, py: number, x: number, y: number, w: number, h: number): Pt[] {
-    const key = `${cx.toFixed(2)},${cy.toFixed(2)},${r.toFixed(2)},${px.toFixed(2)},${py.toFixed(2)},${x.toFixed(2)},${y.toFixed(2)},${w.toFixed(2)},${h.toFixed(2)}`;
-    if (key === this.angleKey) return this.anglePts;
-    const pts: Pt[] = [];
-    let prev = Math.atan2(cy - py, cx + r - px);
-    let acc = 0;
-    const samples = 36;
-    for (let i = 0; i <= samples; i++) {
-      const t = i / samples;
-      const a = t * Math.PI * 2;
-      const qx = cx + Math.cos(a) * r, qy = cy + Math.sin(a) * r;
-      const th = Math.atan2(qy - py, qx - px);
-      let d = th - prev;
-      while (d > Math.PI) d -= Math.PI * 2;
-      while (d < -Math.PI) d += Math.PI * 2;
-      if (i > 0) acc += d;
-      prev = th;
-      const turns = acc / (Math.PI * 2);
-      pts.push([x + 34 + t * (w - 58), y + h - 30 - clamp(turns, -0.25, 1.25) * (h - 62) / 1.5]);
-    }
-    this.angleKey = key;
-    this.anglePts = pts;
-    return this.anglePts;
-  }
+  private drawCaption(ctx: EmitCtx) { if (!this.playing || ctx.view.left < -1e11) return; const c = CH[this.current()], z = ctx.view.zoom, cull = 200 / z, pad = 46 / z; const x = ctx.view.left + cull + pad, h = 96 / z, y = ctx.view.bottom - cull - pad - h, w = Math.min(760 / z, (ctx.view.right - ctx.view.left - cull * 2) * 0.72); rect(ctx, x, y, x + w, y + h, [0.02, 0.022, 0.03, 1], 0.86); rect(ctx, x, y, x + 6 / z, y + h, C.accent, 0.9); text(ctx, c.title, x + 26 / z, y + 26 / z, 28 / z, C.head, 1); text(ctx, c.sub.toUpperCase(), x + 26 / z, y + 66 / z, 13 / z, C.dim, 1); }
+  private handle(ctx: EmitCtx, x: number, y: number, h: Exclude<Handle, null>, a: number) { const hot = this.hover === h || this.grabbed === h; fillCircle(ctx, x, y, hot ? 12 : 9, hot ? C.gold : C.green, a); strokeCircle(ctx, x, y, hot ? 18 : 14, hot ? C.gold : C.green, 2, a * 0.75); }
+  private pick(wx: number, wy: number, sc: number): Handle { const r = Math.max(12, 18 / Math.max(sc, 0.05)), near = (x: number, y: number) => Math.hypot(wx - x, wy - y) <= r; if (near(this.covCx, this.covCy)) return 'coverageCenter'; if (near(this.covCx + this.covR, this.covCy)) return 'coverageRadius'; if (near(this.testX, this.testY)) return 'windingPoint'; if (near(cx0(CI_BANDS) + vxOff(CI_BANDS) - 30, this.bandY)) return 'bandProbe'; return null; }
+  private inCov(x: number, y: number) { return Math.hypot(x - this.covCx, y - this.covCy) <= this.covR; } private covAtY(px: number, ps: number, y: number) { const dy = y - this.covCy, rr = this.covR * this.covR - dy * dy; if (rr <= 0) return 0; const dx = Math.sqrt(rr); return Math.max(0, Math.min(px + ps, this.covCx + dx) - Math.max(px, this.covCx - dx)) / ps; } private covValue(px: number, py: number, ps: number) { const key = `${px.toFixed(1)},${py.toFixed(1)},${ps.toFixed(1)},${this.covCx.toFixed(1)},${this.covCy.toFixed(1)},${this.covR.toFixed(1)}`; if (key === this.covKey) return this.covVal; const n = 24; let ins = 0; for (let j = 0; j < n; j++) for (let k = 0; k < n; k++) if (this.inCov(px + (k + 0.5) * ps / n, py + (j + 0.5) * ps / n)) ins++; this.covKey = key; this.covVal = ins / (n * n); return this.covVal; }
 }
 
 export function bootExplainer(engine: Engine, onBack: () => void): () => void {
-  const s = createBaseApp(engine, false);
-  const board = new ExplainerBoard();
-  s.interactive = board;
-  board.replay(s);
-
+  const s = createBaseApp(engine, false); const board = new ExplainerBoard(); s.interactive = board; board.replay(s);
   let playBtn: HTMLButtonElement | null = null;
-  const chrome = document.createElement('div');
-  chrome.style.cssText = 'position:fixed;inset:0;z-index:50;pointer-events:none;overflow:hidden;font-family:"Inter","Segoe UI",system-ui,sans-serif';
-  const barTop = document.createElement('div');
-  const barBot = document.createElement('div');
-  const barCSS = 'position:absolute;left:0;right:0;height:11vh;background:#07080c;transition:transform .8s cubic-bezier(.7,0,.2,1)';
-  barTop.style.cssText = barCSS + ';top:0;transform:translateY(-100%)';
-  barBot.style.cssText = barCSS + ';bottom:0;transform:translateY(100%)';
-  const cap = document.createElement('div');
-  cap.style.cssText = 'position:absolute;left:7%;bottom:2.2vh;max-width:min(980px,84vw);opacity:0;will-change:opacity,transform;transition:opacity .35s ease,transform .35s ease;transform:translateY(8px)';
-  const titleEl = document.createElement('div');
-  titleEl.style.cssText = 'color:#f4f6fb;font-size:clamp(23px,2.5vw,42px);font-weight:650;letter-spacing:-.01em;line-height:1.0;text-shadow:0 2px 30px rgba(0,0,0,.65)';
-  const subEl = document.createElement('div');
-  subEl.style.cssText = 'color:#8ea2c8;font-size:clamp(10px,.95vw,13px);font-weight:650;letter-spacing:.24em;text-transform:uppercase;margin-top:8px;line-height:1.25;text-shadow:0 2px 20px rgba(0,0,0,.65)';
-  cap.append(titleEl, subEl);
-  chrome.append(barTop, barBot, cap);
-  document.body.appendChild(chrome);
-
-  const setChrome = (on: boolean) => {
-    barTop.style.transform = on ? 'translateY(0)' : 'translateY(-100%)';
-    barBot.style.transform = on ? 'translateY(0)' : 'translateY(100%)';
-    cap.style.opacity = on ? '1' : '0';
-    cap.style.transform = on ? 'translateY(0)' : 'translateY(8px)';
-  };
-  const updateCaption = () => {
-    const c = board.caption();
-    if (titleEl.textContent !== c.title) titleEl.textContent = c.title;
-    if (subEl.textContent !== c.sub) subEl.textContent = c.sub;
-  };
-  updateCaption();
-  setChrome(true);
-
-  const cancelTour = (e: Event) => {
-    if (!s.demo?.running) return;
-    const target = e.target;
-    if (target instanceof HTMLElement && target.closest('button')) return;
-    s.demo.stop();
-  };
-  const addCancelListeners = () => {
-    addEventListener('pointerdown', cancelTour, true);
-    addEventListener('wheel', cancelTour, { capture: true, passive: true });
-    addEventListener('keydown', cancelTour, true);
-  };
-  const removeCancelListeners = () => {
-    removeEventListener('pointerdown', cancelTour, true);
-    removeEventListener('wheel', cancelTour, true);
-    removeEventListener('keydown', cancelTour, true);
-  };
-  addCancelListeners();
-
-  s.demo = {
-    running: true,
-    toggle() {
-      this.running ? this.stop() : this.start();
-    },
-    start() {
-      this.running = true;
-      board.resume(s);
-      updateCaption();
-      setChrome(true);
-      addCancelListeners();
-      if (playBtn) playBtn.textContent = '⏸';
-    },
-    stop() {
-      this.running = false;
-      board.stopTour(s);
-      setChrome(false);
-      removeCancelListeners();
-      if (playBtn) playBtn.textContent = '▶';
-    },
-    update(now: number) {
-      if (!this.running) return;
-      board.update(now, s);
-      updateCaption();
-      if (!board.playing) this.stop();
-    },
-  };
-
-  const dispose = finishApp(s, onBack, [
-    { icon: '⏸', title: 'Pause/resume guided explainer', onClick: () => s.demo?.toggle(), ref: (el) => { playBtn = el; } },
-    { icon: '↺', title: 'Replay guided explainer', onClick: () => { board.replay(s); s.demo?.start(); } },
-    { icon: '1', title: 'Jump to pixel integral', onClick: () => { board.jumpTo(s, 0); s.demo?.stop(); } },
-    { icon: '2', title: 'Jump to winding number', onClick: () => { board.jumpTo(s, 1); s.demo?.stop(); } },
-    { icon: '3', title: 'Jump to bands and pieces', onClick: () => { board.jumpTo(s, 2); s.demo?.stop(); } },
-    { icon: '4', title: 'Jump to glyph contours', onClick: () => { board.jumpTo(s, 3); s.demo?.stop(); } },
-    { icon: '5', title: 'Jump to frame assembly', onClick: () => { board.jumpTo(s, 4); s.demo?.stop(); } },
-  ]);
-  return () => {
-    removeCancelListeners();
-    s.demo?.stop();
-    disableOrbit();
-    s.cam3d.active = false;
-    s.cam3d.exiting = false;
-    chrome.remove();
-    dispose();
-  };
+  const chrome = document.createElement('div'); chrome.style.cssText = 'position:fixed;inset:0;z-index:50;pointer-events:none;overflow:hidden;font-family:"Inter","Segoe UI",system-ui,sans-serif';
+  const barTop = document.createElement('div'), barBot = document.createElement('div'), barCSS = 'position:absolute;left:0;right:0;height:11vh;background:#0b0c10;transition:transform .8s cubic-bezier(.7,0,.2,1)'; barTop.style.cssText = barCSS + ';top:0;transform:translateY(-100%)'; barBot.style.cssText = barCSS + ';bottom:0;transform:translateY(100%)';
+  const cap = document.createElement('div'); cap.style.cssText = 'position:absolute;left:7%;bottom:2.2vh;max-width:min(980px,84vw);opacity:0;will-change:opacity,transform;transition:opacity .35s ease,transform .35s ease;transform:translateY(8px)';
+  const titleEl = document.createElement('div'); titleEl.style.cssText = 'color:#eef0f4;font-size:clamp(23px,2.5vw,40px);font-weight:650;letter-spacing:-.01em;line-height:1.0;text-shadow:0 2px 30px rgba(0,0,0,.65)';
+  const subEl = document.createElement('div'); subEl.style.cssText = 'color:#8a8d95;font-size:clamp(10px,.95vw,13px);font-weight:650;letter-spacing:.24em;text-transform:uppercase;margin-top:8px;text-shadow:0 2px 20px rgba(0,0,0,.65)';
+  cap.append(titleEl, subEl); const splash = document.createElement('div'); splash.style.cssText = 'position:absolute;inset:0;opacity:1;transition:opacity 1s ease;background:radial-gradient(58% 58% at 50% 45%,rgba(18,24,38,.3),rgba(7,8,12,.82))'; chrome.append(barTop, barBot, cap, splash); document.body.appendChild(chrome);
+  const setChrome = (on: boolean) => { barTop.style.transform = on ? 'translateY(0)' : 'translateY(-100%)'; barBot.style.transform = on ? 'translateY(0)' : 'translateY(100%)'; cap.style.opacity = on ? '1' : '0'; cap.style.transform = on ? 'translateY(0)' : 'translateY(8px)'; if (!on) splash.style.opacity = '0'; };
+  const updateCaption = () => { const c = board.caption(); if (titleEl.textContent !== c.title) titleEl.textContent = c.title; if (subEl.textContent !== c.sub) subEl.textContent = c.sub; };
+  updateCaption(); setChrome(true); let splashTimer = window.setTimeout(() => { splash.style.opacity = '0'; }, 4200);
+  const cancelTour = (e: Event) => { if (!s.demo?.running) return; const t = e.target; if (t instanceof HTMLElement && t.closest('button')) return; s.demo.stop(); };
+  const addCancel = () => { addEventListener('pointerdown', cancelTour, true); addEventListener('wheel', cancelTour, { capture: true, passive: true }); addEventListener('keydown', cancelTour, true); };
+  const removeCancel = () => { removeEventListener('pointerdown', cancelTour, true); removeEventListener('wheel', cancelTour, true); removeEventListener('keydown', cancelTour, true); };
+  addCancel();
+  s.demo = { running: true, toggle() { this.running ? this.stop() : this.start(); }, start() { this.running = true; board.resume(s); updateCaption(); setChrome(true); clearTimeout(splashTimer); splash.style.opacity = '0'; addCancel(); if (playBtn) playBtn.textContent = '⏸'; }, stop() { this.running = false; board.stopTour(s); setChrome(false); removeCancel(); if (playBtn) playBtn.textContent = '▶'; }, update(now: number) { if (!this.running) return; board.update(now, s); updateCaption(); if (!board.playing) this.stop(); } };
+  const dispose = finishApp(s, onBack, [ { icon: '⏸', title: 'Pause / resume', onClick: () => s.demo?.toggle(), ref: (el) => { playBtn = el; } }, { icon: '↺', title: 'Replay from the start', onClick: () => { clearTimeout(splashTimer); splash.style.opacity = '1'; splashTimer = window.setTimeout(() => { splash.style.opacity = '0'; }, 4200); board.replay(s); s.demo?.start(); } } ]);
+  return () => { removeCancel(); clearTimeout(splashTimer); s.demo?.stop(); disableOrbit(); s.cam3d.active = false; s.cam3d.exiting = false; chrome.remove(); dispose(); };
 }
+
+
+
+
+
+
+
+
