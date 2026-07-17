@@ -27,6 +27,8 @@ type Line = Span[];
 // A live widget occupies the dock region above the prompt and re-renders every
 // frame until done. Widgets draw GPU rects at fractional sizes with eased motion
 // — sub-cell smoothness a normal character-grid terminal can't do.
+export type TerminalCommandHandler = (raw: string, terminal: Terminal) => boolean;
+
 type Widget =
   | { kind: 'spinner'; label: string; start: number; dur: number }
   | { kind: 'progress'; label: string; start: number; dur: number }
@@ -39,6 +41,7 @@ type Widget =
 const easeOutCubic = (t: number) => 1 - Math.pow(1 - Math.min(1, Math.max(0, t)), 3);
 
 export class Terminal {
+  commandHandler: TerminalCommandHandler | null = null;
   font: FontFace | null = null;
   focused = true;
 
@@ -89,6 +92,10 @@ export class Terminal {
   get contentH() { return this.pad * 2 + this.rows * this.lineHeight; }
 
   // ── Public buffer API ──────────────────────────────────────────────────────
+  setCommandHandler(handler: TerminalCommandHandler | null) { this.commandHandler = handler; }
+  writeLine(text: string, color: number[] = T.text) { this.plain(text, color); }
+  writePairs(parts: { text: string; color?: number[] }[]) { this.push(parts.map((p) => ({ text: p.text, color: p.color ?? T.text }))); }
+  runCommand(raw: string) { this.run(raw); }
   private push(line: Line) { this.lines.push(line); if (this.lines.length > 500) this.lines.shift(); }
   private plain(text: string, color: number[]) { this.push([{ text, color }]); }
 
@@ -119,6 +126,7 @@ export class Terminal {
     if (!cmd) return;
     this.history.push(cmd); this.histIdx = this.history.length;
     const [name, ...args] = cmd.split(/\s+/);
+    if (this.commandHandler?.(cmd, this)) return;
     switch (name.toLowerCase()) {
       case 'help':
         this.plain('commands:', T.dim);
@@ -576,3 +584,5 @@ let T: TerminalTheme = {
   red: [.85, .33, .31, 1], magenta: [.62, .31, .87, 1], caret: [1, 1, 1, 1],
 };
 function TASSIGN(th: TerminalTheme) { T = th; }
+
+

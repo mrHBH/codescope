@@ -25,6 +25,7 @@ import { Surface3DDemo } from './boards/surface3dDemo';
 import { MathDemo } from './boards/mathDemo';
 import { PerfBench } from './bench';
 import { PerfBenchmark } from './benchmark';
+import { createScriptRuntime } from './scriptRuntime';
 
 // Boot the full showcase (every board + editor/terminal/file-tree + toolbar +
 // cinematic) against the shared engine. Returns a disposer that stops the frame
@@ -202,6 +203,8 @@ export function bootPlayground(engine: Engine, onBack?: () => void): () => void 
   terminal.x0 = editor.x0 + 1400;
   terminal.y0 = 0;
   s.terminal = terminal;
+  const scriptRuntime = createScriptRuntime(s, (message) => terminal.writeLine(message));
+  terminal.setCommandHandler((raw, term) => scriptRuntime.handleTerminal(raw, term));
 
   function frameTerminal() {
     const w = terminal.contentW;
@@ -335,3 +338,4 @@ export function bootPlayground(engine: Engine, onBack?: () => void): () => void 
     perfBenchmark.dispose();
   };
 }
+

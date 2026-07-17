@@ -53,6 +53,16 @@ export function createDemo(s: AppState): DemoController {
   const subEl = document.createElement('div');
   subEl.style.cssText = 'color:#8ea2c8;font-size:clamp(11px,1.15vw,15px);font-weight:600;letter-spacing:.32em;text-transform:uppercase;margin-top:14px;text-shadow:0 2px 20px rgba(0,0,0,.6)';
   cap.append(titleEl, subEl);
+  const tlWrap = document.createElement('div');
+  tlWrap.style.cssText = 'position:absolute;left:7%;right:7%;bottom:12vh;opacity:0;transition:opacity .35s ease,transform .35s ease;transform:translateY(8px)';
+  const tlTrack = document.createElement('div');
+  tlTrack.style.cssText = 'position:relative;height:12px;border-radius:999px;background:rgba(18,22,30,.9);border:1px solid rgba(120,132,160,.45);overflow:hidden;box-shadow:0 8px 24px rgba(0,0,0,.35)';
+  const tlHead = document.createElement('div');
+  tlHead.style.cssText = 'position:absolute;top:-3px;bottom:-3px;width:3px;background:#5dd6ff;box-shadow:0 0 10px rgba(93,214,255,.85)';
+  const tlMeta = document.createElement('div');
+  tlMeta.style.cssText = 'margin-top:8px;color:#9aa4b7;font-size:11px;letter-spacing:.14em;text-transform:uppercase;font-weight:650;text-shadow:0 2px 16px rgba(0,0,0,.55)';
+  tlTrack.appendChild(tlHead);
+  tlWrap.append(tlTrack, tlMeta);
   // Opening splash: a full-screen centred title card shown before the flight.
   const splash = document.createElement('div');
   splash.style.cssText = 'position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;opacity:0;transition:opacity 1s ease;background:radial-gradient(60% 60% at 50% 45%,rgba(20,26,40,.55),rgba(7,8,12,.92))';
@@ -63,7 +73,7 @@ export function createDemo(s: AppState): DemoController {
   splashSub.textContent = 'Analytic GPU Renderer';
   splashSub.style.cssText = 'color:#9fb3d8;font-size:clamp(12px,1.5vw,20px);font-weight:600;letter-spacing:.5em;text-transform:uppercase;padding-left:.5em';
   splash.append(splashTitle, splashSub);
-  root.append(barTop, barBot, cap, splash);
+  root.append(barTop, barBot, tlWrap, cap, splash);
   document.body.appendChild(root);
   let splashTimer = 0;
 
@@ -71,6 +81,7 @@ export function createDemo(s: AppState): DemoController {
   let idx = 0;
   let phaseStart = 0;
   let from: Pose = { tx: 0, tz: 0, zoom: 1, az: 0, polar: 0 };
+  let shotStarts: number[] = [];
 
   const Cw = () => s.tCanvas.width;
   const Ch = () => s.tCanvas.height;
@@ -189,6 +200,40 @@ export function createDemo(s: AppState): DemoController {
       title: 'windfoil', sub: 'One draw call' });
 
     shots = list;
+    shotStarts = [];
+    let acc = 0;
+    for (let i = 0; i < shots.length; i++) {
+      shotStarts.push(acc);
+      acc += shots[i].travel + shots[i].hold;
+    }
+    const total = Math.max(0.001, acc);
+    if (tlTrack.children.length < shots.length + 1) {
+      for (let i = 0; i < shots.length; i++) {
+        const seg = document.createElement('div');
+        seg.style.position = 'absolute';
+        seg.style.top = '0';
+        seg.style.bottom = '0';
+        seg.style.opacity = i % 2 ? '0.34' : '0.18';
+        seg.style.background = i % 2 ? 'rgba(128,146,186,.6)' : 'rgba(80,98,136,.6)';
+        tlTrack.appendChild(seg);
+      }
+      tlTrack.appendChild(tlHead);
+    }
+    for (let i = 0; i < shots.length; i++) {
+      const seg = tlTrack.children[i] as HTMLDivElement;
+      const dur = shots[i].travel + shots[i].hold;
+      seg.style.left = `${(shotStarts[i] / total) * 100}%`;
+      seg.style.width = `${(dur / total) * 100}%`;
+    }
+  }
+
+  function updateTimeline(now: number) {
+    if (!shots.length || !shotStarts.length) return;
+    const total = Math.max(0.001, shots.reduce((s0, sh) => s0 + sh.travel + sh.hold, 0));
+    const elapsed = shotStarts[idx] + Math.max(0, (now - phaseStart) / 1000);
+    const t = Math.min(total, elapsed);
+    tlHead.style.left = `${(t / total) * 100}%`;
+    tlMeta.textContent = `${idx + 1}/${shots.length}  ${shots[idx].title}`;
   }
 
   function applyPose(p: Pose) {
@@ -235,10 +280,13 @@ export function createDemo(s: AppState): DemoController {
       this.running = true;
       barTop.style.transform = 'translateY(0)';
       barBot.style.transform = 'translateY(0)';
+      tlWrap.style.opacity = '1';
+      tlWrap.style.transform = 'translateY(0)';
       splash.style.opacity = '1';
       clearTimeout(splashTimer);
       splashTimer = window.setTimeout(() => { splash.style.opacity = '0'; }, 2400);
       enterShot(0, performance.now());
+      updateTimeline(performance.now());
       addEventListener('pointerdown', stopOnInput, true);
       addEventListener('wheel', stopOnInput, { capture: true, passive: true });
       addEventListener('keydown', stopOnKey, true);
@@ -251,6 +299,8 @@ export function createDemo(s: AppState): DemoController {
       barTop.style.transform = 'translateY(-100%)';
       barBot.style.transform = 'translateY(100%)';
       cap.style.opacity = '0';
+      tlWrap.style.opacity = '0';
+      tlWrap.style.transform = 'translateY(8px)';
       splash.style.opacity = '0';
       clearTimeout(splashTimer);
       removeEventListener('pointerdown', stopOnInput, true);
@@ -275,6 +325,7 @@ export function createDemo(s: AppState): DemoController {
       const a = Math.min(fadeIn, fadeOut);
       cap.style.opacity = String(a);
       cap.style.transform = `translateY(${(1 - a) * 16}px)`;
+      updateTimeline(now);
     },
   };
 
