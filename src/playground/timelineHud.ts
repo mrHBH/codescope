@@ -26,6 +26,7 @@ const clamp01 = (v: number) => (v < 0 ? 0 : v > 1 ? 1 : v);
 
 export function createTimelineHud(opts: TimelineHudOptions = {}): TimelineHud {
   const activeScale = opts.activeScale ?? 1.42;
+  const activeStretch = 1.9;
 
   const el = document.createElement('div');
   el.style.cssText = `position:absolute;left:${opts.left ?? '7%'};right:${opts.right ?? '7%'};bottom:${opts.bottom ?? '4.2vh'};opacity:0;transition:opacity .35s ease,transform .35s ease;transform:translateY(8px);pointer-events:${opts.interactive ? 'auto' : 'none'}`;
@@ -55,8 +56,58 @@ export function createTimelineHud(opts: TimelineHudOptions = {}): TimelineHud {
   const markers: HTMLDivElement[] = [];
   const labelNodes: HTMLDivElement[] = [];
   let scrubHandler: ((ratio01: number) => void) | null = null;
+  let itemsState: TimelineHudItem[] = [];
+  let baseStarts: number[] = [];
+  let baseWidths: number[] = [];
+  let visualStarts: number[] = [];
+  let visualWidths: number[] = [];
+  let activeIndex = -1;
+  let progress01 = 0;
+
+  function recomputeLayout() {
+    if (!itemsState.length) return;
+    const total = Math.max(0.001, itemsState.reduce((s, it) => s + it.duration, 0));
+    baseStarts = [];
+    baseWidths = [];
+    let acc = 0;
+    for (let i = 0; i < itemsState.length; i++) {
+      const w = itemsState[i].duration / total;
+      baseStarts.push(acc);
+      baseWidths.push(w);
+      acc += w;
+    }
+
+    const stretched = baseWidths.map((w, i) => w * (i === activeIndex ? activeStretch : 1));
+    const stretchedSum = Math.max(1e-6, stretched.reduce((s, w) => s + w, 0));
+    visualWidths = stretched.map((w) => w / stretchedSum);
+    visualStarts = [];
+    acc = 0;
+    for (let i = 0; i < visualWidths.length; i++) {
+      visualStarts.push(acc);
+      acc += visualWidths[i];
+    }
+
+    for (let i = 0; i < itemsState.length; i++) {
+      markers[i].style.left = `${visualStarts[i] * 100}%`;
+      labelNodes[i].style.left = `${visualStarts[i] * 100}%`;
+      labelNodes[i].style.width = `${Math.max(7, visualWidths[i] * 100 - 0.25)}%`;
+    }
+  }
+
+  function mapProgress(ratio: number) {
+    const t = clamp01(ratio);
+    if (!baseWidths.length || !visualWidths.length) return t;
+    let seg = baseWidths.length - 1;
+    for (let i = 0; i < baseWidths.length; i++) {
+      const s = baseStarts[i], e = s + baseWidths[i];
+      if (t < e || i === baseWidths.length - 1) { seg = i; break; }
+    }
+    const localBase = baseWidths[seg] > 1e-6 ? (t - baseStarts[seg]) / baseWidths[seg] : 0;
+    return visualStarts[seg] + clamp01(localBase) * visualWidths[seg];
+  }
 
   function setItems(items: TimelineHudItem[]) {
+    itemsState = items.slice();
     while (markers.length) markers.pop()!.remove();
     while (labelNodes.length) labelNodes.pop()!.remove();
 
@@ -79,24 +130,19 @@ export function createTimelineHud(opts: TimelineHudOptions = {}): TimelineHud {
       labels.appendChild(lb);
       labelNodes.push(lb);
     }
-
-    const total = Math.max(0.001, items.reduce((s, it) => s + it.duration, 0));
-    let acc = 0;
-    for (let i = 0; i < items.length; i++) {
-      const x = (acc / total) * 100;
-      const w = (items[i].duration / total) * 100;
-      markers[i].style.left = `${x}%`;
-      labelNodes[i].style.left = `${x}%`;
-      labelNodes[i].style.width = `${Math.max(5, w - 0.3)}%`;
-      acc += items[i].duration;
-    }
+    activeIndex = items.length > 0 ? 0 : -1;
+    recomputeLayout();
+    setProgress01(progress01);
   }
 
   function setProgress01(t: number) {
-    head.style.left = `${clamp01(t) * 100}%`;
+    progress01 = clamp01(t);
+    head.style.left = `${mapProgress(progress01) * 100}%`;
   }
 
   function setActive(index: number) {
+    activeIndex = index;
+    recomputeLayout();
     for (let i = 0; i < labelNodes.length; i++) {
       const on = i === index;
       const lb = labelNodes[i];
@@ -110,6 +156,7 @@ export function createTimelineHud(opts: TimelineHudOptions = {}): TimelineHud {
       title.style.whiteSpace = 'nowrap';
       sub.style.display = on ? 'block' : 'none';
     }
+    setProgress01(progress01);
   }
 
   function setVisible(on: boolean) {
