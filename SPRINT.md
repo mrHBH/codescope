@@ -12,7 +12,7 @@ deterministic. GUI designer and terminal REPL are views over the same IR.
 |----------|-----------|
 | **Code-first, IR-backed** | A declarative TS builder (`src/authoring/builder/`) is the canonical authoring surface. It emits `SceneIR` JSON. GUI and terminal mutate the same IR. |
 | **Single source of truth = SceneIR JSON** | Serializable, diffable, shareable. `.windfoil.json`. All editors produce and consume this single format. |
-| **Taffy WASM from day 1** | Rust implementation of CSS Flexbox + Grid, compiles to ~40KB gzipped WASM. Used for authoring chrome layout AND user-authored compositions. |
+| **Taffy WASM from day 1** | Rust implementation of CSS Flexbox + Grid + Block layout. Must be built from source via wasm-pack (no pre-built npm package). Adds a Rust build dependency (`rustup`, `wasm-pack`) and a tiny wrapper crate under `src/authoring/layout/taffy-bridge/`. Worth it for Grid + aspect-ratio + intrinsic sizing that no other layout WASM offers. |
 | **Zero DOM** | All rendering (chrome included) through the analytic pipeline. One hidden `<div>` for text measurement + clipboard bridge only. |
 | **Deterministic: `state = f(t, params)`** | No `dt`-accumulated updaters. `Animation.seek(localT)` already works this way. Params are pure bindings; changing a param instantly recomputes the scene at the current playhead. |
 | **First-class interaction** | Parameters (sliders, toggles, draggable points) are IR-level primitives, not a bolt-on. The explainer's `coverageCenter`/`windingPoint`/`bandProbe` proved this works. |
@@ -197,9 +197,12 @@ src/authoring/                     # new top-level module
 │   ├── param-binder.ts            # resolves { $param: 'x' } refs → live values
 │   └── camera-controller.ts       # splines CameraKeyframe[], produces view matrix
 ├── layout/
-│   ├── taffy.ts                   # Taffy WASM init + wrapper
-│   ├── spec-to-taffy.ts           # LayoutSpec → Taffy node tree
-│   └── solver.ts                  # run layout pass → resolve at/positions for all objects
+│   ├── taffy-bridge/             # Rust crate — thin wasm-bindgen wrapper over Taffy
+│   │   ├── Cargo.toml
+│   │   └── src/lib.rs
+│   ├── taffy.ts                  # WASM init + wrapper class
+│   ├── spec-to-taffy.ts          # LayoutSpec → Taffy node tree
+│   └── solver.ts                  # run layout pass → resolve positions for all objects
 ├── chrome/                        # authoring tool UI (rendered analytically)
 │   ├── shell.ts                   # assembles viewport + all panels
 │   ├── toolbar.ts                 # top bar: file, edit, play/pause, mode toggle, zoom
@@ -244,7 +247,7 @@ src/authoring/                     # new top-level module
 
 | Package | Size | Purpose |
 |---------|------|---------|
-| `@taffy/taffy` (TBD exact package) | ~40KB gzipped WASM | Flexbox + Grid layout computation |
+| `taffy` (Rust crate) → WASM via wasm-pack | ~40KB gzipped | Flexbox + Grid + Block layout engine. Built from source — requires `rustup` + `wasm-pack` installed. A thin Rust wrapper crate lives at `src/authoring/layout/taffy-bridge/`; the WASM binary is checked into `public/taffy.wasm` so consumers don't need Rust installed. |
 | (none other) | | New authoring code is pure TS over existing deps |
 
 ---

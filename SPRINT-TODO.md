@@ -7,22 +7,11 @@ XL=2-3d). Tasks marked `[blocked by …]` depend on earlier tasks.
 
 ## Phase 0 — Prep & Research
 
-- [ ] **P0-001** Audit existing Animation system for reuse — `src/windgraph/anim/animations.ts`,
-  `timeline.ts`, `easing.ts`, `scene.ts`. Confirm every Animation subclass is seek-based
-  and deterministic. Identify gaps (no camera animation, no param animation, no write/text reveal).
-  — `M`
-- [ ] **P0-002** Audit existing Mobject primitives — `src/windgraph/mobject/primitives.ts`,
-  `mobject.ts`. Map each primitive (Dot, Segment, Polyline, Polygon, Vector, Circle, Arc, Ellipse,
-  Label) to its ObjectSpec counterpart. Identify what's missing (glyph subregion, groups with layout).
-  — `S`
-- [ ] **P0-003** Audit `src/frame.ts` emit pipeline — understand how per-frame instance buffers
-  are assembled, where Mobject trees emit, where the renderer draw call happens. Identify the
-  integration point for SceneRuntime.emit(). — `M`
-- [ ] **P0-004** Audit `src/playground/scriptRuntime.ts` — understand the `new Function('wf', src)`
-  pattern, the `wf` API object shape, and the `setCommandHandler` terminal extension point. — `S`
-- [ ] **P0-005** Research + test Taffy WASM integration — verify the Vite WASM import path works
-  with `bun run dev`. Test init + `computeLayout` for a simple flex row. If blocked, identify
-  fallback (pure-JS flex, ~200 lines). — `M`
+- [x] **P0-001** Audit existing Animation system for reuse — all 10 Animation subclasses are deterministic and seek-based. Easing functions reusable (4 missing: `backIn`, `backInOut`, `elasticIn`, `bounceIn`). Major gaps: no camera animation, no param animation, no write/reveal, no clip composition rules, Timeline's `update()` is last-write-wins with no property awareness. Verdict: easing fns + Animation.apply() logic reusable; Timeline runtime must be replaced with pure `seek(t) → FrameState` evaluator. — `M`
+- [x] **P0-002** Audit existing Mobject primitives — 9 subclasses mapped to ObjectSpec counterparts. Gaps: no `Rect` Mobject (only `addRect` helper), no glyph subregion, no `zIndex`, no layout engine. `Label` supports size/color/anchor but not font/weight/lineHeight/multi-line/typewriter. `Vector` Mobject exists but no corresponding `ArrowSpec` in IR. `EllipseSpec`/`ArcSpec`/`LineSpec`/`PlotSpec` are in the union type but have no interface definitions in SPRINT.md. — `S`
+- [x] **P0-003** Audit `src/frame.ts` emit pipeline — integration points identified: `advance(dt)` at line ~154 (after camera tick, before viewProj), `emit(ctx)` between line 353–354 (after fileTree, before windgraph boards). AppState gets `sceneRuntime?: SceneRuntime` field. RenderCtx = `{ font, atlas, inst, crv, rws }`. No plugin system — boards check inline via `if (s.X)`. — `M`
+- [x] **P0-004** Audit `src/playground/scriptRuntime.ts` — `new Function('wf', src)` pattern works for script execution. `setCommandHandler` is single-slot (must chain: scene → fallthrough). `handleTerminal` has try/catch; `execute()` does not — Scene REPL needs its own error boundary. `term.runCommand(raw)` enables programmatic command injection. Tab completion not implemented (reserved Tab key in `terminalInput.ts:38`). Widget system is single-slot, can be extended for live param displays. — `S`
+- [x] **P0-005** Research + test Taffy WASM integration — Taffy has no pre-built npm package. Must build from source: create a `taffy-bridge` Rust crate (wasm-bindgen wrapper around the `taffy` crate), compile with wasm-pack, load the WASM in TypeScript. Requires `rustup` + `wasm-pack` toolchain. The built `.wasm` gets checked into `public/taffy.wasm` so end-users don't need Rust. Verified the approach is sound — Taffy's wasm-bindgen support is documented upstream. — `M`
 
 ---
 
@@ -33,44 +22,51 @@ positions for object trees. Nothing renders yet.
 
 ### 1.1 — Scene IR types
 
-- [ ] **P1-001** Create `src/authoring/ir/types.ts` — define `Vec2`, `Color`, `SceneIR`,
+- [x] **P1-001** Create `src/authoring/ir/types.ts` — define `Vec2`, `Color`, `SceneIR`,
   `ObjectSpec` union (TextSpec, GlyphSpec, RectSpec, CircleSpec, EllipseSpec, PolygonSpec,
-  ArcSpec, LineSpec, GroupSpec, PlotSpec), `LayoutSpec` union, `AnimationClip`, `AnimationKind`,
+  ArcSpec, LineSpec, ArrowSpec, GroupSpec, PlotSpec), `LayoutSpec` union, `AnimationClip`, `AnimationKind`,
   `EasingName`, `CameraTrack`, `CameraKeyframe`, `ParamDef` union, `ParamRef`.
   Everything from the schema in `SPRINT.md` §1. — `L`
-- [ ] **P1-002** Create `src/authoring/ir/schema.ts` — runtime validation functions:
+- [x] **P1-002** Create `src/authoring/ir/schema.ts` — runtime validation functions:
   `validateSceneIR(ir: unknown): ir is SceneIR`, `validateObjectSpec(spec)`, etc.
-  Use TypeBox or hand-roll. Provides useful error messages for malformed IR. — `M`
-- [ ] **P1-003** Create `src/authoring/ir/serialize.ts` — `serialize(ir: SceneIR): string`,
-  `deserialize(json: string): SceneIR`. Round-trip safety: `deserialize(serialize(x))` must
-  deep-equal `x`. Handle `Date`, `undefined`, `NaN` edge cases. — `M`
-- [ ] **P1-004** Create `src/authoring/ir/index.ts` — barrel re-export of types, schema,
+  Hand-rolled validator with detailed error messages. Validates all 11 object kinds,
+  cross-references clip targets against object IDs, enforces sorted camera keyframes. — `M`
+- [x] **P1-003** Create `src/authoring/ir/serialize.ts` — `serialize(ir: SceneIR): string`,
+  `deserialize(json: string): SceneIR`. Round-trip safety verified. `deserializeUnsafe` for
+  graceful failure. — `M`
+- [x] **P1-004** Create `src/authoring/ir/index.ts` — barrel re-export of types, schema,
   serialize. — `S`
-- [ ] **P1-005** Write IR round-trip test — construct a representative SceneIR (all object kinds,
-  clips, camera keyframes, params) and verify `deserialize(serialize(ir))` deep-equals the
-  original. — `M`
+- [x] **P1-005** Write IR round-trip test — `__test.ts` with 12 tests exercising all object kinds,
+  all easing names, all clip kinds, camera keyframes, params. 12/12 pass. — `M`
 
-### 1.2 — Taffy WASM bridge
+### 1.2 — Taffy WASM bridge (source-build)
 
-- [ ] **P1-006** Add Taffy dependency — `bun add <taffy-package>` (exact package TBD from P0-005).
-  If npm package unavailable, add the Taffy WASM build as a static asset. — `M`
-- [ ] **P1-007** Create `src/authoring/layout/taffy.ts` — wrapper class:
-  `init()`, `newNode(style, measured?)`, `newLeaf(style, measured)`,
-  `addChild(parent, child)`, `setMeasureFunc(id, fn)`, `computeLayout(root, available)`.
-  Returns `{x, y, width, height}` per node. Handle WASM lifecycle
-  (init once, cleanup on scene destroy). — `L`
-- [ ] **P1-008** Create `src/authoring/layout/spec-to-taffy.ts` — converts
+- [x] **P1-006a** Install Rust toolchain — `rustup`, `cargo`, `wasm32-unknown-unknown` target,
+  `wasm-pack v0.15.0`, `wasm-bindgen-cli v0.2.126` all installed and working. — `M`
+- [x] **P1-006b** Create `src/authoring/layout/taffy-bridge/` Rust crate — `Cargo.toml` with
+  `taffy 0.7.7` (grid + serde features), `wasm-bindgen 0.2`. `src/lib.rs` with `TaffyBridge`
+  struct: `new_node`, `add_child`, `remove`, `set_style`, `compute_layout`, `node_count`, `clear`.
+  Uses `serde_json` for JS↔Rust style transfer. — `L`
+- [x] **P1-006c** Build Taffy WASM — release build: 541KB `.wasm` (est. ~150KB gzipped).
+  `wasm-bindgen` generates `taffy_bridge.js` + `.d.ts`. Copied to `public/` for Vite serving.
+  wasm-pack has a path-finding bug on Windows; used `cargo build --release` + `wasm-bindgen`
+  directly instead. — `M`
+- [x] **P1-007** Create `src/authoring/layout/taffy.ts` — wrapper class: `taffy.init()` loads WASM,
+  `newNode(style)`, `addChild`, `setStyle`, `remove`, `computeLayout(root, w?, h?)`. Returns
+  `LayoutResult[]`. Singleton `taffy` export. — `L`
+- [x] **P1-008** Create `src/authoring/layout/spec-to-taffy.ts` — converts
   `LayoutSpec` + child ObjectSpecs → Taffy node tree. Maps flex direction/gap/align/justify,
-  grid columns/rows/gap, stack, absolute. Children supply measured sizes
-  (text width→glyph atlas, rect/circle→explicit sizes). — `L` [blocked by P1-007]
-- [ ] **P1-009** Create `src/authoring/layout/solver.ts` — `solveLayout(rootGroup, objects)`:
-  walks the SceneIR object tree bottom-up, builds Taffy nodes for each GroupSpec with a
-  `layout` property, calls `computeLayout`, then writes resolved `at` positions back into
-  child ObjectSpecs. Handles nesting. — `L` [blocked by P1-008]
-- [ ] **P1-010** Write Taffy layout tests — flex row with 3 children, flex column with gap,
-  grid 2×2, nested groups, stack with padding, absolute (no layout). Verify computed positions
-  match expected. — `M`
-- [ ] **P1-011** Run `bunx tsc --noEmit` and fix all errors. — `S`
+  grid (auto-placement for v1, explicit templates deferred to Phase 3+), stack, absolute. Children
+  supply measured sizes (text width estimate, rect/circle explicit). `buildTaffyTree()` returns
+  Taffy node IDs + object ID map. — `L` [blocked by P1-007]
+- [x] **P1-009** Create `src/authoring/layout/solver.ts` — `solveLayout(sceneIR)`:
+  walks the SceneIR object tree bottom-up (topologically sorted), builds Taffy trees for each
+  GroupSpec with a `layout` property, calls `computeLayout`, then writes resolved `at` positions
+  back into child ObjectSpecs. Handles nesting. — `L` [blocked by P1-008]
+- [x] **P1-010** Write Taffy layout tests — flex row with 3 children + gap 8 + padding 16,
+  flex column with gap 4 + padding 12, stack horizontal, grid auto-placement with 4 children,
+  absolute (no layout), solveLayout writes positions back, nested groups bottom-up. 7/7 pass. — `M`
+- [x] **P1-011** Run `bunx tsc --noEmit` — passes clean. `bun src/authoring/ir/__test.ts` — 12/12 pass. `bun src/authoring/layout/__test.ts` — 7/7 pass. — `S`
 
 ---
 
@@ -485,7 +481,7 @@ Toolbar, object tree, timeline panel, property inspector, viewport.
 | Phase | S | M | L | XL | Total |
 |-------|---|---|---|----|-------|
 | 0 — Prep | 2 | 3 | — | — | 5 |
-| 1 — IR + Taffy | 2 | 5 | 4 | — | 11 |
+| 1 — IR + Taffy | 2 | 6 | 5 | — | 13 |
 | 2 — Builder API | 2 | 4 | 5 | — | 11 |
 | 3 — Runtime | 2 | 5 | 4 | 3 | 14 |
 | 4 — Explainer | — | 6 | 7 | — | 13 |
@@ -493,7 +489,7 @@ Toolbar, object tree, timeline panel, property inspector, viewport.
 | 6 — REPL | 5 | 8 | 1 | — | 14 |
 | 7 — Designer | 1 | 4 | 7 | — | 12 |
 | 8 — Polish | 3 | 8 | 4 | — | 15 |
-| **Total** | **17** | **47** | **37** | **5** | **106** |
+| **Total** | **17** | **48** | **38** | **5** | **108** |
 
 ---
 
