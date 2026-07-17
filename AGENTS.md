@@ -2,7 +2,13 @@
 
 Ground rules for any AI agent working in this repository. Read this before doing
 anything. For deeper technical facts, also consult repo memory
-(`/memories/repo/codescope.md`), `VISION.md`, and `PROGRESS.md`.
+(`/memories/repo/codescope.md`), `VISION.md`, `PROGRESS.md`, `SPRINT.md`, and
+`SPRINT-TODO.md`.
+
+Active sprint: **Authoring System** — a declarative TS builder + Scene IR +
+analytic tool chrome that beats the Manim API. See `SPRINT.md` for full
+architecture and phase plan. See `SPRINT-TODO.md` for the granular task list
+with checkboxes.
 
 ---
 
@@ -23,6 +29,10 @@ anything. For deeper technical facts, also consult repo memory
   adjustments): make the change, typecheck at most, then immediately hand it back
   to the user to test. Reserve long measurement/verification cycles for genuinely
   tricky bugs or when the user explicitly asks to "measure / verify / be thorough".
+- **Maintain the sprint todo.** After completing any task from `SPRINT-TODO.md`,
+  immediately mark the corresponding checkbox `[x]` in that file so progress is
+  always current. After any unit of work that creates a new task not in the list,
+  add it to the correct phase section.
 
 ---
 
@@ -45,3 +55,5 @@ editor, terminal, and file tree entirely through a closed-form coverage integral
 - `src/css/` — CSS engine, themes, theme controller.
 - `src/editor/` — code editor, terminal, file tree.
 - `src/frame.ts` — the per-frame instance-buffer build + single draw call.
+- `src/authoring/` — **(active sprint)** Scene IR, declarative TS builder,
+  layout (Taffy WASM), runtime, analytic tool chrome, designer, REPL.

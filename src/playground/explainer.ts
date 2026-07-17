@@ -14,6 +14,7 @@ import { EmitCache } from '../windfoil/emitCache';
 import { MathTex } from '../windgraph/math/mathtex';
 import { enter3D } from '../camera/camera';
 import { disableOrbit, orbitDistForZoom, orbitSetPose, updateOrbit } from '../camera/orbit';
+import { createTimelineHud } from './timelineHud';
 
 type BoardView = { zoom: number; left: number; right: number; top: number; bottom: number };
 type EmitCtx = { font: any; atlas: any; inst: number[]; crv: number[]; rws: number[]; view: BoardView; now: number };
@@ -181,24 +182,32 @@ export function bootExplainer(engine: Engine, onBack: () => void): () => void {
   const cap = document.createElement('div'); cap.style.cssText = 'display:none;position:absolute;left:7%;bottom:13.4vh;max-width:min(980px,84vw);opacity:0;will-change:opacity,transform;transition:opacity .35s ease,transform .35s ease;transform:translateY(8px)';
   const titleEl = document.createElement('div'); titleEl.style.cssText = 'color:#eef0f4;font-size:clamp(23px,2.5vw,40px);font-weight:650;letter-spacing:-.01em;line-height:1.0;text-shadow:0 2px 30px rgba(0,0,0,.65)';
   const subEl = document.createElement('div'); subEl.style.cssText = 'color:#8a8d95;font-size:clamp(10px,.95vw,13px);font-weight:650;letter-spacing:.24em;text-transform:uppercase;margin-top:8px;text-shadow:0 2px 20px rgba(0,0,0,.65)';
-  const tlWrap = document.createElement('div'); tlWrap.dataset.explainerTimeline = '1'; tlWrap.style.cssText = 'position:absolute;left:7%;right:7%;bottom:4.2vh;opacity:0;transition:opacity .35s ease,transform .35s ease;transform:translateY(8px);pointer-events:auto';
-  const tlTop = document.createElement('div'); tlTop.style.cssText = 'display:flex;align-items:center;gap:14px;padding:0 8px';
-  const tlTrack = document.createElement('div'); tlTrack.style.cssText = 'position:relative;flex:1;height:16px;overflow:visible';
-  const tlLine = document.createElement('div'); tlLine.style.cssText = 'position:absolute;left:0;right:0;top:50%;height:2px;transform:translateY(-1px);background:rgba(126,138,166,.52);box-shadow:0 1px 10px rgba(0,0,0,.35)';
-  const tlHead = document.createElement('div'); tlHead.style.cssText = 'position:absolute;top:-3px;bottom:-3px;width:3px;background:#5dd6ff;box-shadow:0 0 10px rgba(93,214,255,.85)';
-  const tlTime = document.createElement('div'); tlTime.style.cssText = 'min-width:170px;text-align:right;color:#a8b2c3;font-size:11px;letter-spacing:.11em;text-transform:uppercase;font-weight:700;text-shadow:0 2px 16px rgba(0,0,0,.55)';
-  const tlLabels = document.createElement('div'); tlLabels.style.cssText = 'position:relative;height:46px;margin-top:8px;pointer-events:none';
-  tlTrack.append(tlLine, tlHead); tlTop.append(tlTrack, tlTime); tlWrap.append(tlTop, tlLabels);
-  cap.append(titleEl, subEl); const splash = document.createElement('div'); splash.style.cssText = 'position:absolute;inset:0;opacity:1;transition:opacity 1s ease;background:radial-gradient(58% 58% at 50% 45%,rgba(18,24,38,.3),rgba(7,8,12,.82))'; chrome.append(barTop, barBot, tlWrap, cap, splash); document.body.appendChild(chrome);
-  const setChrome = (on: boolean) => { barTop.style.transform = on ? 'translateY(0)' : 'translateY(-100%)'; barBot.style.transform = on ? 'translateY(0)' : 'translateY(100%)'; tlWrap.style.opacity = on ? '1' : '0'; tlWrap.style.transform = on ? 'translateY(0)' : 'translateY(8px)'; if (!on) splash.style.opacity = '0'; };
+  const timeline = createTimelineHud({ left: '7%', right: '7%', bottom: '2.4vh', activeScale: 2.0, interactive: true });
+  timeline.el.dataset.explainerTimeline = '1';
+  cap.append(titleEl, subEl); const splash = document.createElement('div'); splash.style.cssText = 'position:absolute;inset:0;opacity:1;transition:opacity 1s ease;background:radial-gradient(58% 58% at 50% 45%,rgba(18,24,38,.3),rgba(7,8,12,.82))'; chrome.append(barTop, barBot, timeline.el, cap, splash); document.body.appendChild(chrome);
+  const setChrome = (on: boolean) => { barTop.style.transform = on ? 'translateY(0)' : 'translateY(-100%)'; barBot.style.transform = on ? 'translateY(0)' : 'translateY(100%)'; timeline.setVisible(on); if (!on) splash.style.opacity = '0'; };
   const updateCaption = () => { const c = board.caption(); if (titleEl.textContent !== c.title) titleEl.textContent = c.title; if (subEl.textContent !== c.sub) subEl.textContent = c.sub; };
-  const chapterAtTime = (t: number) => { const chapters = board.chapters(); let acc = 0; for (let i = 0; i < chapters.length; i++) { acc += chapters[i].duration; if (t < acc || i === chapters.length - 1) return chapters[i]; } return chapters[chapters.length - 1]; };
-  const updateTimeline = () => { const chapters = board.chapters(); const total = Math.max(0.001, board.duration()); const t = clamp(board.tourT, 0, total); tlHead.style.left = `${(t / total) * 100}%`; if (tlLabels.children.length < chapters.length) { for (let i = 0; i < chapters.length; i++) { const mk = document.createElement('div'); mk.dataset.tlMarker = '1'; mk.style.position = 'absolute'; mk.style.top = '1px'; mk.style.bottom = '1px'; mk.style.width = '0'; mk.style.borderLeft = '1px solid rgba(132,145,172,.7)'; tlTrack.appendChild(mk); const lb = document.createElement('div'); lb.style.position = 'absolute'; lb.style.top = '0'; lb.style.transformOrigin = 'left top'; lb.style.transition = 'transform .2s ease, opacity .2s ease'; lb.innerHTML = `<div style="color:#d6dde9;font-size:10px;font-weight:700;letter-spacing:.05em;white-space:nowrap;">${chapters[i].title}</div><div style="color:#7f8aa0;font-size:9px;letter-spacing:.12em;text-transform:uppercase;white-space:nowrap;">${chapters[i].sub}</div>`; tlLabels.appendChild(lb); } } let acc = 0; let activeIdx = chapters.length - 1; const markers = tlTrack.querySelectorAll('[data-tl-marker]') as NodeListOf<HTMLDivElement>; for (let i = 0; i < chapters.length; i++) { const d = chapters[i].duration; const x = (acc / total) * 100; const w = (d / total) * 100; const mk = markers[i]; if (mk) mk.style.left = `${x}%`; const lb = tlLabels.children[i] as HTMLDivElement; lb.style.left = `${x}%`; lb.style.width = `${Math.max(5, w - 0.3)}%`; if (t < acc + d && activeIdx === chapters.length - 1) activeIdx = i; acc += d; } for (let i = 0; i < chapters.length; i++) { const lb = tlLabels.children[i] as HTMLDivElement; const on = i === activeIdx; const title = lb.children[0] as HTMLDivElement; const sub = lb.children[1] as HTMLDivElement; lb.style.opacity = on ? '1' : '0.52'; lb.style.transform = on ? 'scale(1.42) translateY(-1px)' : 'scale(0.58)'; lb.style.zIndex = on ? '3' : '1'; title.style.overflow = on ? 'visible' : 'hidden'; title.style.textOverflow = on ? 'clip' : 'ellipsis'; title.style.whiteSpace = 'nowrap'; sub.style.display = on ? 'block' : 'none'; } tlTime.textContent = `${t.toFixed(1)}s / ${total.toFixed(1)}s`; };
-  const seekFromClientX = (clientX: number) => { const rect = tlTrack.getBoundingClientRect(); const ratio = clamp((clientX - rect.left) / Math.max(1, rect.width), 0, 1); const keepPlaying = !!s.demo?.running; board.seek(s, ratio * board.duration(), !keepPlaying); if (keepPlaying) board.playing = true; updateTimeline(); };
-  let draggingTimeline = false;
-  tlWrap.addEventListener('pointerdown', (ev) => { draggingTimeline = true; (ev.target as HTMLElement).setPointerCapture?.(ev.pointerId); seekFromClientX(ev.clientX); ev.preventDefault(); ev.stopPropagation(); });
-  tlWrap.addEventListener('pointermove', (ev) => { if (!draggingTimeline) return; seekFromClientX(ev.clientX); ev.preventDefault(); ev.stopPropagation(); });
-  tlWrap.addEventListener('pointerup', (ev) => { draggingTimeline = false; (ev.target as HTMLElement).releasePointerCapture?.(ev.pointerId); ev.preventDefault(); ev.stopPropagation(); });
+  const chapters = board.chapters();
+  timeline.setItems(chapters.map((c) => ({ title: c.title, subtitle: c.sub, duration: c.duration })));
+  const updateTimeline = () => {
+    const total = Math.max(0.001, board.duration());
+    const t = clamp(board.tourT, 0, total);
+    timeline.setProgress01(t / total);
+    let acc = 0;
+    let activeIdx = chapters.length - 1;
+    for (let i = 0; i < chapters.length; i++) {
+      acc += chapters[i].duration;
+      if (t < acc) { activeIdx = i; break; }
+    }
+    timeline.setActive(activeIdx);
+    timeline.setTimeLabel(`${t.toFixed(1)}s / ${total.toFixed(1)}s`);
+  };
+  timeline.onScrub((ratio) => {
+    const keepPlaying = !!s.demo?.running;
+    board.seek(s, ratio * board.duration(), !keepPlaying);
+    if (keepPlaying) board.playing = true;
+    updateTimeline();
+  });
   updateCaption(); updateTimeline(); setChrome(true); let splashTimer = window.setTimeout(() => { splash.style.opacity = '0'; }, 4200);
   const cancelTour = (e: Event) => { if (!s.demo?.running) return; const t = e.target; if (t instanceof HTMLElement && (t.closest('button') || t.closest('[data-explainer-timeline]'))) return; s.demo.stop(); };
   const addCancel = () => { addEventListener('pointerdown', cancelTour, true); addEventListener('wheel', cancelTour, { capture: true, passive: true }); addEventListener('keydown', cancelTour, true); };
