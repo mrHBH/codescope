@@ -7,10 +7,11 @@ import type { Engine } from './engine';
 import type { AppState } from '../state';
 import { createBaseApp, finishApp } from './app';
 import { addRect, layoutStr, tw } from '../layout/metrics';
-import { fillQuads, strokeInto, polygonQuads, circleQuads, type Pt } from '../windgraph/stroke/stroke';
+import { fillQuads, strokeInto, strokeQuadPath, polygonQuads, circleQuads, type Pt } from '../windgraph/stroke/stroke';
+import { EmitCache } from '../windfoil/emitCache';
 import { MathTex } from '../windgraph/math/mathtex';
 import { enter3D } from '../camera/camera';
-import { disableOrbit, orbitDistForZoom, orbitGetPose, orbitSetPose, updateOrbit } from '../camera/orbit';
+import { disableOrbit, orbitDistForZoom, orbitSetPose, updateOrbit } from '../camera/orbit';
 
 type BoardView = { zoom: number; left: number; right: number; top: number; bottom: number };
 type EmitCtx = { font: any; atlas: any; inst: number[]; crv: number[]; rws: number[]; view: BoardView; now: number };
@@ -61,7 +62,12 @@ function line(ctx: EmitCtx, pts: Pt[], color: number[], width = 3, alpha = 1, da
 }
 
 function rectStroke(ctx: EmitCtx, x0: number, y0: number, x1: number, y1: number, color: number[], width = 2, alpha = 1) {
-  line(ctx, [[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]], color, width, alpha);
+  const c = rgba(color, alpha);
+  const h = width / 2;
+  addRect(x0 - h, y0 - h, x1 + h, y0 + h, c, ctx.crv, ctx.rws, ctx.inst);
+  addRect(x1 - h, y0 - h, x1 + h, y1 + h, c, ctx.crv, ctx.rws, ctx.inst);
+  addRect(x0 - h, y1 - h, x1 + h, y1 + h, c, ctx.crv, ctx.rws, ctx.inst);
+  addRect(x0 - h, y0 - h, x0 + h, y1 + h, c, ctx.crv, ctx.rws, ctx.inst);
 }
 
 function fillPoly(ctx: EmitCtx, pts: Pt[], color: number[], alpha = 1) {
@@ -69,17 +75,13 @@ function fillPoly(ctx: EmitCtx, pts: Pt[], color: number[], alpha = 1) {
 }
 
 function fillCircle(ctx: EmitCtx, x: number, y: number, r: number, color: number[], alpha = 1) {
-  fillQuads(circleQuads(x, y, r, 32), rgba(color, alpha), ctx.inst, ctx.crv, ctx.rws);
+  fillQuads(circleQuads(x, y, r, 16), rgba(color, alpha), ctx.inst, ctx.crv, ctx.rws);
 }
 
 function strokeCircle(ctx: EmitCtx, x: number, y: number, r: number, color: number[], width = 3, alpha = 1) {
-  const pts: Pt[] = [];
-  const samples = 40;
-  for (let i = 0; i <= samples; i++) {
-    const a = (i / samples) * Math.PI * 2;
-    pts.push([x + Math.cos(a) * r, y + Math.sin(a) * r]);
-  }
-  line(ctx, pts, color, width, alpha);
+  const quads: number[] = [];
+  strokeQuadPath(circleQuads(x, y, r, 10), { width, cap: 'round', join: 'round' }, true, quads);
+  fillQuads(quads, rgba(color, alpha), ctx.inst, ctx.crv, ctx.rws);
 }
 
 function arrow(ctx: EmitCtx, x0: number, y0: number, x1: number, y1: number, color: number[], width = 4, alpha = 1) {
@@ -139,6 +141,7 @@ class ExplainerBoard {
   private windingEq = new MathTex('w(p)=\\frac{1}{2\\pi}\\oint_{\\partial S} d\\theta');
   private rowEq = new MathTex('B_y \\to rows[y_0..y_1]');
   private frameEq = new MathTex('color = \\sum_i coverage_i');
+  private sectionCaches = [new EmitCache(), new EmitCache(), new EmitCache(), new EmitCache(), new EmitCache()];
   private angleKey = '';
   private anglePts: Pt[] = [];
   private coverageKey = '';
@@ -218,7 +221,10 @@ class ExplainerBoard {
     const current = this.currentSection();
     for (let i = 0; i < 5; i++) {
       const a = this.sectionAlpha(i);
-      if (a > 0.02 && this.sectionVisible(i, view, current)) this.drawSection(ctx, i, a, i === current);
+      if (a <= 0.02 || !this.sectionVisible(i, view, current)) continue;
+      const active = i === current && this.playing;
+      if (active) this.drawSection(ctx, i, a, true);
+      else this.sectionCaches[i].run(this.sectionSig(i, a), inst, crv, rws, () => this.drawSection(ctx, i, a, false));
     }
     this.drawCaption(ctx);
   }
@@ -306,14 +312,7 @@ class ExplainerBoard {
   }
 
   private sectionVisible(i: number, view: BoardView, current: number) {
-    if (view.left < -1e11) {
-      const p = orbitGetPose();
-      const cx = sx(i) + SEC_W / 2, cy = sy(i) + SEC_H / 2;
-      const dist = Math.hypot(cx - p.tx, cy - p.tz);
-      const local = this.localT(current);
-      const transitioning = local > TOUR_STEP - TOUR_TRAVEL - 0.2 || local < 0.25;
-      return dist < 980 || (transitioning && Math.abs(i - current) <= 1);
-    }
+    if (view.left < -1e11) return true;
     const margin = 120 / Math.max(view.zoom, 0.05);
     const x0 = sx(i) - margin, x1 = sx(i) + SEC_W + margin;
     const y0 = sy(i) - margin, y1 = sy(i) + SEC_H + margin;
@@ -326,8 +325,16 @@ class ExplainerBoard {
     return this.playing && this.currentSection() === i ? this.localT(i) : -1;
   }
 
+  private sectionSig(i: number, alpha: number) {
+    const a = alpha.toFixed(2);
+    if (i === 0) return `${a}|${this.coverageCx.toFixed(1)},${this.coverageCy.toFixed(1)},${this.coverageR.toFixed(1)}`;
+    if (i === 1) return `${a}|${this.testX.toFixed(1)},${this.testY.toFixed(1)}`;
+    if (i === 2) return `${a}|${this.bandY.toFixed(1)}`;
+    return a;
+  }
+
   private drawBackdrop(ctx: EmitCtx) {
-    const step = 120;
+    const step = 240;
     const left = Math.floor(this.x0 / step) * step;
     const right = this.x0 + this.width;
     const top = Math.floor(this.y0 / step) * step;
@@ -401,7 +408,7 @@ class ExplainerBoard {
     const local = this.activeLocal(0);
     const integralA = local >= 0 ? smooth((local - 3.0) / 1.25) : 1;
     if (integralA <= 0.015) return;
-    const n = 7;
+    const n = 5;
     const scan = local >= 0 ? 0.5 + 0.5 * Math.sin(local * 1.25) : 0.62;
     const scanY = py + scan * ps;
     addRect(px, py, px + ps, py + ps, rgba([0.025, 0.030, 0.040, 1], a * integralA), ctx.crv, ctx.rws, ctx.inst);
@@ -422,7 +429,7 @@ class ExplainerBoard {
     const plotX = x + 455, plotY = y + 455, plotW = 342, plotH = 205;
     plotFrame(ctx, plotX, plotY, plotW, plotH, a * integralA);
     const pts: Pt[] = [];
-    const plotSamples = 48;
+    const plotSamples = 32;
     for (let i = 0; i <= plotSamples; i++) {
       const yy = py + (i / plotSamples) * ps;
       const c = this.coverageAtY(px, py, ps, yy);
@@ -489,14 +496,15 @@ class ExplainerBoard {
 
     const tx = x + 500, ty = y + 205;
     text(ctx, 'row table', tx, ty, 24, C.text, a);
-    for (let i = 0; i < 8; i++) {
+    const rowRows = 5;
+    for (let i = 0; i < rowRows; i++) {
       const yy = ty + 34 + i * 42;
-      const on = i === Math.min(7, Math.floor(activeBand * 8 / bands));
+      const on = i === Math.min(rowRows - 1, Math.floor(activeBand * rowRows / bands));
       addRect(tx, yy, tx + 295, yy + 30, rgba(on ? C.cyan : C.panel2, on ? 0.30 * a : 0.72 * a), ctx.crv, ctx.rws, ctx.inst);
       rectStroke(ctx, tx, yy, tx + 295, yy + 30, on ? C.cyan : C.border, 1.4, a);
       text(ctx, `row ${i}: start ${120 + i * 9}  count ${3 + (i % 4)}`, tx + 14, yy + 21, 15, on ? C.text : C.dim, a);
     }
-    arrow(ctx, bx + bw + 10, probeY, tx - 18, ty + 34 + Math.min(7, Math.floor(activeBand * 8 / bands)) * 42 + 15, C.cyan, 3, a);
+    arrow(ctx, bx + bw + 10, probeY, tx - 18, ty + 34 + Math.min(rowRows - 1, Math.floor(activeBand * rowRows / bands)) * 42 + 15, C.cyan, 3, a);
     this.rowEq.emit(ctx.atlas, ctx.inst, ctx.crv, ctx.rws, { x: tx, y: y + 645, size: 43, color: rgba(C.text, a), reveal: a });
   }
 
@@ -549,15 +557,15 @@ class ExplainerBoard {
     }
     const tableX = x + 105, tableY = y + 450;
     text(ctx, 'instance buffer sample', tableX, tableY, 22, C.text, a);
-    const cols = ['x', 'y', 'scale', 'rowBase', 'rgba'];
+    const cols = ['xy', 'scale', 'rowBase', 'rgba'];
     for (let i = 0; i < cols.length; i++) {
-      addRect(tableX + i * 128, tableY + 24, tableX + i * 128 + 118, tableY + 56, rgba(C.panel2, a), ctx.crv, ctx.rws, ctx.inst);
-      text(ctx, cols[i], tableX + i * 128 + 12, tableY + 46, 14, C.dim, a);
+      addRect(tableX + i * 136, tableY + 24, tableX + i * 136 + 124, tableY + 56, rgba(C.panel2, a), ctx.crv, ctx.rws, ctx.inst);
+      text(ctx, cols[i], tableX + i * 136 + 12, tableY + 46, 14, C.dim, a);
     }
-    for (let r = 0; r < 3; r++) for (let i = 0; i < cols.length; i++) {
-      const xx = tableX + i * 128, yy = tableY + 64 + r * 34;
-      addRect(xx, yy, xx + 118, yy + 28, rgba([0.035, 0.039, 0.052, 1], a), ctx.crv, ctx.rws, ctx.inst);
-      const val = i === 0 ? `${240 + r * 18}` : i === 1 ? `${180 + r * 21}` : i === 2 ? '1.0' : i === 3 ? `${96 + r * 12}` : 'color';
+    for (let r = 0; r < 2; r++) for (let i = 0; i < cols.length; i++) {
+      const xx = tableX + i * 136, yy = tableY + 64 + r * 34;
+      addRect(xx, yy, xx + 124, yy + 28, rgba([0.035, 0.039, 0.052, 1], a), ctx.crv, ctx.rws, ctx.inst);
+      const val = i === 0 ? `${240 + r * 18},${180 + r * 21}` : i === 1 ? '1.0' : i === 2 ? `${96 + r * 12}` : 'color';
       text(ctx, val, xx + 12, yy + 20, 13, C.text, a);
     }
     text(ctx, 'CPU work: build compact references. GPU work: evaluate exact coverage at each pixel.', x + 110, y + 675, 18, C.dim, a);
@@ -631,7 +639,7 @@ class ExplainerBoard {
     const pts: Pt[] = [];
     let prev = Math.atan2(cy - py, cx + r - px);
     let acc = 0;
-    const samples = 56;
+    const samples = 36;
     for (let i = 0; i <= samples; i++) {
       const t = i / samples;
       const a = t * Math.PI * 2;
