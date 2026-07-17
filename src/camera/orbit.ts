@@ -45,6 +45,7 @@ export function initOrbit(dom: HTMLElement) {
 
 export function isReady() { return ready; }
 export function isEnabled() { return ready && controls.enabled; }
+export function setOrbitEnabled(enabled: boolean) { if (ready) controls.enabled = enabled; }
 
 // The distance-based on-axis scale (world px → device px) for the AA-skirt pad.
 export function orbitScale(viewHpx: number): number {

@@ -5,6 +5,7 @@
 import type { AppState } from '../state';
 import type { StyledEl } from '../layout/types';
 import { bufCoords, scrToWorld, scrToDoc, goToPage, fitDocument, cameraScale } from './camera';
+import { setOrbitEnabled } from './orbit';
 import { hitTest, findEditableAncestor } from '../layout/walk';
 import { layoutEditable, placeCaretAtPoint, caretIndexAtPoint } from '../layout/editable';
 import { ContextMenu, type MenuItem } from '../ui/contextMenu';
@@ -99,8 +100,20 @@ export function attachInput(s: AppState): () => void {
   on(rCanvas, 'pointerdown', (e) => {
     if (e.button !== 0) return; // only the primary (left) button drives editing/nav
     // 3D free camera: the camera-controls library owns pointer input on the
-    // canvas (left = truck, right = rotate). Don't capture or run 2D logic.
-    if (s.cam3d.active) return;
+    // canvas, except draggable world-space board handles, which are ray-cast to
+    // the grounded document plane and temporarily disable orbit controls.
+    if (s.cam3d.active) {
+      if (!s.pointerInput || !s.interactive) return;
+      const b = bufCoords(s, e.clientX, e.clientY);
+      const w = scrToDoc(s, b.x, b.y);
+      if (!s.interactive.tryBeginDrag(w.x, w.y, cameraScale(s))) return;
+      rCanvas.setPointerCapture(e.pointerId);
+      s.pointers.set(e.pointerId, { x: b.x, y: b.y });
+      s.dragging = true; s.velX = s.velY = 0; s.lastMoveT = performance.now();
+      setOrbitEnabled(false);
+      e.preventDefault();
+      return;
+    }
     if (!s.pointerInput && !s.cameraInput) return; // both inputs disabled
     rCanvas.setPointerCapture(e.pointerId);
     const b = bufCoords(s, e.clientX, e.clientY);
@@ -207,8 +220,17 @@ export function attachInput(s: AppState): () => void {
     // 3D left-click-vs-truck gesture tracking (folded in from the old 3D-pick
     // move listener). Cheap guard; does nothing unless a 3D press is active.
     if (d3.active && (Math.abs(e.clientX - d3.x) > 5 || Math.abs(e.clientY - d3.y) > 5)) d3.moved = true;
-    if (s.cam3d.active) return; // camera-controls owns pointer input in 3D
     const tracking = s.pointers.has(e.pointerId);
+    if (s.cam3d.active) {
+      if (s.pointerInput) { const b0 = bufCoords(s, e.clientX, e.clientY); s.mx = b0.x; s.my = b0.y; }
+      if (tracking && s.interactive && s.interactive.dragging) {
+        const b = bufCoords(s, e.clientX, e.clientY);
+        s.pointers.set(e.pointerId, { x: b.x, y: b.y });
+        const w = scrToDoc(s, b.x, b.y);
+        s.interactive.dragTo(w.x, w.y);
+      }
+      return;
+    }
     // With pointer input off, the ONLY work left is camera pan while dragging —
     // an untracked move does nothing (no mx/my, no hover downstream in frame()).
     if (!s.pointerInput && !tracking) return;
@@ -275,6 +297,7 @@ export function attachInput(s: AppState): () => void {
     s.selecting = false;
     s.editorSelecting = false;
     if (s.interactive) s.interactive.endDrag();
+    if (s.cam3d.active) setOrbitEnabled(true);
     sliding = null; slidingPct = -1;
     s.pointers.clear(); s.dragging = false; s.pressed = null; if (performance.now() - s.lastMoveT > 80) s.velX = s.velY = 0;
   };

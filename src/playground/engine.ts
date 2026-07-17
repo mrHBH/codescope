@@ -127,6 +127,8 @@ export async function createEngine(): Promise<Engine> {
   const allChars = new Set<string>();
   for (const el of ref.styledEls) for (const ch of (el.editText || el.text)) allChars.add(ch);
   for (const ch of editorAtlasChars()) allChars.add(ch);
+  // Caption/typography punctuation used by demos (e.g. the explainer lower-third).
+  for (const ch of '·—–×÷') allChars.add(ch);
   const shapes: Record<string, { quads: number[]; bbox: number[] }> = {};
   for (const name in ICONS) shapes['icon:' + name] = svgPathToQuads(ICONS[name]);
   for (const name in ILLUSTRATIONS) shapes['art:' + name] = svgPathToQuads(ILLUSTRATIONS[name]);

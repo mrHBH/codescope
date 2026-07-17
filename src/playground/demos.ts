@@ -7,66 +7,17 @@
 // populated — an empty document (pageRoots=[]) simply renders nothing.
 
 import type { Engine } from './engine';
-import type { AppState } from '../state';
-import { createAppState } from '../state';
-import { buildStatic } from '../precompute';
-import { createThemeController } from '../css/themeController';
-import { setSize, goToPage } from '../camera/camera';
-import { attachInput } from '../camera/input';
-import { runFrame } from '../frame';
-import { createToolbar, type ToolbarButton } from './toolbar';
+import { goToPage } from '../camera/camera';
 import { MathDemo } from './boards/mathDemo';
 import { bootPlayground } from './playground';
+import { bootExplainer } from './explainer';
+import { createBaseApp, finishApp, snapTo } from './app';
 
 export interface Demo {
   id: string;
   name: string;
   blurb: string;
   boot(engine: Engine, onBack: () => void): () => void;
-}
-
-// Shared minimal setup: an AppState (optionally carrying the shared reference
-// document), dark theme, baked static buffers, sized canvas. `useDoc=false`
-// yields an empty document — the theme loop over zero styledEls is a no-op.
-function createBaseApp(engine: Engine, useDoc: boolean): AppState {
-  const { fpsEl, dpr, PAGE_W, rCanvas, tCanvas, rCtx, gpuCtx, device, font, renderer, upscaler, atlas, ref } = engine;
-  const els = useDoc ? ref.styledEls : [];
-  const s = createAppState({
-    dpr, PAGE_W, rCanvas, tCanvas, rCtx, gpuCtx, device, renderer, font, atlas, container: ref.container,
-    styledEls: els, pageRoots: useDoc ? ref.pageRoots : [],
-    editableEls: els.filter((e) => e.editable),
-    dynamicEls: els.filter((e) => e.dynamic),
-    marqueeEls: els.filter((e) => e.hasFlow && !e.skipText && e.classes.includes('marquee')),
-    pages: useDoc ? ref.pages : [], docH: useDoc ? ref.docH : 0, docRoot: ref.docRoot, fpsEl,
-  });
-  const theme = createThemeController(s, ref.themeStyle, buildStatic);
-  theme.apply('dark');
-  s.cycleTheme = theme.cycle;
-  s.upscaler = upscaler;
-  buildStatic(s);
-  s.pageVisible = new Array(s.pageRoots.length).fill(true);
-  setSize(s); // needs sizing before any framing (which reads tCanvas dimensions)
-  return s;
-}
-
-// Wire input + frame loop + a minimal toolbar (🏠 back, then extras, then theme).
-function finishApp(s: AppState, onBack: () => void, extras: ToolbarButton[] = []): () => void {
-  const onResize = () => setSize(s);
-  addEventListener('resize', onResize);
-  const toolbarDestroy = createToolbar([
-    { icon: '🏠', title: 'Back to launcher', onClick: onBack },
-    ...extras,
-    { icon: '🌙', title: 'Cycle theme: light → dark → high contrast', onClick: () => s.cycleTheme!(), ref: (el) => { s.themeBtn = el; } },
-  ]);
-  const inputDispose = attachInput(s);
-  const frameStop = runFrame(s);
-  return () => { frameStop(); inputDispose(); toolbarDestroy(); removeEventListener('resize', onResize); };
-}
-
-function snapTo(s: AppState, x: number, y: number, z: number) {
-  s.camX = s.viewX = s.tgtX = x;
-  s.camY = s.viewY = s.tgtY = y;
-  s.camZ = s.viewZ = s.tgtZ = z;
 }
 
 // Design reference: just the yasmineOS document, framed on page 0.
@@ -93,6 +44,11 @@ export const DEMOS: Demo[] = [
     id: 'playground', name: 'Playground',
     blurb: 'The full showcase — every board, code editor, terminal, 3D graph, math, and the cinematic flight.',
     boot: (e, back) => bootPlayground(e, back),
+  },
+  {
+    id: 'explainer', name: 'How windfoil works',
+    blurb: 'A cinematic that explains the analytic renderer — the coverage integral, glyphs, and live math typesetting.',
+    boot: bootExplainer,
   },
   {
     id: 'reference', name: 'Design reference',

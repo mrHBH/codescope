@@ -5,6 +5,7 @@
 
 import { createEngine } from './engine';
 import { bootLauncher } from './launcher';
+import { DEMOS } from './demos';
 
 async function main() {
   const engine = await createEngine();
@@ -15,7 +16,10 @@ async function main() {
       dispose = demo.boot(engine, showLauncher);     // boot the demo (🏠 → showLauncher)
     });
   };
-  showLauncher();
+  // Dev shortcut: #<demoId> boots a demo directly (e.g. /#explainer), 🏠 → launcher.
+  const direct = DEMOS.find((d) => d.id === location.hash.slice(1));
+  if (direct) dispose = direct.boot(engine, showLauncher);
+  else showLauncher();
 }
 
 main().catch((e) => {
