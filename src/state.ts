@@ -159,6 +159,14 @@ export interface AppState {
   // Perf isolation bench (world-space; see playground/bench.ts)
   bench: { x0: number; y0: number; width: number; height: number; mode: number; cycle(): void; emit(font: FontFace, atlas: any, inst: number[], crv: number[], rws: number[], now: number, view: { zoom: number; left: number; right: number; top: number; bottom: number }): void } | null;
 
+  // Authoring scene runtime (structurally typed — avoids importing authoring module)
+  sceneRuntime?: {
+    playing: boolean;
+    playhead: number;
+    advance(dt: number): { center: [number, number]; zoom: number };
+    emit(ctx: { font: FontFace; atlas: any; inst: number[]; crv: number[]; rws: number[] }): void;
+  };
+
   // Scripted performance benchmark (camera script + metrics + results board;
   // see playground/benchmark.ts). Driven from the frame loop like the demo
   // flight. Typed structurally so the engine/substrate never imports the

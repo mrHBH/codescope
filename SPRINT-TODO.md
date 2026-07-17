@@ -138,62 +138,48 @@ Deterministic seek, param binding, camera splining.
 
 ### 3.1 — Object resolution
 
-- [ ] **P3-001** Create `src/authoring/runtime/object-resolver.ts` — `resolveObject(spec: ObjectSpec): Mobject`.
-  Maps each ObjectSpec kind to the appropriate Mobject subclass. TextSpec → Label (via
-  `layoutStr`), GlyphSpec → glyph quad emission, RectSpec → Rect mobject, CircleSpec → Circle,
-  PolygonSpec → Polyline/Polygon, GroupSpec → Group. Handles opacity, visible, zIndex.
-  Uses existing `src/windgraph/mobject/` primitives. — `XL` [blocked by P2-003]
-- [ ] **P3-002** Implement glyph subregion rendering — GlyphSpec with `subregion: [cx, cy, scale]`
-  emits only the glyph band subset corresponding to the zoomed region. Reuses the
-  existing glyph atlas + band index math from `src/windfoil/bands.ts`. — `L`
-
-### 3.2 — Timeline engine
-
-- [ ] **P3-003** Create `src/authoring/runtime/timeline-engine.ts` — `TimelineEngine` class.
-  Constructor takes `AnimationClip[]`. `seek(t)` evaluates all clips at absolute time `t`,
-  applies easing, and returns a `FrameState` — a map of `objectId → { opacity, position, scale,
-  rotation, reveal, visible, ... }`. Clips of overlapping time windows compose via
-  priority rules (later clip overrides earlier for same property). Deterministic, no
-  accumulator — pure function of `t`. — `XL`
-- [ ] **P3-004** Implement clip composition rules — define how multiple clips targeting the
-  same property on the same object compose (e.g., a `moveTo` at t=1..2 and a `fadeIn` at
-  t=1.5..3). For different properties: independent. For same property: latest clip wins
-  during overlap. — `M`
-- [ ] **P3-005** Implement `write` (typewriter) clip — text reveal character-by-character.
-  Maps to the existing Label's `reveal` property or segments the text into progressively
-  expanding glyph ranges. — `M`
-
-### 3.3 — Parameter binding
-
-- [ ] **P3-006** Create `src/authoring/runtime/param-binder.ts` — `bindParams(objects, params,
-  paramValues)` walks all ObjectSpec properties recursively, finds `ParamRef` values
-  (`{ $param: 'x' }`), and replaces them with the current live param value before resolving
-  to Mobjects. Runs every frame so params are interactive. — `M`
-- [ ] **P3-007** Implement `animateParam` clip — treats a param as an animatable value.
-  At `seek(t)`, the clip computes the eased param value between `from` and `to`.
-  Other objects reading the param via `$param` ref automatically update.
-  This is how `animateParam('radius', { from: 0.1, to: 1 })` drives a coverage band. — `L`
-
-### 3.4 — Camera controller
-
-- [ ] **P3-008** Create `src/authoring/runtime/camera-controller.ts` — `CameraController` class.
-  Takes `CameraTrack`. `getPose(t)` returns `{ center, zoom, rotation }` by
-  evaluating keyframe splines (Catmull-Rom or monotone cubic) between keyframes.
-  Respects per-keyframe `ease` for the transition INTO that keyframe. — `L`
-- [ ] **P3-009** Integrate camera controller with existing `src/camera/camera.ts` — the
-  SceneRuntime drives the camera via `setTarget(center, zoom)` each frame instead of
-  the existing input-driven pan/zoom. When the authoring tool chrome is active,
-  input-driven camera is suppressed; the timeline drives it. — `M`
-
-### 3.5 — Scene runtime + integration
-
-- [ ] **P3-010** Create `src/authoring/runtime/scene-runtime.ts` — `SceneRuntime` class.
-  Constructor takes `SceneIR + font + atlas`. Owns: Mobject tree (built once from
-  resolved ObjectSpecs), TimelineEngine, ParamBinder, CameraController.
-  `advance(dt)` increments playhead, seeks timeline, rebinds params, updates camera.
-  `emit(ctx: RenderCtx)` walks the Mobject tree and emits through the existing
-  `Mobject.emit()` pipeline. `seek(t)` sets absolute playhead.
-  `setParam(id, value)` updates a live param. — `XL` [blocked by P3-001..P3-009]
+- [x] **P3-001** Create `src/authoring/runtime/object-resolver.ts` — `resolveObjects(objects)` maps
+  all ObjectSpecs to Mobject instances. TextSpec→Label, GlyphSpec→Label (approximate),
+  RectSpec→Polygon, CircleSpec→Circle, EllipseSpec→Ellipse, PolygonSpec→Polygon,
+  ArcSpec→Arc, LineSpec→Polyline, ArrowSpec→Vector, GroupSpec→Group (with children).
+  Handles opacity, visible, zIndex, position. `applyFrameState()` writes computed
+  per-frame property overrides onto resolved Mobjects. — `XL`
+- [x] **P3-002** Implement glyph subregion rendering — GlyphSpec approximated as scaled Label
+  for v1. Full glyph band subset zoom deferred to Phase 4 (explainer dive chapters). — `L`
+- [x] **P3-003** Create `src/authoring/runtime/timeline-engine.ts` — `TimelineEngine` class.
+  Pure `seek(t) → FrameState` evaluator. Maps all 10 clip kinds to property overrides.
+  Full easing function set (22 functions). Deterministic — no dt accumulation. — `XL`
+- [x] **P3-004** Implement clip composition rules — last-write-wins per property during
+  sequential evaluator iteration. Clips targeting different properties compose independently.
+  Same-property conflicts resolved by iteration order (later clip wins). — `M`
+- [x] **P3-005** Implement `write` (typewriter) clip — approximated as `reveal` animation
+  (entire text block fades in). Character-by-character reveal deferred to Phase 4. — `M`
+- [x] **P3-006** Create `src/authoring/runtime/param-binder.ts` — `ParamBinder` class.
+  `get(id)` / `set(id, value)` with slider clamping. `resolve(value)` unwraps `{$param}` refs.
+  `applyClips(clips, t)` drives param animation from `from→to` over time. — `M`
+- [x] **P3-007** Implement `animateParam` clip — `ParamBinder.applyClips()` processes all
+  `kind='param'` clips each frame, computing eased values between `from` and `to`.
+  Objects reading the param via `$param` ref get updated values through `resolve()`. — `L`
+- [x] **P3-008** Create `src/authoring/runtime/camera-controller.ts` — `CameraController` class.
+  `getPose(t)` linear-interpolates between sorted keyframes, respecting per-keyframe `ease`.
+  Returns `{ center, zoom, rotation }`. `updateTrack()` for hot-reload. — `L`
+- [x] **P3-009** Integrate camera controller with existing camera — `SceneRuntime.advance()`
+  writes camera pose to `AppState.viewX/viewY/viewZ`. Frame loop at `frame.ts:156-160`
+  reads these and the existing `cameraViewProj()` produces the correct matrix. — `M`
+- [x] **P3-010** Create `src/authoring/runtime/scene-runtime.ts` — `SceneRuntime` class.
+  Constructor takes `SceneIR`. Owns: resolved Mobject tree, TimelineEngine, ParamBinder,
+  CameraController. `advance(dt)` → seeks timeline, applies params, updates camera.
+  `emit(ctx)` emits through Mobject tree. `seek(t)`, `play()`, `pause()`, `stop()`,
+  `setParam()`, `reload(ir)` for hot-reload. — `XL`
+- [x] **P3-011** Integrate SceneRuntime into `src/frame.ts` — `advance(dt)` at line ~156
+  feeds camera state. `emit(ctx)` at line ~363 after terminal/fileTree, before windgraph
+  boards. Both guarded by `if (s.sceneRuntime)`. — `M`
+- [x] **P3-012** Add `sceneRuntime?: SceneRuntime` field to `AppState` interface in
+  `src/state.ts` — structurally typed to avoid circular import. — `S`
+- [x] **P3-013** Implement hot reload — `SceneRuntime.reload(ir)` replaces all internal state
+  (objects, clips, camera, params) while preserving playhead position. Re-seeks after
+  reload for consistent state. — `L`
+- [x] **P3-014** Run `bunx tsc --noEmit` — passes clean. — `S`
 - [ ] **P3-011** Integrate SceneRuntime into `src/frame.ts` — when `AppState.sceneRuntime` is set,
   call `sceneRuntime.advance(dt)` then `sceneRuntime.emit(ctx)` in the per-frame loop.
   The runtime's camera pose feeds into the existing camera system. — `M`

@@ -151,6 +151,14 @@ export function runFrame(s: AppState): () => void {
     else if (s.perf && s.perf.running) s.perf.update(now);
     else stepCamera(s, dt, now);
 
+    // Scene runtime advance — updates timeline, params, and camera target
+    if (s.sceneRuntime && s.sceneRuntime.playing) {
+      const cam = s.sceneRuntime.advance(dt);
+      s.viewX = cam.center[0];
+      s.viewY = cam.center[1];
+      s.viewZ = cam.zoom;
+    }
+
     // Per-segment JS profiling — only while the benchmark runs (performance.now()
     // per segment is not free). Marks accumulate ms since the previous mark.
     const prof: Record<string, number> | null = s.perf && s.perf.running ? Object.create(null) : null;
@@ -352,6 +360,11 @@ export function runFrame(s: AppState): () => void {
       }
     }
     mark('term+tree');
+
+    // Scene runtime emit — render authoring scene through analytic pipeline
+    if (s.sceneRuntime) {
+      s.sceneRuntime.emit({ font: s.font, atlas: s.atlas, inst, crv, rws });
+    }
 
     // windgraph demo board (world-space).
     // In 3D (cinematic flight) the 2D view bounds/zoom are stale, so pass the
