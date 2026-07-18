@@ -2,3 +2,9 @@ node_modules/
 dist/
 output/
 *.lockb
+
+# Taffy WASM build artifacts
+src/taffy/taffy-bridge/target/
+src/taffy/taffy-bridge/pkg/
+src/taffy/taffy-bridge/Cargo.lock
+*.rs.bk
