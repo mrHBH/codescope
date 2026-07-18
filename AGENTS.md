@@ -5,10 +5,10 @@ anything. For deeper technical facts, also consult repo memory
 (`/memories/repo/codescope.md`), `VISION.md`, `PROGRESS.md`, `SPRINT.md`, and
 `SPRINT-TODO.md`.
 
-Active sprint: **Authoring System** — a declarative TS builder + Scene IR +
-analytic tool chrome that beats the Manim API. See `SPRINT.md` for full
-architecture and phase plan. See `SPRINT-TODO.md` for the granular task list
-with checkboxes.
+Active sprint: **Authoring System v2** — a document-centric JSON source of truth,
+declarative TS builder, procedural islands + gallery, analytic tool chrome, and
+REPL — all beating the Manim API. See `SPRINT.md` for full architecture and
+phase plan. See `SPRINT-TODO.md` for the granular task list with checkboxes.
 
 ---
 
