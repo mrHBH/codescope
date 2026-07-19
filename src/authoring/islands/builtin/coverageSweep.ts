@@ -64,7 +64,7 @@ const island: IslandDef = {
     const cx = (params.center as number[])[0], cy = (params.center as number[])[1];
     const cr = params.radius as number;
     const px = 10, py = 30, ps = 260;
-    const scan = time.playing ? ping(time.local, 4.0) : ping(time.now, 4.0);
+    const scan = time.playing ? ping(time.local > 0 ? time.local : time.now, 4.0) : ping(time.now, 4.0);
     const scanY = py + scan * ps;
 
     ctx.draw.rect(px, py, px + ps, py + ps, [0.02, 0.025, 0.035, 1], a);

@@ -1,5 +1,7 @@
 // ── Taffy WASM wrapper — loads the Taffy CSS layout engine ──────────────────
 
+import initTaffyWasm, { TaffyBridge as TaffyBridgeImpl } from './taffy-bridge/index.js';
+
 export interface LayoutResult {
   id: number;
   x: number;
@@ -46,19 +48,13 @@ interface TaffyBridgeWasm {
   free(): void;
 }
 
-let wasmBridge: { TaffyBridge: new () => TaffyBridgeWasm; default: () => Promise<void> } | null = null;
+let wasmReady = false;
 let initPromise: Promise<void> | null = null;
 
 async function loadWasm() {
-  if (wasmBridge) return;
+  if (wasmReady) return;
   if (!initPromise) {
-    initPromise = (async () => {
-      const path = typeof window !== 'undefined'
-        ? '/taffy_bridge.js'
-        : new URL('../../public/taffy_bridge.js', import.meta.url).href;
-      wasmBridge = await import(path);
-      await wasmBridge!.default();
-    })();
+    initPromise = initTaffyWasm().then(() => { wasmReady = true; });
   }
   await initPromise;
 }
@@ -72,7 +68,7 @@ export class TaffyLayout {
   async init(): Promise<void> {
     if (this._ready) return;
     await loadWasm();
-    this.bridge = new wasmBridge!.TaffyBridge();
+    this.bridge = new TaffyBridgeImpl();
     this._ready = true;
   }
 

@@ -44,6 +44,24 @@ export class SceneBuilder {
     ref: (id: string): ParamRef => ({ $param: id }),
   };
 
+  // ── Page builder (Taffy-laid-out content) ───────────────────────────────
+  page(id: string, opts: {
+    title?: string; at: Vec2; size: Vec2;
+    resizable?: boolean; minSize?: Vec2; maxSize?: Vec2;
+    layout?: { direction: 'row' | 'column'; gap?: number; padding?: number | number[]; align?: 'start' | 'center' | 'end' | 'stretch'; justify?: 'start' | 'center' | 'end' | 'space-between' | 'space-around' };
+  }, build: (p: PageBuilder) => void): string {
+    this.assertUnique(id);
+    const grp: any = {
+      kind: 'group', id, at: opts.at, size: opts.size, children: [],
+      page: { title: opts.title, resizable: opts.resizable, minSize: opts.minSize, maxSize: opts.maxSize },
+      layout: opts.layout ? { kind: 'flex', ...opts.layout } : { kind: 'flex', direction: 'column', gap: 16, padding: 28, align: 'start', justify: 'start' },
+    };
+    this.doc.objects[id] = grp;
+    const pb = new PageBuilder(this, id);
+    build(pb);
+    return id;
+  }
+
   // ── Chapter builder ─────────────────────────────────────────────────────
   chapter(id: string, opts: { title: string; sub: string; at: Vec2; dur: number; size?: Vec2 }): ChapterBuilder {
     const grpId = id;
@@ -107,9 +125,9 @@ export class ChapterBuilder {
     return oid;
   }
 
-  rect(id: string | null, opts: { at: Vec2; size: Vec2; fill?: Color; stroke?: { color: Color; width: number }; opacity?: number }) {
+  rect(id: string | null, opts: { at: Vec2; size: Vec2; fill?: Color; stroke?: { color: Color; width: number }; opacity?: number; glow?: true | { layers?: number; spread?: number } }) {
     const oid = id ?? (this.s as any).uid('rect');
-    this.s.addSpec({ kind: 'rect', id: oid, at: this.abs(opts.at), size: opts.size, fill: opts.fill, stroke: opts.stroke, opacity: opts.opacity });
+    this.s.addSpec({ kind: 'rect', id: oid, at: this.abs(opts.at), size: opts.size, fill: opts.fill, stroke: opts.stroke, opacity: opts.opacity, item: opts.glow ? { glow: opts.glow } as any : undefined });
     (this.s as any).doc.objects[this.grpId].children.push(oid);
     return oid;
   }
@@ -182,11 +200,15 @@ export class ChapterBuilder {
       (this.s as any).doc.camera.keyframes.push({ time: this.start + dur / 2, fit: this.grpId, zoomMul: 1.45, ease: 'smoothstep' });
       (this.s as any).doc.camera.keyframes.push({ time: this.start + dur, fit: this.grpId, ease: 'smoothstep', drift: { xAmp: 6, yAmp: 4, xPeriod: 14.96, yPeriod: 17.45 } });
     },
-    dive: (opts: { into: Vec2; zoom: number; hold?: number; d?: number }) => {
+    dive: (opts: { into: Vec2; zoom: number; hold?: number; d?: number; box?: { at: Vec2; size: Vec2 } }) => {
+      // `into` is a fraction of `box` (default: full chapter). Pass glyph-box
+      // space to match the original explainer dive targets.
       const h = opts.hold ?? 3.2, d = opts.d ?? 2.2;
       const grp = (this.s as any).doc.objects[this.grpId] as GroupSpec;
       const cw = grp.size?.[0] ?? 1260, ch = grp.size?.[1] ?? 820;
-      const diveCenter: Vec2 = [grp.at[0] + opts.into[0] * cw, grp.at[1] + opts.into[1] * ch];
+      const boxAt = opts.box?.at ?? grp.at;
+      const boxSz = opts.box?.size ?? ([cw, ch] as Vec2);
+      const diveCenter: Vec2 = [boxAt[0] + opts.into[0] * boxSz[0], boxAt[1] + opts.into[1] * boxSz[1]];
       const off: Vec2 = [diveCenter[0] - (grp.at[0] + cw / 2), diveCenter[1] - (grp.at[1] + ch / 2)];
       (this.s as any).doc.camera.keyframes.push({ time: this.start, fit: this.grpId, ease: 'easeInOutCubic' });
       (this.s as any).doc.camera.keyframes.push({ time: this.start + h, fit: this.grpId, ease: 'smoothstep' });
@@ -230,6 +252,125 @@ export class ChapterBuilder {
 
   private chapterDur(): number {
     return ((this.s as any).doc.objects[this.grpId] as GroupSpec)?.chapter?.duration ?? 10;
+  }
+}
+
+// ── Page builder (for layout-based pages) ────────────────────────────────
+export class PageBuilder {
+  constructor(
+    private s: SceneBuilder,
+    private grpId: string,
+  ) {}
+
+  private uid(base: string): string { return (this.s as any).uid(base); }
+
+  text(id: string | null, content: string, opts: { size: number; color: Color; weight?: number; align?: 'left' | 'center' | 'right'; opacity?: number; item?: any }) {
+    const oid = id ?? this.uid('text');
+    this.s.addSpec({ kind: 'text', id: oid, content, at: [0, 0], size: opts.size, color: opts.color, weight: opts.weight, align: opts.align, opacity: opts.opacity, item: opts.item } as any);
+    (this.s as any).doc.objects[this.grpId].children.push(oid);
+    return oid;
+  }
+
+  rect(id: string | null, opts: { size: Vec2; fill?: Color; stroke?: { color: Color; width: number }; opacity?: number; item?: any }) {
+    const oid = id ?? this.uid('rect');
+    this.s.addSpec({ kind: 'rect', id: oid, at: [0, 0], size: opts.size, fill: opts.fill, stroke: opts.stroke, opacity: opts.opacity, item: opts.item } as any);
+    (this.s as any).doc.objects[this.grpId].children.push(oid);
+    return oid;
+  }
+
+  island(id: string | null, islandId: string, opts: { size?: Vec2; params?: Record<string, any>; opacity?: number; item?: any }) {
+    const oid = id ?? this.uid('island');
+    this.s.addSpec({ kind: 'island', id: oid, island: islandId, at: [0, 0], size: opts.size, params: opts.params, opacity: opts.opacity, item: opts.item } as any);
+    (this.s as any).doc.objects[this.grpId].children.push(oid);
+    return oid;
+  }
+
+  math(id: string | null, latex: string, opts: { size: number; color: Color; opacity?: number; item?: any }) {
+    const oid = id ?? this.uid('math');
+    this.s.addSpec({ kind: 'math', id: oid, latex, at: [0, 0], size: opts.size, color: opts.color, opacity: opts.opacity, item: opts.item } as any);
+    (this.s as any).doc.objects[this.grpId].children.push(oid);
+    return oid;
+  }
+
+  glyph(id: string | null, char: string, opts: { size: number; color: Color; opacity?: number; item?: any }) {
+    const oid = id ?? this.uid('glyph');
+    this.s.addSpec({ kind: 'glyph', id: oid, char, at: [0, 0], size: opts.size, color: opts.color, opacity: opts.opacity, item: opts.item } as any);
+    (this.s as any).doc.objects[this.grpId].children.push(oid);
+    return oid;
+  }
+
+  circle(id: string | null, opts: { center: Vec2; radius: number; fill?: Color; stroke?: { color: Color; width: number }; opacity?: number; item?: any }) {
+    const oid = id ?? this.uid('circle');
+    this.s.addSpec({ kind: 'circle', id: oid, center: opts.center, radius: opts.radius, fill: opts.fill, stroke: opts.stroke, opacity: opts.opacity, item: opts.item } as any);
+    (this.s as any).doc.objects[this.grpId].children.push(oid);
+    return oid;
+  }
+
+  row(id: string | null, opts: { gap?: number; align?: 'start' | 'center' | 'end' | 'stretch'; justify?: 'start' | 'center' | 'end' | 'space-between' | 'space-around'; item?: any }, build: (r: PageBuilder) => void): string {
+    return this.layoutGroup(id, { kind: 'flex', direction: 'row', gap: opts.gap, align: opts.align, justify: opts.justify }, opts.item, build);
+  }
+
+  col(id: string | null, opts: { gap?: number; align?: 'start' | 'center' | 'end' | 'stretch'; justify?: 'start' | 'center' | 'end' | 'space-between' | 'space-around'; item?: any }, build: (c: PageBuilder) => void): string {
+    return this.layoutGroup(id, { kind: 'flex', direction: 'column', gap: opts.gap, align: opts.align, justify: opts.justify }, opts.item, build);
+  }
+
+  private layoutGroup(id: string | null, layout: any, item: any | undefined, build: (b: PageBuilder) => void): string {
+    const oid = id ?? this.uid('group');
+    const grp = { kind: 'group', id: oid, at: [0, 0], children: [], layout, item } as any;
+    this.s.addSpec(grp);
+    (this.s as any).doc.objects[this.grpId].children.push(oid);
+    const pb = new PageBuilder(this.s, oid);
+    build(pb);
+    return oid;
+  }
+
+  // ── Nested sub-page (page inside another page's layout) ──────────────────
+  subpage(id: string | null, opts: {
+    title?: string;
+    resizable?: boolean; minSize?: Vec2; maxSize?: Vec2;
+    layout?: { direction?: 'row' | 'column'; gap?: number; padding?: number | number[]; align?: 'start' | 'center' | 'end' | 'stretch'; justify?: 'start' | 'center' | 'end' | 'space-between' | 'space-around' };
+    item?: any;
+  }, build: (p: PageBuilder) => void): string {
+    const oid = id ?? this.uid('page');
+    const grp: any = {
+      kind: 'group', id: oid, at: [0, 0], children: [], size: undefined,
+      page: { title: opts.title, resizable: opts.resizable, minSize: opts.minSize, maxSize: opts.maxSize },
+      layout: opts.layout ? { kind: 'flex', direction: opts.layout.direction ?? 'column', gap: opts.layout.gap, padding: opts.layout.padding, align: opts.layout.align, justify: opts.layout.justify } : { kind: 'flex', direction: 'column', gap: 12, padding: 16, align: 'start', justify: 'start' },
+      item: opts.item ?? {},
+    };
+    this.s.addSpec(grp);
+    (this.s as any).doc.objects[this.grpId].children.push(oid);
+    const pb = new PageBuilder(this.s, oid);
+    build(pb);
+    return oid;
+  }
+
+  // ── High-level explainer helpers ────────────────────────────────────────
+  accentHead(prefix: string, opts: { kicker: string; title: string; accent: Color; item?: any }): string {
+    return this.row(prefix + '-head', { gap: 12, align: 'start', item: { flexShrink: 0 } }, (r) => {
+      r.rect(prefix + '-bar', { size: [6, 78], fill: opts.accent, item: { flexShrink: 0 } });
+      r.col(prefix + '-hc', { gap: 2, item: { flexGrow: 1, minWidth: 60 } }, (c) => {
+        c.text(prefix + '-kicker', opts.kicker.toUpperCase(), { size: 14, color: [0.55, 0.56, 0.60, 1] as Color, item: { flexShrink: 0 } });
+        c.text(prefix + '-ttl', opts.title, { size: 40, color: [0.94, 0.95, 0.97, 1] as Color, item: { flexShrink: 0 } });
+      });
+    });
+  }
+
+  body(prefix: string, lines: string[], opts: { item?: any } = {}): string {
+    if (lines.length === 0) return '';
+    return this.col(prefix + '-body', { gap: 4, item: opts.item }, (c) => {
+      lines.forEach((l, k) => {
+        if (l) c.text(prefix + '-l' + k, l, { size: 20, color: [0.73, 0.74, 0.77, 1] as Color, item: { flexShrink: 0 } });
+      });
+    });
+  }
+
+  vertCard(prefix: string, opts: { label: string; color: Color; body?: string; item?: any }): string {
+    return this.col(prefix + '-card', { gap: 6, item: { width: 190, ...opts.item } }, (c) => {
+      c.rect(prefix + '-chip', { size: [14, 28], fill: opts.color, item: { alignSelf: 'center', flexShrink: 0 } });
+      c.text(prefix + '-label', opts.label, { size: 18, color: opts.color });
+      if (opts.body) c.text(prefix + '-body', opts.body, { size: 14, color: [0.73, 0.74, 0.77, 1] as Color });
+    });
   }
 }
 

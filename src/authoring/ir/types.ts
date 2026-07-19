@@ -21,6 +21,7 @@ export interface TextSpec {
   content: string; at: Vec2;
   size: number; color: Color;
   weight?: number; align?: 'left' | 'center' | 'right';
+  item?: LayoutItem;
   opacity?: number; visible?: boolean;
 }
 
@@ -28,6 +29,7 @@ export interface GlyphSpec {
   kind: 'glyph'; id: string;
   char: string; at: Vec2;
   size: number; color: Color;
+  item?: LayoutItem;
   opacity?: number; visible?: boolean;
 }
 
@@ -35,6 +37,7 @@ export interface RectSpec {
   kind: 'rect'; id: string;
   at: Vec2; size: Vec2;
   fill?: Color; stroke?: Stroke;
+  item?: LayoutItem;
   opacity?: number; visible?: boolean;
 }
 
@@ -42,6 +45,7 @@ export interface CircleSpec {
   kind: 'circle'; id: string;
   center: Vec2; radius: number;
   fill?: Color; stroke?: Stroke;
+  item?: LayoutItem;
   opacity?: number; visible?: boolean;
 }
 
@@ -49,6 +53,7 @@ export interface PolygonSpec {
   kind: 'polygon'; id: string;
   points: Vec2[]; closed?: boolean;
   fill?: Color; stroke?: Stroke;
+  item?: LayoutItem;
   opacity?: number; visible?: boolean;
 }
 
@@ -56,6 +61,7 @@ export interface LineSpec {
   kind: 'line'; id: string;
   points: Vec2[]; width: number;
   color: Color; dash?: number[];
+  item?: LayoutItem;
   opacity?: number; visible?: boolean;
 }
 
@@ -63,6 +69,7 @@ export interface MathSpec {
   kind: 'math'; id: string;
   latex: string; at: Vec2;
   size: number; color: Color;
+  item?: LayoutItem;
   opacity?: number; visible?: boolean;
 }
 
@@ -72,6 +79,8 @@ export interface GroupSpec {
   size?: Vec2;
   layout?: LayoutSpec;
   chapter?: ChapterMeta;
+  page?: PageMeta;
+  item?: LayoutItem;
   opacity?: number; visible?: boolean;
 }
 
@@ -84,6 +93,7 @@ export interface IslandSpec {
   island: string; at: Vec2;
   size?: Vec2;
   params?: Record<string, ParamValue | ParamRef>;
+  item?: LayoutItem;
   opacity?: number; visible?: boolean;
 }
 
@@ -96,9 +106,35 @@ export interface Stroke {
 export type LayoutSpec = {
   kind: 'flex'; direction: 'row' | 'column'; gap?: number;
   padding?: number | [number, number] | [number, number, number, number];
-  align?: 'start' | 'center' | 'end';
-  justify?: 'start' | 'center' | 'end' | 'space-between';
+  align?: 'start' | 'center' | 'end' | 'stretch';
+  justify?: 'start' | 'center' | 'end' | 'space-between' | 'space-around';
 };
+
+export interface PageMeta {
+  title?: string;
+  resizable?: boolean;
+  minSize?: Vec2;
+  maxSize?: Vec2;
+}
+
+export interface LayoutItem {
+  width?: number | 'auto';
+  height?: number | 'auto';
+  flexGrow?: number;
+  flexShrink?: number;
+  minWidth?: number;
+  minHeight?: number;
+  maxWidth?: number;
+  maxHeight?: number;
+  alignSelf?: 'start' | 'center' | 'end' | 'stretch';
+  resizable?: boolean;
+  /** Islands only: scale content to fill the layout slot (true = reactive fill,
+   *  false/absent = fixed at def.defaultSize, centered in slot). */
+  fill?: boolean;
+  /** Emit a soft glow aura behind the object. `true` = default glow;
+   *  object form: { layers?, spread?, alpha? }. */
+  glow?: true | { layers?: number; spread?: number; alpha?: number };
+}
 
 // ── Animation ────────────────────────────────────────────────────────────
 

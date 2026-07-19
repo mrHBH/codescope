@@ -7,7 +7,7 @@ export type { DrawCtx, EmitBuffers } from './draw';
 export { buildGlyphAsset, place, renderGlyphAnalytic, renderGlyphOutline, renderGlyphBitmap, renderGlyphField, renderGlyphTess } from './glyphAsset';
 export type { GlyphAsset } from './glyphAsset';
 
-// Register builtin islands (side-effect imports)
+import './builtin/glyphAnalytic';
 import './builtin/bitmapDissolve';
 import './builtin/sdfField';
 import './builtin/tessellationFan';

@@ -28,17 +28,20 @@ const island: IslandDef = {
   emit(ctx, params, time) {
     const a = time.alpha;
     const by = 30, bh = 420, bx = 20, bw = 320;
-    const probeY = params.bandY as number;
-    const t = time.playing ? ping(time.local, 4.0) : ping(time.now, 4.0);
-    const animProbeY = by + t * bh;
+    // Auto-scan when playing; when paused use the live param (draggable).
+    const t = time.playing ? ping(time.local > 0 ? time.local : time.now, 4.0) : ping(time.now, 4.0);
+    const probeY = time.playing
+      ? by + t * bh
+      : clamp(params.bandY as number, by + 10, by + bh - 10);
+
+    // Match original: single active band highlight (not a soft blob trail)
+    const bands = 12, bandH = bh / bands;
+    const ab = Math.max(0, Math.min(bands - 1, Math.floor((probeY - by) / bandH)));
 
     ctx.draw.rect(bx, by, bx + bw, by + bh, [0.025, 0.03, 0.04, 1], a);
-    const shape = starPoints(bx + parseInt(String(bw / 2)), by + 210, 135, -Math.PI / 2 + 0.25);
+    const shape = starPoints(bx + bw / 2, by + 210, 135, -Math.PI / 2 + 0.25);
     ctx.draw.fillPoly(shape, C.gold, 0.10 * a);
     ctx.draw.line([...shape, shape[0]], C.gold, 4, a);
-
-    const bands = 12, bandH = bh / bands;
-    const ab = Math.max(0, Math.min(bands - 1, Math.floor((animProbeY - by) / bandH)));
 
     for (let k = 0; k < bands; k++) {
       const yy = by + k * bandH;
@@ -46,15 +49,16 @@ const island: IslandDef = {
       ctx.draw.line([[bx, yy], [bx + bw, yy]], k === ab ? C.cyan : C.border, k === ab ? 3 : 1.1, a * (k === ab ? 0.85 : 0.4));
     }
     ctx.draw.rectStroke(bx, by, bx + bw, by + bh, C.border, 1.6, a);
-    ctx.draw.line([[bx - 30, animProbeY], [bx + bw + 30, animProbeY]], C.cyan, 4, a);
+    ctx.draw.line([[bx - 30, probeY], [bx + bw + 30, probeY]], C.cyan, 4, a);
 
     const bandHot = ctx.hoveredHandle === 'bandY' || ctx.grabbedHandle === 'bandY';
-    ctx.draw.handle(bx - 30, animProbeY, bandHot, a);
+    ctx.draw.handle(bx - 30, probeY, bandHot, a);
 
-    // Row info cards
+    // Row info cards (original layout)
     const rtx = bx + bw + 20, rows = 5;
     for (let k = 0; k < rows; k++) {
-      const yy = 40 + k * 52, on = k === Math.min(rows - 1, Math.floor(ab * rows / bands));
+      const yy = 40 + k * 52;
+      const on = k === Math.min(rows - 1, Math.floor(ab * rows / bands));
       ctx.draw.rect(rtx, yy, rtx + 120, yy + 38, C.cardBg, on ? a : 0.8 * a);
       if (on) ctx.draw.rect(rtx, yy, rtx + 4, yy + 38, C.cyan, 0.9 * a);
       ctx.draw.text(`row ${k}`, rtx + 14, yy + 9, 16, on ? C.head : C.dim, a);

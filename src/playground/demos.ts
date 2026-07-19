@@ -11,7 +11,7 @@ import { goToPage } from '../camera/camera';
 import { MathDemo } from './boards/mathDemo';
 import { bootPlayground } from './playground';
 import { bootExplainer } from './explainer';
-import { bootAuthoring } from '../authoring/demo';
+import { bootAuthoring, bootExplainerV2, bootPages } from '../authoring/demo';
 import { IslandGallery } from '../authoring/islands/gallery';
 // Island registrations (side-effect import — ensures builtins register)
 import '../authoring/islands';
@@ -54,9 +54,19 @@ function bootIslands(engine: Engine, onBack: () => void): () => void {
 
 export const DEMOS: Demo[] = [
   {
+    id: 'pages', name: 'Pages / Layout',
+    blurb: 'Infinite canvas of Taffy-laid-out cards — resize pages and slots live.',
+    boot: bootPages,
+  },
+  {
     id: 'islands', name: 'Island Gallery',
     blurb: 'Browse registered procedural islands — the building-blocks of the authoring system.',
     boot: bootIslands,
+  },
+  {
+    id: 'explainer-v2', name: 'Explainer (builder recreation)',
+    blurb: 'The 12-chapter explainer rebuilt via the builder API.',
+    boot: bootExplainerV2,
   },
   {
     id: 'authoring', name: 'Authoring (smoke test)',

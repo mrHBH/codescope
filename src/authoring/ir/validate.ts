@@ -300,6 +300,7 @@ function validateSpec(key: string, s: Record<string, unknown>, errs: string[]) {
       }
     }
     if (s.layout !== undefined) validateLayout(key, s.layout, errs);
+    if (s.page !== undefined) validatePage(key, s.page, errs);
   } else if (k === 'island') {
     if (typeof s.island !== 'string' || !s.island) errs.push(`objects.${key}.island: required non-empty string`);
     if (!isVec2(s.at)) errs.push(`objects.${key}.at: required [x,y]`);
@@ -307,6 +308,8 @@ function validateSpec(key: string, s: Record<string, unknown>, errs: string[]) {
     if (s.params !== undefined && (typeof s.params !== 'object' || Array.isArray(s.params)))
       errs.push(`objects.${key}.params: must be an object`);
   }
+  // common: item (all kinds)
+  if (s.item !== undefined) validateItem(key, s.item, errs);
 }
 
 function validateStroke(key: string, v: unknown, errs: string[]) {
@@ -321,6 +324,48 @@ function validateLayout(key: string, v: unknown, errs: string[]) {
   const l = v as Record<string, unknown>;
   if (l.kind !== 'flex') errs.push(`objects.${key}.layout.kind: must be "flex"`);
   if (!['row','column'].includes(l.direction as string)) errs.push(`objects.${key}.layout.direction: must be row|column`);
+  if (l.align !== undefined && !['start','center','end','stretch'].includes(l.align as string))
+    errs.push(`objects.${key}.layout.align: must be start|center|end|stretch`);
+  if (l.justify !== undefined && !['start','center','end','space-between','space-around'].includes(l.justify as string))
+    errs.push(`objects.${key}.layout.justify: must be start|center|end|space-between|space-around`);
+}
+
+function validatePage(key: string, v: unknown, errs: string[]) {
+  if (typeof v !== 'object' || !v) { errs.push(`objects.${key}.page: must be an object`); return; }
+  const p = v as Record<string, unknown>;
+  if (p.title !== undefined && typeof p.title !== 'string') errs.push(`objects.${key}.page.title: must be a string`);
+  if (p.resizable !== undefined && typeof p.resizable !== 'boolean') errs.push(`objects.${key}.page.resizable: must be boolean`);
+  if (p.minSize !== undefined && !isVec2(p.minSize)) errs.push(`objects.${key}.page.minSize: must be [x,y]`);
+  if (p.maxSize !== undefined && !isVec2(p.maxSize)) errs.push(`objects.${key}.page.maxSize: must be [x,y]`);
+  if (p.minSize !== undefined && p.maxSize !== undefined && isVec2(p.minSize) && isVec2(p.maxSize)) {
+    const mn = p.minSize as Vec2, mx = p.maxSize as Vec2;
+    if (mn[0] > mx[0] || mn[1] > mx[1]) errs.push(`objects.${key}.page: minSize (${mn}) > maxSize (${mx})`);
+  }
+}
+
+function validateItem(key: string, v: unknown, errs: string[]) {
+  if (typeof v !== 'object' || !v) { errs.push(`objects.${key}.item: must be an object`); return; }
+  const it = v as Record<string, unknown>;
+  if (it.width !== undefined && !(typeof it.width === 'number' && it.width > 0) && it.width !== 'auto')
+    errs.push(`objects.${key}.item.width: must be a positive number or "auto"`);
+  if (it.height !== undefined && !(typeof it.height === 'number' && it.height > 0) && it.height !== 'auto')
+    errs.push(`objects.${key}.item.height: must be a positive number or "auto"`);
+  if (it.flexGrow !== undefined && (typeof it.flexGrow !== 'number' || it.flexGrow < 0))
+    errs.push(`objects.${key}.item.flexGrow: must be >= 0`);
+  if (it.flexShrink !== undefined && (typeof it.flexShrink !== 'number' || it.flexShrink < 0))
+    errs.push(`objects.${key}.item.flexShrink: must be >= 0`);
+  if (it.minWidth !== undefined && (typeof it.minWidth !== 'number' || it.minWidth <= 0))
+    errs.push(`objects.${key}.item.minWidth: must be > 0`);
+  if (it.minHeight !== undefined && (typeof it.minHeight !== 'number' || it.minHeight <= 0))
+    errs.push(`objects.${key}.item.minHeight: must be > 0`);
+  if (it.maxWidth !== undefined && (typeof it.maxWidth !== 'number' || it.maxWidth <= 0))
+    errs.push(`objects.${key}.item.maxWidth: must be > 0`);
+  if (it.maxHeight !== undefined && (typeof it.maxHeight !== 'number' || it.maxHeight <= 0))
+    errs.push(`objects.${key}.item.maxHeight: must be > 0`);
+  if (it.alignSelf !== undefined && !['start','center','end','stretch'].includes(it.alignSelf as string))
+    errs.push(`objects.${key}.item.alignSelf: must be start|center|end|stretch`);
+  if (it.resizable !== undefined && typeof it.resizable !== 'boolean')
+    errs.push(`objects.${key}.item.resizable: must be boolean`);
 }
 
 function walkParamRefs(
