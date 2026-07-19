@@ -1,0 +1,100 @@
+// ── Camera controller — keyframe interpolation + drift ──────────────────────
+// Pure function: pose = f(t, keyframes, resolveFit)
+
+import type { CameraTrack, CameraKeyframe, Vec2, EasingName } from '../ir/types';
+import { clamp01 } from '../../windgraph/anim/easing';
+import * as easing from '../../windgraph/anim/easing';
+
+const EASING_MAP: Record<string, (t: number) => number> = {
+  linear: easing.linear,
+  easeInQuad: easing.easeInQuad, easeOutQuad: easing.easeOutQuad, easeInOutQuad: easing.easeInOutQuad,
+  easeInCubic: easing.easeInCubic, easeOutCubic: easing.easeOutCubic, easeInOutCubic: easing.easeInOutCubic,
+  easeInQuint: easing.easeInQuint, easeOutQuint: easing.easeOutQuint, easeInOutQuint: easing.easeInOutQuint,
+  smoothstep: easing.smoothstep, smootherstep: easing.smootherstep,
+  easeInSine: easing.easeInSine, easeOutSine: easing.easeOutSine, easeInOutSine: easing.easeInOutSine,
+  easeOutBack: easing.easeOutBack, easeOutElastic: easing.easeOutElastic, easeOutBounce: easing.easeOutBounce,
+  rushInto: easing.rushInto, rushFrom: easing.rushFrom,
+};
+
+function getEase(name: EasingName | undefined): (t: number) => number {
+  return (name && EASING_MAP[name]) || EASING_MAP.smoothstep;
+}
+
+export interface CameraPose { x: number; y: number; zoom: number; azimuth: number; polar: number; }
+
+type FitResolver = (fitId: string) => { center: Vec2; zoom: number } | null;
+
+function resolveKeyframe(kf: CameraKeyframe, resolveFit: FitResolver, canvasW: number, canvasH: number): { center: Vec2; zoom: number } | null {
+  if (kf.center && kf.zoom) return { center: kf.center, zoom: kf.zoom };
+  if (kf.fit) {
+    const fit = resolveFit(kf.fit);
+    if (!fit) return null;
+    const [chW, chH] = [fit.center[0] * 2, fit.center[1] * 2];
+    const zoom = Math.min(canvasW / (chW - 80), canvasH / (chH - 20)) * 1.02;
+    let cx = fit.center[0], cy = fit.center[1];
+    if (kf.offset) { cx += kf.offset[0]; cy += kf.offset[1]; }
+    return { center: [cx, cy], zoom: zoom * (kf.zoomMul ?? 1) };
+  }
+  return null;
+}
+
+export function poseAt(
+  track: CameraTrack,
+  t: number,
+  resolveFit: FitResolver,
+  canvasW: number,
+  canvasH: number,
+): CameraPose {
+  const kfs = track.keyframes;
+  if (kfs.length === 0) return { x: 0, y: 0, zoom: 0.5, azimuth: 0, polar: 0.06 };
+
+  // Resolve all keyframes
+  const resolved = kfs.map((kf) => resolveKeyframe(kf, resolveFit, canvasW, canvasH));
+
+  // Find segment
+  let i = kfs.length - 1;
+  for (let j = 0; j < kfs.length - 1; j++) {
+    if (kfs[j].time <= t && t < kfs[j + 1].time) { i = j; break; }
+  }
+  if (t >= kfs[i].time) { i = Math.min(i, kfs.length - 2); }
+  if (t < kfs[0].time) {
+    // Before first keyframe — return first resolved pose
+    const p = resolved[0];
+    if (!p) return { x: 0, y: 0, zoom: 0.5, azimuth: 0, polar: 0.06 };
+    return { x: p.center[0], y: p.center[1], zoom: p.zoom, azimuth: kfs[0].azimuth ?? 0, polar: kfs[0].polar ?? 0.06 };
+  }
+
+  const k0 = kfs[i], k1 = kfs[Math.min(i + 1, kfs.length - 1)];
+  const p0 = resolved[i], p1 = resolved[Math.min(i + 1, kfs.length - 1)];
+  if (!p0 || !p1) {
+    const p = p0 || p1;
+    if (!p) return { x: 0, y: 0, zoom: 0.5, azimuth: 0, polar: 0.06 };
+    return { x: p.center[0], y: p.center[1], zoom: p.zoom, azimuth: k0?.azimuth ?? 0, polar: k0?.polar ?? 0.06 };
+  }
+
+  // Fixed interpolation when i is the last resolved pair
+  let baseT = k0.time, baseDur = k1.time - k0.time;
+  if (baseDur <= 0) baseDur = 1;
+  // If t is beyond the last keyframe, hold at last
+  const localT = t - baseT;
+  const progress = clamp01(baseDur > 0 ? localT / baseDur : 1);
+  const ease = getEase(k1.ease)(progress);
+
+  const x = p0.center[0] + (p1.center[0] - p0.center[0]) * ease;
+  const y = p0.center[1] + (p1.center[1] - p0.center[1]) * ease;
+  const z = p0.zoom * Math.pow(p1.zoom / p0.zoom, ease);
+  const az = (k0.azimuth ?? 0) + ((k1.azimuth ?? 0) - (k0.azimuth ?? 0)) * ease;
+  const polar = (k0.polar ?? 0.06) + ((k1.polar ?? 0.06) - (k0.polar ?? 0.06)) * ease;
+
+  // Drift oscillation from k0
+  let dx = 0, dy = 0, daz = 0;
+  if (k0.drift) {
+    const d = k0.drift;
+    const driftT = localT;
+    if (d.xAmp && d.xPeriod) dx = d.xAmp * Math.sin(2 * Math.PI * driftT / d.xPeriod);
+    if (d.yAmp && d.yPeriod) dy = d.yAmp * Math.sin(2 * Math.PI * driftT / d.yPeriod);
+    if (d.azAmp && d.azPeriod) daz = d.azAmp * Math.sin(2 * Math.PI * driftT / d.azPeriod);
+  }
+
+  return { x: x + dx, y: y + dy, zoom: z, azimuth: az + daz, polar };
+}
