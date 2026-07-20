@@ -14,3 +14,4 @@ import './builtin/tessellationFan';
 import './builtin/coverageSweep';
 import './builtin/windingRay';
 import './builtin/bandProbe';
+import './builtin/gpuPipeline';

@@ -68,17 +68,17 @@ export function sampleSDF(as: GlyphAsset, nx: number, ny: number): number {
 
 // ── Render variants (adapted to accept DrawHelpers + explicit params) ────────
 
-export function renderGlyphAnalytic(as: GlyphAsset, bx: number, by: number, bw: number, bh: number, color: number[], alpha: number, inst: number[], crv: number[], rws: number[], ox = 0, oy = 0) {
+export function renderGlyphAnalytic(as: GlyphAsset, bx: number, by: number, bw: number, bh: number, color: number[], alpha: number, inst: number[], crv: number[], rws: number[], ox = 0, oy = 0, sx = 1, sy = 1) {
   const { sc, ox: offX, oy: offY } = place(as, bx, by, bw, bh);
   const qc = color.length === 4 ? [color[0], color[1], color[2], color[3] * alpha] : [...color.slice(0, 3), alpha * (color[3] ?? 1)];
-  fillQuads(as.quadsN.map((v, i) => (i % 2 === 0 ? ox + offX + v * sc : oy + offY + v * sc)), qc, inst, crv, rws);
+  fillQuads(as.quadsN.map((v, i) => (i % 2 === 0 ? ox + (offX + v * sc) * sx : oy + (offY + v * sc) * sy)), qc, inst, crv, rws);
 }
 
-export function renderGlyphOutline(as: GlyphAsset, bx: number, by: number, bw: number, bh: number, color: number[], width: number, alpha: number, inst: number[], crv: number[], rws: number[], ox = 0, oy = 0) {
+export function renderGlyphOutline(as: GlyphAsset, bx: number, by: number, bw: number, bh: number, color: number[], width: number, alpha: number, inst: number[], crv: number[], rws: number[], ox = 0, oy = 0, sx = 1, sy = 1) {
   const { sc, ox: offX, oy: offY } = place(as, bx, by, bw, bh);
-  const wq = as.quadsN.map((v, i) => (i % 2 === 0 ? ox + offX + v * sc : oy + offY + v * sc));
+  const wq = as.quadsN.map((v, i) => (i % 2 === 0 ? ox + (offX + v * sc) * sx : oy + (offY + v * sc) * sy));
   const q: number[] = [];
-  strokeQuadPath(wq, { width, cap: 'round', join: 'round' }, false, q);
+  strokeQuadPath(wq, { width: width * sx, cap: 'round', join: 'round' }, false, q);
   const qc = color.length === 4 ? [color[0], color[1], color[2], color[3] * alpha] : [...color.slice(0, 3), alpha * (color[3] ?? 1)];
   fillQuads(q, qc, inst, crv, rws);
 }
@@ -110,29 +110,30 @@ export function renderGlyphField(as: GlyphAsset, bx: number, by: number, bw: num
     if (band < 0.16 || band > 0.84) draw.rect(X0, Y0, X1, Y1, d < 0 ? [0.97, 0.73, 0.33, 1] : [0.36, 0.85, 0.97, 1], 0.28 * alpha);
     if (ad < iso * 0.4) draw.rect(X0, Y0, X1, Y1, [0.94, 0.95, 0.97, 1], 0.82 * alpha);
   }
-  renderGlyphOutline(as, bx, by, bw, bh, [0.94, 0.95, 0.97, 1], 3, 0.62 * alpha, inst, crv, rws, draw.ox, draw.oy);
+  renderGlyphOutline(as, bx, by, bw, bh, [0.94, 0.95, 0.97, 1], 3, 0.62 * alpha, inst, crv, rws, draw.ox, draw.oy, draw.sx, draw.sy);
 }
 
-export function renderGlyphTess(as: GlyphAsset, bx: number, by: number, bw: number, bh: number, sub: number, color: number[], alpha: number, t: number, inst: number[], crv: number[], rws: number[], ox = 0, oy = 0) {
+export function renderGlyphTess(as: GlyphAsset, bx: number, by: number, bw: number, bh: number, sub: number, color: number[], alpha: number, t: number, inst: number[], crv: number[], rws: number[], ox = 0, oy = 0, sx = 1, sy = 1) {
   const { sc, ox: offX, oy: offY } = place(as, bx, by, bw, bh);
-  const coarse = flattenNorm(as.quadsN, sub);
+  const coarse = tessCache.get(sub) ?? (() => { const c = flattenNorm(as.quadsN, sub); tessCache.set(sub, c); return c; })();
   const lq: number[] = [];
   for (const [x0, y0, x1, y1] of coarse) {
-    const ax = ox + offX + x0 * sc, ay = oy + offY + y0 * sc, b1 = ox + offX + x1 * sc, c1 = oy + offY + y1 * sc;
+    const ax = ox + (offX + x0 * sc) * sx, ay = oy + (offY + y0 * sc) * sy;
+    const b1 = ox + (offX + x1 * sc) * sx, c1 = oy + (offY + y1 * sc) * sy;
     lq.push(ax, ay, (ax + b1) / 2, (ay + c1) / 2, b1, c1);
   }
   const qc = color.length === 4 ? [color[0], color[1], color[2], color[3] * alpha] : [...color.slice(0, 3), alpha * (color[3] ?? 1)];
   fillQuads(lq, qc, inst, crv, rws);
   const oq: number[] = [];
-  strokeQuadPath(lq, { width: 2, cap: 'butt', join: 'bevel' }, false, oq);
+  strokeQuadPath(lq, { width: 2 * sx, cap: 'butt', join: 'bevel' }, false, oq);
   fillQuads(oq, [0.97, 0.73, 0.33, 0.9 * alpha], inst, crv, rws);
-  renderGlyphOutline(as, bx, by, bw, bh, [0.94, 0.95, 0.97, 1], 1.6, 0.35 * alpha, inst, crv, rws, ox, oy);
-  const { sc: sc2, ox: offX2, oy: offY2 } = place(as, bx, by, bw, bh);
-  const cxp = ox + offX2 + as.W * sc2 * 0.5, cyp = oy + offY2 + as.H * sc2 * 0.5;
-  const nFan = Math.max(5, Math.floor(34 * t));
+  renderGlyphOutline(as, bx, by, bw, bh, [0.94, 0.95, 0.97, 1], 1.6, 0.35 * alpha, inst, crv, rws, ox, oy, sx, sy);
+  const cxp = ox + (offX + as.W * sc * 0.5) * sx, cyp = oy + (offY + as.H * sc * 0.5) * sy;
+  const nFan = Math.max(4, Math.floor(18 * t));
   const step = Math.max(1, Math.floor(coarse.length / nFan));
   for (let k = 0; k < coarse.length; k += step) {
     const s = coarse[k];
-    strokeInto([[cxp, cyp], [ox + offX2 + s[0] * sc2, oy + offY2 + s[1] * sc2]], { width: 2.2, cap: 'round', join: 'round' }, [0.97, 0.73, 0.33, 0.72 * alpha], inst, crv, rws);
+    strokeInto([[cxp, cyp], [ox + (offX + s[0] * sc) * sx, oy + (offY + s[1] * sc) * sy]], { width: 2.2 * sx, cap: 'round', join: 'round' }, [0.97, 0.73, 0.33, 0.72 * alpha], inst, crv, rws);
   }
 }
+const tessCache = new Map<number, Seg[]>();

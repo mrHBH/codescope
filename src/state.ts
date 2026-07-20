@@ -38,6 +38,10 @@ export interface AppState {
   lowResSharpen: boolean;
   integralScale: number;
   sharpenAmount: number;
+  // Cinematic post-process (vignette + analytic splash). When non-null, frame.ts
+  // renders the coverage pass into its offscreen target and resolves it to the
+  // swapchain through the postfx fragment shader (see windfoil/postfx.ts).
+  postfx: import('./windfoil/postfx').PostFx | null;
 
   // DOM + layout tree
   container: HTMLElement;
@@ -179,6 +183,7 @@ export function createAppState(partial: Partial<AppState>): AppState {
     device: null as any, renderer: null, font: null as any, atlas: null,
     renderScale: 1,
     upscaler: null, lowResSharpen: false, integralScale: 0.6, sharpenAmount: 0.6,
+    postfx: null,
     container: null as any,
     styledEls: [], pageRoots: [], editableEls: [], dynamicEls: [], marqueeEls: [], pages: [], docH: 0, docRoot: null as any,
     cssRules: [], isDark: false, themeMode: 'light', themeCol: {

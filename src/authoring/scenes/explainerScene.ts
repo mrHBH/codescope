@@ -152,6 +152,8 @@ export const EXPLAINER_DOC: SceneDoc = scene({ title: 'How windfoil works' }, (s
           'Shoot a ray from a point and count boundary crossings.',
           'Odd means inside; even means outside. Drag the point.',
         ]);
+        chB.math('inside-eq0', 'w(p)=\\frac{1}{2\\pi}\\oint_{\\partial S} d\\theta', { at: [tx, 360], size: 34, color: [...C.ink] });
+        chB.clip.fadeIn('inside-eq0', { start: 0.5, duration: 1.0 });
         chB.island('inside-g0', 'winding-ray', {
           at: [vx, 125], size: [VXW, 585],
           params: { testPoint: { $param: 'windPoint' } },
@@ -178,6 +180,8 @@ export const EXPLAINER_DOC: SceneDoc = scene({ title: 'How windfoil works' }, (s
           'A glyph has hundreds of curve pieces. Bands sort by row,',
           'so each pixel tests only nearby edges. Drag the probe line.',
         ]);
+        chB.math('bands-eq0', 'rows[y_0 .. y_1]', { at: [tx, 360], size: 34, color: [...C.ink] });
+        chB.clip.fadeIn('bands-eq0', { start: 0.5, duration: 1.0 });
         chB.island('bands-g0', 'band-probe', {
           at: [vx, 125], size: [VXW, 585],
           params: { bandY: { $param: 'bandY' } },
@@ -191,13 +195,16 @@ export const EXPLAINER_DOC: SceneDoc = scene({ title: 'How windfoil works' }, (s
           'Once every shape is a filled outline, a single coverage rule',
           'renders text, icons, math and UI \u2014 no special cases.',
         ]);
-        // Four cards in a 2x2 grid
         for (let k = 0; k < 4; k++) {
           const gx = vx + (k % 2) * 215, gy = 200 + Math.floor(k / 2) * 245;
           chB.rect(`same-card-${k}`, { at: [gx, gy], size: [190, 215], fill: [...C.cardBg], stroke: { color: [...C.border], width: 1.3 } });
           const labels = ['text', 'icon', 'math', 'ui'];
           chB.text(`same-label-${k}`, labels[k], { at: [gx + 95, gy + 190], size: 14, color: [...C.body] });
         }
+        chB.island('same-glyph', 'glyph-analytic', { at: [vx + 30, 224], size: [130, 164] });
+        chB.polygon('same-star', starPts(vx + 310, 305, 60), { closed: true, fill: [...C.gold] });
+        chB.math('same-eq', 'F = \\frac{1}{A}\\iint_B w\\,dA', { at: [vx + 18, 561], size: 24, color: [...C.accent2] });
+        chB.rect('same-ui', { at: [vx + 259, 515], size: [102, 76], fill: [0.12, 0.60, 0.95, 0.5], stroke: { color: [...C.accent], width: 3 } });
         chB.clip.fadeIn('same-card-0', { start: 0, duration: 0.5 });
         chB.clip.fadeIn('same-card-1', { start: 0.5, duration: 0.5 });
         chB.clip.fadeIn('same-card-2', { start: 1.0, duration: 0.5 });
@@ -211,15 +218,10 @@ export const EXPLAINER_DOC: SceneDoc = scene({ title: 'How windfoil works' }, (s
           'outline curves become row-indexed pieces; an instance',
           'points at those rows; the shader asks only nearby edges.',
         ]);
-        chB.island('gpu-g0', 'tessellation-fan', { at: [vx, 140], size: [280, 330] });
-        chB.clip.draw('gpu-g0', { start: 0, duration: 1 });
-        const pipeLabels = ['outline curves', 'monotone pieces', 'row bands', 'instance: bbox + rowBase', 'shader: gather + integrate'];
-        for (let k = 0; k < 5; k++) {
-          const yy = 140 + k * 72;
-          chB.rect(`gpu-pipe-${k}`, { at: [vx + 320, yy], size: [250, 52], fill: [...C.cardBg], stroke: { color: [...C.border], width: 1.3 } });
-          chB.text(`gpu-pl-${k}`, pipeLabels[k], { at: [vx + 336, yy + 17], size: 17, color: [...C.body] });
-          chB.clip.fadeIn(`gpu-pipe-${k}`, { start: k * 0.3, duration: 0.4 });
-        }
+        chB.math('gpu-eq0', 'color = \\sum_i c_i', { at: [tx, 430], size: 34, color: [...C.ink] });
+        chB.clip.fadeIn('gpu-eq0', { start: 1.0, duration: 1.0 });
+        chB.island('gpu-g0', 'gpu-pipeline', { at: [vx, 140], size: [620, 520] });
+        chB.clip.fadeIn('gpu-g0', { start: 0, duration: 1.2 });
         break;
       }
       case 'infinite': {
@@ -240,6 +242,12 @@ export const EXPLAINER_DOC: SceneDoc = scene({ title: 'How windfoil works' }, (s
 // ── Helper functions ──────────────────────────────────────────────────────────
 function cx0(i: number) { return CH[i].pos[0]; }
 function cy0(i: number) { return CH[i].pos[1]; }
+
+function starPts(cx: number, cy: number, R: number, rot = -Math.PI / 2): [number, number][] {
+  const p: [number, number][] = [];
+  for (let i = 0; i < 10; i++) { const a = rot + i * Math.PI / 5; const r = i % 2 ? R * 0.42 : R; p.push([cx + Math.cos(a) * r, cy + Math.sin(a) * r]); }
+  return p;
+}
 
 function addHead(chB: any, prefix: string, tx: number, y: number, kicker: string, ttl: string, accent: number[]) {
   // Solid accent bar only — matches original explainer (no soft glow blob)

@@ -42,6 +42,8 @@ export class SceneRuntime {
   private childToChapter = new Map<string, string>();  // child object id → chapter group id
   /** Designer chrome (object tree / inspector / clip timeline). Off for cinematic tours. */
   showChrome = false;
+  /** Draw an in-world caption bar (like the original explainer's drawCaption). */
+  cinematicCaption = false;
   get dragging() { return this.grabbed !== null; }
 
   // ── Layout state ───────────────────────────────────────────────────────
@@ -170,6 +172,8 @@ export class SceneRuntime {
     // Ensure layout is solved
     this.ensureLayout();
 
+    if (this.cinematicCaption) this.drawGrid(draw, view);
+
 // Draw page backgrounds (page groups — top-level AND nested)
     const margin = 160 / Math.max(view.zoom, 0.05);
     const laidOutIds = new Set(this.layoutMap.keys());
@@ -279,6 +283,40 @@ export class SceneRuntime {
       this.emitObject(oid, spec, frame, draw, fs, ctx.buff, view, now, effOp);
     }
     if (this.showChrome) this.chrome.emit(draw, view, now);
+    if (this.cinematicCaption && this.playing) this.drawCaption(draw, view, fs);
+  }
+
+  private drawCaption(draw: DrawHelpers, view: { zoom: number; left: number; right: number; top: number; bottom: number }, fs: FrameState) {
+    if (view.left < -1e11) return;
+    const chId = fs.currentChapterId;
+    if (!chId) return;
+    const grp = this.doc.objects[chId] as any;
+    if (!grp?.chapter) return;
+    const z = view.zoom, cull = 200 / z, pad = 46 / z;
+    const x = view.left + cull + pad, h = 96 / z, y = view.bottom - cull - pad - h;
+    const w = Math.min(760 / z, (view.right - view.left - cull * 2) * 0.72);
+    draw.rect(x, y, x + w, y + h, [0.02, 0.022, 0.03, 1], 0.86);
+    draw.rect(x, y, x + 6 / z, y + h, [0.12, 0.60, 0.95, 1], 0.9);
+    draw.text(grp.chapter.title, x + 26 / z, y + 26 / z, 28 / z, [0.94, 0.95, 0.97, 1], 1);
+    draw.text(grp.chapter.sub.toUpperCase(), x + 26 / z, y + 66 / z, 13 / z, [0.55, 0.56, 0.60, 1], 1);
+  }
+
+  private drawGrid(draw: DrawHelpers, view: { zoom: number; left: number; right: number; top: number; bottom: number }) {
+    if (view.left < -1e11) return;
+    const step = 260;
+    const border = [0.25, 0.26, 0.30, 1];
+    const left = Math.floor(view.left / step) * step;
+    const right = view.right;
+    const top = Math.floor(view.top / step) * step;
+    const bottom = view.bottom;
+    for (let x = left; x <= right; x += step) {
+      const M = x % (step * 4) === 0, w = M ? 1.4 : 0.8;
+      draw.rect(x - w / 2, top, x + w / 2, bottom, border, M ? 0.22 : 0.10);
+    }
+    for (let y = top; y <= bottom; y += step) {
+      const M = y % (step * 4) === 0, w = M ? 1.4 : 0.8;
+      draw.rect(left, y - w / 2, right, y + w / 2, border, M ? 0.22 : 0.10);
+    }
   }
 
   private buildParentMap(): Map<string, string> {
@@ -551,7 +589,10 @@ export class SceneRuntime {
         const cullRadius = def.defaultSize?.[0] ?? 200;
         if (view.left > -1e11 && (s.at[0] + cullRadius < view.left || s.at[0] - cullRadius > view.right || s.at[1] + cullRadius < view.top || s.at[1] - cullRadius > view.bottom)) break;
         const origX = s.at[0] + frame.dx, origY = s.at[1] + frame.dy;
-        draw.setOrigin(origX, origY);
+        const defW = def.defaultSize?.[0] ?? 480, defH = def.defaultSize?.[1] ?? 360;
+        const specW = (s as any).size?.[0] ?? defW, specH = (s as any).size?.[1] ?? defH;
+        const scale = Math.min(specW / defW, specH / defH);
+        draw.setTransform(origX, origY, scale, scale);
         const grabbedHandle = this.grabbed?.kind === 'island' ? this.grabbed.handleName : null;
         const iCtx: IslandEmitCtx = { font: this.font, atlas: this.atlas, inst: buff.inst, crv: buff.crv, rws: buff.rws, view, now, draw, hoveredHandle: this.hoveredHandle, grabbedHandle };
         const iTime: IslandTime = { local: 0, now: now / 1000, playing: this.playing, alpha: op, build: frame.reveal };

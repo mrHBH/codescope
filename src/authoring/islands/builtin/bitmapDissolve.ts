@@ -3,7 +3,6 @@
 
 import { registerIsland, type IslandDef } from '../registry';
 import { buildGlyphAsset, renderGlyphBitmap } from '../glyphAsset';
-import { ping, clamp01 } from '../../builder/helpers';
 
 const GLYPH_CHAR = 'a';
 let cachedGlyph: any = null;
@@ -20,7 +19,7 @@ const island: IslandDef = {
   defaultSize: [470, 585],
   emit(ctx, params, time) {
     const g = getGlyph(ctx.font);
-    const t = time.playing ? clamp01(time.build) : ping(time.now, 4.0);
+    const t = time.build < 1 ? time.build : 1;
     renderGlyphBitmap(g, 0, 0, (g.W / g.H) * 540, 540, params.cells as number, params.color as number[], time.alpha, t, ctx.draw);
   },
 };

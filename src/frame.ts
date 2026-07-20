@@ -480,19 +480,22 @@ export function runFrame(s: AppState): () => void {
     }
     mark('upload');
     const enc = s.device.createCommandEncoder();
-    // Low-res-render + sharpen-upscale: when enabled, the analytic coverage pass
-    // draws into an offscreen texture at integralScale × the swapchain, then a
-    // contrast-adaptive sharpen upscales it to the full-res swapchain. viewProj is
-    // UNCHANGED — clip space is resolution-independent and the resolve is a 1:1
-    // NDC fullscreen pass, so content lands identically; only the per-pixel
-    // coverage footprint (dpdx/dpdy) grows, giving correct cheaper low-res shading.
-    const sharpen = s.lowResSharpen && !!s.upscaler;
+    // Cinematic post-process (vignette + splash) takes precedence: the coverage
+    // pass draws into the postfx offscreen target at FULL resolution, then a
+    // fullscreen fragment shader grades it onto the swapchain. Otherwise the
+    // low-res-render + sharpen-upscale path (when enabled) renders into its own
+    // offscreen target at integralScale × the swapchain and CAS-upscales; with
+    // neither active the pass draws straight to the swapchain. viewProj is
+    // UNCHANGED in every path — clip space is resolution-independent and the
+    // resolves are 1:1 NDC fullscreen passes, so content lands identically.
+    const usePostfx = !!s.postfx;
+    const sharpen = !usePostfx && s.lowResSharpen && !!s.upscaler;
     const iScale = sharpen ? Math.min(Math.max(s.integralScale, 0.25), 1) : 1;
     const renderW = sharpen ? Math.max(1, Math.round(Cw * iScale)) : Cw;
     const renderH = sharpen ? Math.max(1, Math.round(Ch * iScale)) : Ch;
     const depthView = ensureDepthView(s.device, renderW, renderH);
     const swapView = s.gpuCtx.getCurrentTexture().createView();
-    const colorView = sharpen ? s.upscaler!.target(renderW, renderH) : swapView;
+    const colorView = usePostfx ? s.postfx!.target(Cw, Ch) : sharpen ? s.upscaler!.target(renderW, renderH) : swapView;
     // Clear to the theme backdrop: the canvas is OPAQUE (see main.ts), so the
     // backdrop is painted here instead of showing a CSS background through a
     // transparent canvas (which cost a full-screen compositor blend per frame).
@@ -531,8 +534,10 @@ export function runFrame(s: AppState): () => void {
     s.renderer.setUniforms({ width: renderW, height: renderH, camScale: [camScale, camScale], camCenter: [0, 0], viewProj });
     s.renderer.draw(pass, s.crvFA.subarray(0, crv.length), s.rwsUA.subarray(0, rws.length), s.instFA.subarray(0, inst.length), inst.length / 16);
     pass.end();
-    // Sharpen-upscale the low-res render to the full-res swapchain.
-    if (sharpen) s.upscaler!.resolve(enc, swapView, renderW, renderH, Cw, Ch, s.sharpenAmount);
+    // Resolve the offscreen render to the full-res swapchain: cinematic grade
+    // (postfx) or contrast-adaptive sharpen (upscale), else already on swapchain.
+    if (usePostfx) s.postfx!.resolve(enc, swapView, Cw, Ch);
+    else if (sharpen) s.upscaler!.resolve(enc, swapView, renderW, renderH, Cw, Ch, s.sharpenAmount);
     s.device.queue.submit([enc.finish()]);
     mark('encode');
     const frameJs = performance.now() - t0;

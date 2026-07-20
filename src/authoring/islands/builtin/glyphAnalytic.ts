@@ -20,7 +20,7 @@ const island: IslandDef = {
     const g = getGlyph(ctx.font);
     const col = params.color as number[];
     const a = time.alpha;
-    renderGlyphAnalytic(g, 0, 0, (g.W / g.H) * 540, 540, col, 0.92 * a, ctx.inst, ctx.crv, ctx.rws, ctx.draw.ox, ctx.draw.oy);
+    renderGlyphAnalytic(g, 0, 0, (g.W / g.H) * 540, 540, col, 0.92 * a, ctx.inst, ctx.crv, ctx.rws, ctx.draw.ox, ctx.draw.oy, ctx.draw.sx, ctx.draw.sy);
   },
 };
 registerIsland(island);
