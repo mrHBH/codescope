@@ -40,14 +40,18 @@ export function createBaseApp(engine: Engine, useDoc: boolean): AppState {
 }
 
 // Wire input + frame loop + a minimal toolbar (🏠 back, extras, theme); returns a disposer.
-export function finishApp(s: AppState, onBack: () => void, extras: ToolbarButton[] = []): () => void {
+export function finishApp(s: AppState, onBack: () => void, extras: ToolbarButton[] = [], opts: { toolbar?: boolean } = {}): () => void {
   const onResize = () => setSize(s);
   addEventListener('resize', onResize);
-  const toolbarDestroy = createToolbar([
-    { icon: '🏠', title: 'Back to launcher', onClick: onBack },
-    ...extras,
-    { icon: '🌙', title: 'Cycle theme: light → dark → high contrast', onClick: () => s.cycleTheme!(), ref: (el) => { s.themeBtn = el; } },
-  ]);
+  // `toolbar:false` skips the DOM toolbar entirely (the DOM-free cinematic draws
+  // its own analytic controls instead).
+  const toolbarDestroy = opts.toolbar === false
+    ? () => {}
+    : createToolbar([
+        { icon: '🏠', title: 'Back to launcher', onClick: onBack },
+        ...extras,
+        { icon: '🌙', title: 'Cycle theme: light → dark → high contrast', onClick: () => s.cycleTheme!(), ref: (el) => { s.themeBtn = el; } },
+      ]);
   const inputDispose = attachInput(s);
   const frameStop = runFrame(s);
   return () => { frameStop(); inputDispose(); toolbarDestroy(); removeEventListener('resize', onResize); };

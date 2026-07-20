@@ -3,27 +3,25 @@
 import type { Engine } from '../playground/engine';
 import type { AppState } from '../state';
 import { createBaseApp, finishApp, snapTo } from '../playground/app';
-import { enter3D, exit3D, setSize } from '../camera/camera';
+import { enter3D, bufCoords } from '../camera/camera';
 import { disableOrbit } from '../camera/orbit';
 import { SceneRuntime } from './runtime/runtime';
+import { CinematicHud } from './runtime/cinematicHud';
 import { SAMPLE_DOC } from './scenes/sampleScene';
 import { EXPLAINER_DOC } from './scenes/explainerScene';
 import type { SceneDoc } from './ir/types';
-import { chapterWindows } from './runtime/timeline';
 import { createTimelineHud } from '../playground/timelineHud';
 import { createPostFx } from '../windfoil/postfx';
+import { createGlyphRenderer } from '../windfoil/gpu';
 
-function bootScene(engine: Engine, onBack: () => void, doc: SceneDoc, opts: { chrome?: boolean; cinematic?: boolean } = {}): () => void {
+interface Opts { chrome?: boolean; cinematic?: boolean; }
+
+function bootScene(engine: Engine, onBack: () => void, doc: SceneDoc, opts: Opts = {}): () => void {
   const s = createBaseApp(engine, false);
   const runtime = new SceneRuntime(doc, { font: engine.font, atlas: engine.atlas });
   runtime.showChrome = !!opts.chrome;
-  runtime.cinematicCaption = !!opts.cinematic;
+  runtime.cinematic = !!opts.cinematic;
   s.interactive = runtime;
-
-  // Cinematic post-process: a real GPU vignette + analytic splash radial (no DOM).
-  // The frame loop routes the coverage pass through it while it is attached.
-  const postfx = opts.cinematic ? createPostFx(engine.device, 'rgba8unorm') : null;
-  if (postfx) s.postfx = postfx;
 
   // Frame the first chapter
   const chs = runtime.chapterWindows();
@@ -35,24 +33,117 @@ function bootScene(engine: Engine, onBack: () => void, doc: SceneDoc, opts: { ch
     snapTo(s, cx, cy, z);
   }
 
+  if (opts.cinematic) return bootCinematic(s, runtime, engine, onBack);
+  return bootDomChrome(s, runtime, onBack);
+}
+
+// ── DOM-free cinematic: analytic HUD + shader postfx, zero DOM ────────────────
+function bootCinematic(s: AppState, runtime: SceneRuntime, engine: Engine, onBack: () => void): () => void {
+  // Dedicated renderer for the screen-space HUD overlay (separate buffers so its
+  // draw never aliases the scene draw in the same command buffer).
+  s.hudRenderer = createGlyphRenderer(engine.device, { code: engine.shaderCode, format: 'rgba8unorm' });
+
+  // Shader vignette + analytic splash (the only grade; no DOM splash overlay).
+  const postfx = createPostFx(engine.device, 'rgba8unorm');
+  s.postfx = postfx;
+  const syncFx = () => {
+    const total = Math.max(0.001, runtime.totalDuration());
+    const t = Math.max(0, Math.min(runtime.tourT, total));
+    postfx.set(t < 3.4 ? 1 : Math.max(0, 1 - (t - 3.4) / 1.2));
+  };
+
+  // Analytic HUD (letterbox + sleek timeline + play/replay/home + caption), drawn
+  // + hit-tested through the pipeline in screen space. Same functionality the DOM
+  // toolbar/timeline provided, with zero DOM.
+  const hud = new CinematicHud(runtime, s, {
+    toggle: () => s.demo?.toggle(),
+    replay: () => { runtime.replay(s); s.demo?.start(); },
+    back: onBack,
+    sync: syncFx,
+  });
+  runtime.cinematicHud = hud;
+
+  // The shared fps counter is global debug DOM; hide it for a clean 0-DOM frame.
+  const hidFps = !!s.fpsEl;
+  if (hidFps) s.fpsEl.style.display = 'none';
+
+  // Hand control to the user on any non-control interaction (matches the
+  // original: pressing a control acts, anything else stops the tour). The HUD is
+  // hit-tested in screen (backing-store) px, which is what bufCoords returns.
+  const onPointer = (e: Event) => {
+    if ((e as PointerEvent).button !== 0) return;
+    const b = bufCoords(s, (e as PointerEvent).clientX, (e as PointerEvent).clientY);
+    if (runtime.isHudControlScreen(b.x, b.y)) return;   // let the canvas handler drive it
+    s.demo?.stop();
+  };
+  const onWheel = () => { s.demo?.stop(); };
+  const onKey = (e: Event) => {
+    const k = (e as KeyboardEvent).key;
+    if (k === 'Escape') { onBack(); return; }
+    if (k === ' ') { (e as KeyboardEvent).preventDefault(); s.demo?.toggle(); return; }
+    if (k === 'd' || k === 'D') { hud.toggleDebug(); return; }   // toggle debug detail
+    s.demo?.stop();
+  };
+  const addCancel = () => {
+    addEventListener('pointerdown', onPointer, true);
+    addEventListener('wheel', onWheel, { capture: true, passive: true });
+    addEventListener('keydown', onKey, true);
+  };
+  const removeCancel = () => {
+    removeEventListener('pointerdown', onPointer, true);
+    removeEventListener('wheel', onWheel, true);
+    removeEventListener('keydown', onKey, true);
+  };
+
+  s.demo = {
+    running: false,
+    toggle() { this.running ? this.stop() : this.start(); },
+    start() {
+      this.running = true;
+      runtime.play(s, runtime.tourT);
+      hud.setBars(true);
+      syncFx();
+    },
+    stop() {
+      this.running = false;
+      runtime.stopTour(s);
+      hud.setBars(false);
+      syncFx();
+    },
+    update(now: number) {
+      if (!this.running) return;
+      runtime.update(now, s);
+      syncFx();
+      if (!runtime.playing) this.stop();
+    },
+  };
+
+  // Capture listeners live for the whole demo (so Esc/Space work while paused);
+  // they no-op harmlessly when the tour is already stopped.
+  addCancel();
+  const dispose = finishApp(s, onBack, [], { toolbar: false });
+  s.demo.start();
+
+  return () => {
+    removeCancel();
+    s.demo?.stop();
+    s.postfx = null;
+    s.hudRenderer = null;
+    runtime.cinematicHud = null;
+    if (hidFps && s.fpsEl) s.fpsEl.style.display = '';
+    disableOrbit();
+    s.cam3d.active = false;
+    s.cam3d.exiting = false;
+    dispose();
+  };
+}
+
+// ── DOM chrome path (designer / authoring demo) ───────────────────────────────
+function bootDomChrome(s: AppState, runtime: SceneRuntime, onBack: () => void): () => void {
   let playBtn: HTMLButtonElement | null = null;
 
-  // ── DOM chrome ───────────────────────────────────────────────────────────
   const chrome = document.createElement('div');
   chrome.style.cssText = 'position:fixed;inset:0;z-index:50;pointer-events:none;overflow:hidden;font-family:"Inter","Segoe UI",system-ui,sans-serif';
-
-  // Cinematic letterbox bars (the splash radial + vignette are a shader
-  // post-process — see postfx above — so there is no DOM splash overlay).
-  let barTop: HTMLDivElement | null = null;
-  let barBot: HTMLDivElement | null = null;
-  if (opts.cinematic) {
-    barTop = document.createElement('div');
-    barBot = document.createElement('div');
-    const barCSS = 'position:absolute;left:0;right:0;height:11vh;background:#0b0c10;transition:transform .8s cubic-bezier(.7,0,.2,1)';
-    barTop.style.cssText = barCSS + ';top:0;transform:translateY(-100%)';
-    barBot.style.cssText = barCSS + ';bottom:0;transform:translateY(100%)';
-    chrome.append(barTop, barBot);
-  }
 
   const cap = document.createElement('div');
   cap.style.cssText = 'display:none;position:absolute;left:7%;bottom:13.4vh;max-width:min(980px,84vw);opacity:0;will-change:opacity,transform;transition:opacity .35s ease,transform .35s ease;transform:translateY(8px)';
@@ -64,7 +155,6 @@ function bootScene(engine: Engine, onBack: () => void, doc: SceneDoc, opts: { ch
   chrome.appendChild(cap);
 
   const timeline = createTimelineHud({ left: '7%', right: '7%', bottom: '2.4vh', activeScale: 2.0, interactive: true });
-  if (opts.cinematic) timeline.el.dataset.explainerTimeline = '1';
   chrome.appendChild(timeline.el);
   document.body.appendChild(chrome);
 
@@ -74,24 +164,14 @@ function bootScene(engine: Engine, onBack: () => void, doc: SceneDoc, opts: { ch
   const updateTimeline = () => {
     const total = Math.max(0.001, runtime.totalDuration());
     const t = Math.max(0, Math.min(runtime.tourT, total));
-    // Drive the shader splash/vignette from the playhead: full during the title,
-    // easing out as it clears. Called on play, scrub, and every frame.
-    if (postfx) postfx.set(t < 3.4 ? 1 : Math.max(0, 1 - (t - 3.4) / 1.2));
     timeline.setProgress01(t / total);
     let acc = 0;
     let activeIdx = chapters.length - 1;
-    for (let i = 0; i < chapters.length; i++) {
-      acc += chapters[i].duration;
-      if (t < acc) { activeIdx = i; break; }
-    }
+    for (let i = 0; i < chapters.length; i++) { acc += chapters[i].duration; if (t < acc) { activeIdx = i; break; } }
     timeline.setActive(activeIdx);
     timeline.setTimeLabel(`${t.toFixed(1)}s / ${total.toFixed(1)}s`);
-    if (chapters[activeIdx]) {
-      titleEl.textContent = chapters[activeIdx].title;
-      subEl.textContent = chapters[activeIdx].sub;
-    }
+    if (chapters[activeIdx]) { titleEl.textContent = chapters[activeIdx].title; subEl.textContent = chapters[activeIdx].sub; }
   };
-
   timeline.onScrub((ratio) => {
     const keepPlaying = !!s.demo?.running;
     runtime.seek(s, ratio * runtime.totalDuration(), !keepPlaying);
@@ -100,78 +180,29 @@ function bootScene(engine: Engine, onBack: () => void, doc: SceneDoc, opts: { ch
   });
 
   const setChromeVisible = (on: boolean) => {
-    if (barTop) barTop.style.transform = on ? 'translateY(0)' : 'translateY(-100%)';
-    if (barBot) barBot.style.transform = on ? 'translateY(0)' : 'translateY(100%)';
     timeline.setVisible(on);
-    // The DOM lower-third caption is for non-cinematic demos; cinematic tours use
-    // the in-world GPU caption (runtime.drawCaption) instead.
-    if (!opts.cinematic) {
-      cap.style.display = on ? '' : 'none';
-      cap.style.opacity = on ? '1' : '0';
-    }
+    cap.style.display = on ? '' : 'none';
+    cap.style.opacity = on ? '1' : '0';
   };
   updateTimeline();
   setChromeVisible(true);
 
-  const cancelTour = (e: Event) => {
-    if (!s.demo?.running) return;
-    const t = e.target;
-    if (t instanceof HTMLElement && (t.closest('button') || t.closest('[data-explainer-timeline]'))) return;
-    s.demo.stop();
-  };
-  const addCancel = () => {
-    addEventListener('pointerdown', cancelTour, true);
-    addEventListener('wheel', cancelTour, { capture: true, passive: true });
-    addEventListener('keydown', cancelTour, true);
-  };
-  const removeCancel = () => {
-    removeEventListener('pointerdown', cancelTour, true);
-    removeEventListener('wheel', cancelTour, true);
-    removeEventListener('keydown', cancelTour, true);
-  };
-  addCancel();
-
-  // ── Demo object (wires frame loop) ──────────────────────────────────────
   s.demo = {
     running: false,
     toggle() { this.running ? this.stop() : this.start(); },
-    start() {
-      this.running = true;
-      runtime.play(s, runtime.tourT);
-      setChromeVisible(true);
-      updateTimeline();
-      addCancel();
-      if (playBtn) playBtn.textContent = '⏸';
-    },
-    stop() {
-      this.running = false;
-      runtime.stopTour(s);
-      if (opts.cinematic) { setChromeVisible(false); removeCancel(); }
-      if (playBtn) playBtn.textContent = '▶';
-    },
-    update(now: number) {
-      if (!this.running) return;
-      runtime.update(now, s);
-      updateTimeline();
-      if (!runtime.playing) this.stop();
-    },
+    start() { this.running = true; runtime.play(s, runtime.tourT); setChromeVisible(true); updateTimeline(); if (playBtn) playBtn.textContent = '⏸'; },
+    stop() { this.running = false; runtime.stopTour(s); if (playBtn) playBtn.textContent = '▶'; },
+    update(now: number) { if (!this.running) return; runtime.update(now, s); updateTimeline(); if (!runtime.playing) { this.running = false; if (playBtn) playBtn.textContent = '▶'; } },
   };
 
   const dispose = finishApp(s, onBack, [
-    { icon: '⏸', title: 'Pause / resume', onClick: () => s.demo?.toggle(), ref: (el) => { playBtn = el; } },
-    { icon: '↺', title: 'Replay from the start', onClick: () => {
-      runtime.replay(s);
-      s.demo?.start();
-    } },
+    { icon: '▶', title: 'Play / Pause', onClick: () => s.demo?.toggle(), ref: (el) => { playBtn = el; } },
+    { icon: '↺', title: 'Replay from start', onClick: () => { runtime.replay(s); s.demo?.start(); } },
   ]);
-
-  // Auto-start the demo (after finishApp so refs are wired)
   s.demo.start();
 
   return () => {
-    removeCancel();
     s.demo?.stop();
-    s.postfx = null;
     disableOrbit();
     s.cam3d.active = false;
     s.cam3d.exiting = false;

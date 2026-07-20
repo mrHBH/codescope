@@ -42,6 +42,13 @@ export interface AppState {
   // renders the coverage pass into its offscreen target and resolves it to the
   // swapchain through the postfx fragment shader (see windfoil/postfx.ts).
   postfx: import('./windfoil/postfx').PostFx | null;
+  // Dedicated glyph renderer for the DOM-free screen-space HUD overlay (only the
+  // cinematic sets it; see frame.ts). Owns separate storage buffers so its draw
+  // never aliases the scene draw in the same command buffer.
+  hudRenderer: any;
+  // Per-frame debug readout (fps · zoom · js · worst · ev) written by the frame
+  // loop; the cinematic HUD draws it analytically (the DOM #fps is hidden there).
+  hudDebugText: string;
 
   // DOM + layout tree
   container: HTMLElement;
@@ -183,7 +190,7 @@ export function createAppState(partial: Partial<AppState>): AppState {
     device: null as any, renderer: null, font: null as any, atlas: null,
     renderScale: 1,
     upscaler: null, lowResSharpen: false, integralScale: 0.6, sharpenAmount: 0.6,
-    postfx: null,
+    postfx: null, hudRenderer: null, hudDebugText: '',
     container: null as any,
     styledEls: [], pageRoots: [], editableEls: [], dynamicEls: [], marqueeEls: [], pages: [], docH: 0, docRoot: null as any,
     cssRules: [], isDark: false, themeMode: 'light', themeCol: {

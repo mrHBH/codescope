@@ -17,11 +17,13 @@ import type { AppState } from '../../state';
 import { solveDocLayout, ensureTaffy, type LayoutMap, type Box } from '../layout/solve';
 import { makeMeasureFn, wrapText, type MeasureFn } from '../layout/measure';
 import { ChromeController } from './chrome';
+import { CinematicHud } from './cinematicHud';
 
 type DragState = 
   | { kind: 'island'; islandId: string; instId: string; handleName: string }
   | { kind: 'page'; id: string; startWx: number; startWy: number; startSize: Vec2 }
   | { kind: 'item'; id: string; startWx: number; startWy: number; startW: number; startH: number }
+  | { kind: 'hud' }
   | null;
 
 const SEC_W = 1260, SEC_H = 820;
@@ -42,8 +44,9 @@ export class SceneRuntime {
   private childToChapter = new Map<string, string>();  // child object id → chapter group id
   /** Designer chrome (object tree / inspector / clip timeline). Off for cinematic tours. */
   showChrome = false;
-  /** Draw an in-world caption bar (like the original explainer's drawCaption). */
-  cinematicCaption = false;
+  /** Cinematic tour mode: world-space grid + a DOM-free screen-space HUD overlay
+   *  (letterbox + sleek timeline + controls + caption) drawn by frame.ts. */
+  cinematic = false;
   get dragging() { return this.grabbed !== null; }
 
   // ── Layout state ───────────────────────────────────────────────────────
@@ -54,6 +57,14 @@ export class SceneRuntime {
   private livePageSize = new Map<string, Vec2>();
   private liveItemWH = new Map<string, { w: number; h: number }>();
   chrome: ChromeController;
+  /** DOM-free cinematic HUD (letterbox + scrubber + controls + caption). */
+  cinematicHud: CinematicHud | null = null;
+  // Screen-space overlay buffers (filled each frame when `cinematic`); frame.ts
+  // uploads + draws them with a screen-ortho matrix in the same pass.
+  hudInst: number[] = []; hudCrv: number[] = []; hudRws: number[] = [];
+  hudInstFA = new Float32Array(0); hudCrvFA = new Float32Array(0); hudRwsUA = new Uint32Array(0);
+  hudInstLen = 0; hudCrvLen = 0; hudRwsLen = 0; hudCount = 0;
+  private _s: AppState | null = null;
 
   constructor(doc: SceneDoc, ctx: { font: any; atlas: any }) {
     this.doc = doc;
@@ -172,7 +183,7 @@ export class SceneRuntime {
     // Ensure layout is solved
     this.ensureLayout();
 
-    if (this.cinematicCaption) this.drawGrid(draw, view);
+    if (this.cinematic) this.drawGrid(draw);
 
 // Draw page backgrounds (page groups — top-level AND nested)
     const margin = 160 / Math.max(view.zoom, 0.05);
@@ -283,32 +294,46 @@ export class SceneRuntime {
       this.emitObject(oid, spec, frame, draw, fs, ctx.buff, view, now, effOp);
     }
     if (this.showChrome) this.chrome.emit(draw, view, now);
-    if (this.cinematicCaption && this.playing) this.drawCaption(draw, view, fs);
+    draw.setOrigin(0, 0);
+
+    // Cinematic screen-space HUD overlay: built into its own buffers (screen px),
+    // then frame.ts draws them with a screen-ortho matrix in this same pass.
+    if (this.cinematic && this.cinematicHud && this._s) {
+      const chapters = this.chapterWindows();
+      const activeIdx = fs.currentChapterId ? chapters.findIndex((c) => c.id === fs.currentChapterId) : -1;
+      // Seed the overlay's curve/row buffers with the atlas base tables so the
+      // glyph band indices emitted by layoutStr resolve (rects then append after
+      // them with correct offsets). Without this, overlay text renders blank.
+      const bs = this._s as any;
+      this.hudInst.length = 0;
+      const bcl = bs.baseCrvLen ?? 0;
+      this.hudCrv.length = bcl;
+      for (let i = 0; i < bcl; i++) this.hudCrv[i] = bs.baseCrv[i];
+      const brl = bs.baseRwsLen ?? 0;
+      this.hudRws.length = brl;
+      for (let i = 0; i < brl; i++) this.hudRws[i] = bs.baseRws[i];
+      this.cinematicHud.build(this.font, this.atlas, now, this._s.tCanvas.width, this._s.tCanvas.height,
+        { t, total: this.totalDuration(), playing: this.playing, chapters, activeIdx },
+        { inst: this.hudInst, crv: this.hudCrv, rws: this.hudRws });
+      this.hudCount = this.hudInst.length / 16;
+      if (this.hudInst.length > this.hudInstFA.length) this.hudInstFA = new Float32Array(this.hudInst.length * 2);
+      this.hudInstFA.set(this.hudInst); this.hudInstLen = this.hudInst.length;
+      if (this.hudCrv.length > this.hudCrvFA.length) this.hudCrvFA = new Float32Array(this.hudCrv.length * 2);
+      this.hudCrvFA.set(this.hudCrv); this.hudCrvLen = this.hudCrv.length;
+      if (this.hudRws.length > this.hudRwsUA.length) this.hudRwsUA = new Uint32Array(this.hudRws.length * 2);
+      this.hudRwsUA.set(this.hudRws); this.hudRwsLen = this.hudRws.length;
+    } else {
+      this.hudCount = 0;
+    }
   }
 
-  private drawCaption(draw: DrawHelpers, view: { zoom: number; left: number; right: number; top: number; bottom: number }, fs: FrameState) {
-    if (view.left < -1e11) return;
-    const chId = fs.currentChapterId;
-    if (!chId) return;
-    const grp = this.doc.objects[chId] as any;
-    if (!grp?.chapter) return;
-    const z = view.zoom, cull = 200 / z, pad = 46 / z;
-    const x = view.left + cull + pad, h = 96 / z, y = view.bottom - cull - pad - h;
-    const w = Math.min(760 / z, (view.right - view.left - cull * 2) * 0.72);
-    draw.rect(x, y, x + w, y + h, [0.02, 0.022, 0.03, 1], 0.86);
-    draw.rect(x, y, x + 6 / z, y + h, [0.12, 0.60, 0.95, 1], 0.9);
-    draw.text(grp.chapter.title, x + 26 / z, y + 26 / z, 28 / z, [0.94, 0.95, 0.97, 1], 1);
-    draw.text(grp.chapter.sub.toUpperCase(), x + 26 / z, y + 66 / z, 13 / z, [0.55, 0.56, 0.60, 1], 1);
-  }
-
-  private drawGrid(draw: DrawHelpers, view: { zoom: number; left: number; right: number; top: number; bottom: number }) {
-    if (view.left < -1e11) return;
+  private drawGrid(draw: DrawHelpers) {
+    // World-space background grid over the board bounds (matches the original
+    // explainer). Bounded by x0/y0/width/height so it stays cheap in 3D too.
     const step = 260;
     const border = [0.25, 0.26, 0.30, 1];
-    const left = Math.floor(view.left / step) * step;
-    const right = view.right;
-    const top = Math.floor(view.top / step) * step;
-    const bottom = view.bottom;
+    const left = Math.floor(this.x0 / step) * step, right = this.x0 + this.width;
+    const top = Math.floor(this.y0 / step) * step, bottom = this.y0 + this.height;
     for (let x = left; x <= right; x += step) {
       const M = x % (step * 4) === 0, w = M ? 1.4 : 0.8;
       draw.rect(x - w / 2, top, x + w / 2, bottom, border, M ? 0.22 : 0.10);
@@ -632,6 +657,7 @@ export class SceneRuntime {
 
   // ── Camera driving (mirrors ExplainerBoard.update) ──────────────────────
   update(now: number, s: AppState) {
+    this._s = s;
     if (!this.playing) return;
     const dt = this.lastNow < 0 ? 0 : Math.min((now - this.lastNow) / 1000, 0.05);
     this.lastNow = now;
@@ -641,10 +667,8 @@ export class SceneRuntime {
     this.applyPose(s);
   }
 
-  private applyPose(s: AppState) {
-    const canvasW = s.tCanvas?.width ?? 800;
-    const canvasH = s.tCanvas?.height ?? 600;
-    const resolveFit = (fitId: string) => {
+  private resolveFit(canvasW: number, canvasH: number) {
+    return (fitId: string) => {
       const obj = this.doc.objects[fitId];
       if (!obj || obj.kind !== 'group') return null;
       const g = obj as any;
@@ -652,7 +676,12 @@ export class SceneRuntime {
       const zoom = Math.min(canvasW / (g.size[0] - 80), canvasH / (g.size[1] - 20)) * 1.02;
       return { center: [g.at[0] + g.size[0] / 2, g.at[1] + g.size[1] / 2] as [number, number], zoom };
     };
-    const pose = poseAt(this.doc.camera, this.tourT, resolveFit, canvasW, canvasH);
+  }
+
+  private applyPose(s: AppState) {
+    const canvasW = s.tCanvas?.width ?? 800;
+    const canvasH = s.tCanvas?.height ?? 600;
+    const pose = poseAt(this.doc.camera, this.tourT, this.resolveFit(canvasW, canvasH), canvasW, canvasH);
     if (!s.cam3d.active) enter3D(s);
     orbitSetPose(pose.x, pose.y, orbitDistForZoom(pose.zoom, canvasH), pose.azimuth, pose.polar);
     updateOrbit(16);
@@ -661,6 +690,7 @@ export class SceneRuntime {
 
   // ── Playback controls ───────────────────────────────────────────────────
   seek(s: AppState, seconds: number, pause = true) {
+    this._s = s;
     if (pause) { this.playing = false; }
     this.tourT = Math.max(0, Math.min(seconds, this.totalDuration()));
     this.lastNow = -1;
@@ -669,6 +699,7 @@ export class SceneRuntime {
   }
 
   play(s: AppState, from = 0) {
+    this._s = s;
     this.playing = true; this.tourT = Math.max(0, Math.min(from, this.totalDuration()));
     this.lastNow = -1;
     if (!s.cam3d.active) enter3D(s);
@@ -739,6 +770,12 @@ export class SceneRuntime {
     if (this.showChrome && this.lastView && this.chrome.handleClick(wx, wy, this.lastView)) {
       return true;
     }
+    // DOM-free cinematic HUD (controls + scrubber) sits above everything; it is
+    // hit-tested in screen space (the world point is projected through viewProj).
+    if (this.cinematicHud) {
+      const [sx, sy] = this.cinematicHud.worldToScreen(wx, wy);
+      if (this.cinematicHud.pointerDownScreen(sx, sy)) { this.grabbed = { kind: 'hud' }; return true; }
+    }
     const r = Math.max(12, 18 / Math.max(scale, 0.05));
     const boxMap = this.buildWorldBoxes();
 
@@ -799,6 +836,11 @@ export class SceneRuntime {
   dragTo(wx: number, wy: number) {
     if (!this.grabbed) return;
     const g = this.grabbed;
+
+    if (g.kind === 'hud') {
+      if (this.cinematicHud) { const [sx] = this.cinematicHud.worldToScreen(wx, wy); this.cinematicHud.dragToScreen(sx); }
+      return;
+    }
 
     if (g.kind === 'page') {
       const spec = this.doc.objects[g.id] as any;
@@ -864,9 +906,16 @@ export class SceneRuntime {
       }
     }
   }
-  endDrag() { this.grabbed = null; }
+  endDrag() { this.grabbed = null; this.cinematicHud?.endDrag(); }
+
+  /** True if the screen-space point lands on a cinematic HUD control (used by the
+   *  demo to avoid stopping the tour when the user presses a control). */
+  isHudControlScreen(sx: number, sy: number): boolean {
+    return !!(this.cinematicHud && this.cinematicHud.hitScreen(sx, sy));
+  }
 
   updateHover(wx: number, wy: number, scale: number): boolean {
+    if (this.cinematicHud) { const [sx, sy] = this.cinematicHud.worldToScreen(wx, wy); if (this.cinematicHud.hoverScreen(sx, sy)) return true; }
     const r = Math.max(12, 18 / Math.max(scale, 0.05));
     const boxMap = this.buildWorldBoxes();
     // Check item resize handles first (most specific)

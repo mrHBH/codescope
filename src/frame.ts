@@ -144,6 +144,8 @@ export function runFrame(s: AppState): () => void {
       evPerS = evDt > 0 ? Math.round(evAccum / evDt) : 0; evAccum = 0;
       const perfTag = s.perf && s.perf.running ? `  ·  ${s.perf.status()}` : '';
       s.fpsEl.textContent = `${Math.round(1000 / fpsDt)} fps  ·  ${zoomStr}×  ·  js ${jsMs.toFixed(1)}ms  ·  worst ${worstDt.toFixed(0)}ms  ·  ev ${evPerS}/s${perfTag}`;
+      // Mirror the readout for the DOM-free cinematic HUD (drawn analytically).
+      s.hudDebugText = s.fpsEl.textContent ?? '';
       worstDt = 0;
     }
 
@@ -407,7 +409,9 @@ export function runFrame(s: AppState): () => void {
     if (s.interactive) {
       const g = s.interactive;
       const gR = g.x0 + g.width, gB = g.y0 + g.height;
-      if (boardVis(g.x0, g.y0, gR, gB)) {
+      // The DOM-free cinematic HUD is screen-anchored and must draw even when the
+      // scene board is culled (e.g. zoomed far out while paused), so never gate it.
+      if (boardVis(g.x0, g.y0, gR, gB) || (g as any).cinematicHud) {
         // Update hover BEFORE emit so the hover ring is current; the cursor is
         // applied once at the end of the frame (deferred write).
         const over = !wheelCool && s.pointerInput && (g.dragging || g.updateHover(s.mwx, s.mwy, cameraScale(s)));
@@ -533,6 +537,20 @@ export function runFrame(s: AppState): () => void {
     }
     s.renderer.setUniforms({ width: renderW, height: renderH, camScale: [camScale, camScale], camCenter: [0, 0], viewProj });
     s.renderer.draw(pass, s.crvFA.subarray(0, crv.length), s.rwsUA.subarray(0, rws.length), s.instFA.subarray(0, inst.length), inst.length / 16);
+    // Screen-space cinematic HUD overlay (letterbox + sleek timeline + controls +
+    // caption), drawn through a dedicated renderer with a screen-ortho matrix so
+    // its backing-store-px geometry lands 1:1 on screen, on top of the 3D scene.
+    // This composites correctly in the same pass because the cinematic has no
+    // depth-writing mesh (depth stays cleared to 1 → the overlay's less-equal test
+    // passes), and the dedicated renderer owns separate storage buffers (no hazard
+    // with the scene draw that already referenced its own buffers). renderW/H equal
+    // the canvas backing store here (postfx target is full-res; sharpen is off).
+    const inter = s.interactive as any;
+    if (s.hudRenderer && inter && inter.hudCount) {
+      const so = [2 / renderW, 0, 0, 0, 0, -2 / renderH, 0, 0, 0, 0, 0, 0, -1, 1, 0, 1];
+      s.hudRenderer.setUniforms({ width: renderW, height: renderH, camScale: [1, 1], camCenter: [0, 0], viewProj: so });
+      s.hudRenderer.draw(pass, inter.hudCrvFA.subarray(0, inter.hudCrvLen), inter.hudRwsUA.subarray(0, inter.hudRwsLen), inter.hudInstFA.subarray(0, inter.hudInstLen), inter.hudCount);
+    }
     pass.end();
     // Resolve the offscreen render to the full-res swapchain: cinematic grade
     // (postfx) or contrast-adaptive sharpen (upscale), else already on swapchain.
