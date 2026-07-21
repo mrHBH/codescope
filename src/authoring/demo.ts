@@ -13,6 +13,9 @@ import type { SceneDoc } from './ir/types';
 import { createTimelineHud } from '../playground/timelineHud';
 import { createPostFx } from '../windfoil/postfx';
 import { createGlyphRenderer } from '../windfoil/gpu';
+import { Terminal } from '../editor/terminal';
+import { handleSceneCommand } from './repl';
+import type { FontFace } from '../windfoil/font';
 
 interface Opts { chrome?: boolean; cinematic?: boolean; }
 
@@ -34,7 +37,7 @@ function bootScene(engine: Engine, onBack: () => void, doc: SceneDoc, opts: Opts
   }
 
   if (opts.cinematic) return bootCinematic(s, runtime, engine, onBack);
-  return bootDomChrome(s, runtime, onBack);
+  return bootDomChrome(s, runtime, engine.font, onBack);
 }
 
 // ── DOM-free cinematic: analytic HUD + shader postfx, zero DOM ────────────────
@@ -139,7 +142,7 @@ function bootCinematic(s: AppState, runtime: SceneRuntime, engine: Engine, onBac
 }
 
 // ── DOM chrome path (designer / authoring demo) ───────────────────────────────
-function bootDomChrome(s: AppState, runtime: SceneRuntime, onBack: () => void): () => void {
+function bootDomChrome(s: AppState, runtime: SceneRuntime, font: FontFace, onBack: () => void): () => void {
   let playBtn: HTMLButtonElement | null = null;
 
   const chrome = document.createElement('div');
@@ -195,6 +198,20 @@ function bootDomChrome(s: AppState, runtime: SceneRuntime, onBack: () => void): 
     update(now: number) { if (!this.running) return; runtime.update(now, s); updateTimeline(); if (!runtime.playing) { this.running = false; if (playBtn) playBtn.textContent = '▶'; } },
   };
 
+  // ── Terminal (REPL) ────────────────────────────────────────────────────
+  const terminal = new Terminal();
+  terminal.font = font;
+  const sceneWidth = Math.max(100, ...Object.values(runtime.getDoc().objects)
+    .map((o: any) => (o.at?.[0] ?? o.center?.[0] ?? 0) + (o.size?.[0] ?? (o.radius ? o.radius * 2 : 200)))
+  );
+  terminal.x0 = sceneWidth + 200;
+  terminal.y0 = -200;
+  s.terminal = terminal;
+  s.terminalMode = true;
+  terminal.focused = true;
+  terminal.open();
+  terminal.setCommandHandler((raw, term) => handleSceneCommand(raw, term, runtime));
+
   const dispose = finishApp(s, onBack, [
     { icon: '▶', title: 'Play / Pause', onClick: () => s.demo?.toggle(), ref: (el) => { playBtn = el; } },
     { icon: '↺', title: 'Replay from start', onClick: () => { runtime.replay(s); s.demo?.start(); } },
@@ -206,6 +223,8 @@ function bootDomChrome(s: AppState, runtime: SceneRuntime, onBack: () => void): 
     disableOrbit();
     s.cam3d.active = false;
     s.cam3d.exiting = false;
+    s.terminalMode = false;
+    s.terminal = null;
     chrome.remove();
     dispose();
   };

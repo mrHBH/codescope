@@ -8,7 +8,7 @@ import { DrawHelpers, type DrawCtx, type EmitBuffers } from '../islands/draw';
 import { getIsland, type IslandDef, type IslandEmitCtx, type IslandTime } from '../islands/registry';
 import { EmitCache } from '../../windfoil/emitCache';
 import { enter3D } from '../../camera/camera';
-import { orbitDistForZoom, orbitSetPose, updateOrbit, disableOrbit } from '../../camera/orbit';
+import { orbitDistForZoom, orbitSetPose, updateOrbit, disableOrbit, orbitTargetLocal } from '../../camera/orbit';
 import { glyphQuads } from '../../windfoil/font';
 import { fillQuads, strokeInto, polygonQuads, type Pt } from '../../windgraph/stroke/stroke';
 import { tw, layoutStr } from '../../layout/metrics';
@@ -18,6 +18,11 @@ import { solveDocLayout, ensureTaffy, type LayoutMap, type Box } from '../layout
 import { makeMeasureFn, wrapText, type MeasureFn } from '../layout/measure';
 import { ChromeController } from './chrome';
 import { CinematicHud } from './cinematicHud';
+import { effHeight, safePageWH, safePageZoom } from './safeArea';
+import {
+  emitHudWorld, hudWorldToScreen, screenLockedHudPose, lerpSlot,
+  type HudPeelState, type HudWorldSlot,
+} from './hudWorld';
 
 type DragState = 
   | { kind: 'island'; islandId: string; instId: string; handleName: string }
@@ -33,6 +38,7 @@ export class SceneRuntime {
   x0 = -900; y0 = -2200; width = TOTAL_W; height = TOTAL_H;
   playing = false; tourT = 0;
   private lastNow = -1;
+  private fitSettling = false;
   private font: any; private atlas: any;
   private doc: SceneDoc;
   private caches: Map<string, EmitCache> = new Map();
@@ -56,6 +62,14 @@ export class SceneRuntime {
   private layoutReady = false;
   private livePageSize = new Map<string, Vec2>();
   private liveItemWH = new Map<string, { w: number; h: number }>();
+  /** Cached parent pointers + top-page lookup (rebuilt on reload). */
+  private parentMap: Map<string, string> | null = null;
+  private topPageCache = new Map<string, string | null>();
+  private _chapterWindows: ChapterWindow[] | null = null;
+  /** Quantized barT that last drove a layout solve (avoid per-frame reflow). */
+  private lastBarQ = -1;
+  /** Active Living-UI peel pose for hit-testing. */
+  private hudPeel: HudPeelState | null = null;
   chrome: ChromeController;
   /** DOM-free cinematic HUD (letterbox + scrubber + controls + caption). */
   cinematicHud: CinematicHud | null = null;
@@ -168,47 +182,145 @@ export class SceneRuntime {
 
   setParam(name: string, value: any) { this.liveParams.set(name, value); }
   getDoc(): SceneDoc { return this.doc; }
-  chapterWindows(): ChapterWindow[] { return chapterWindows(this.doc); }
+  chapterWindows(): ChapterWindow[] {
+    if (!this._chapterWindows) this._chapterWindows = chapterWindows(this.doc);
+    return this._chapterWindows;
+  }
   totalDuration(): number { return docDuration(this.doc); }
+  reload(newDoc: SceneDoc) {
+    this.doc = newDoc;
+    this.tourT = 0;
+    this.playing = false;
+    this.lastNow = -1;
+    this.liveParams.clear();
+    for (const [k, p] of Object.entries(newDoc.params)) this.liveParams.set(k, p.default);
+    this.caches.clear();
+    this.texCache.clear();
+    this.childToChapter.clear();
+    this.parentMap = null;
+    this.topPageCache.clear();
+    this._chapterWindows = null;
+    this.lastBarQ = -1;
+    this.hudPeel = null;
+    for (const [id, spec] of Object.entries(newDoc.objects)) {
+      if (spec.kind === 'group' && spec.chapter) {
+        this.caches.set(id, new EmitCache());
+        for (const cid of spec.children) this.childToChapter.set(cid, id);
+      }
+    }
+    this.layoutDirty = true;
+  }
 
   // ── Per-frame emit ──────────────────────────────────────────────────────
+  /**
+   * Board view under cinematic 3D is a sentinel (left=-1e12). Rebuild a finite
+   * on-axis frustum from the orbit target + cameraScale so culling and the
+   * Living-UI screen-lock pose actually work.
+   */
+  private resolveView(view: { zoom: number; left: number; right: number; top: number; bottom: number }) {
+    if (view.left > -1e11) return view;
+    const Cw = this._s?.tCanvas?.width ?? 1600;
+    const Ch = this._s?.tCanvas?.height ?? 900;
+    const z = Math.max(view.zoom, 1e-6);
+    let cx = 0, cy = 0;
+    try { const t = orbitTargetLocal(); cx = t.x; cy = t.y; } catch { /* orbit not ready */ }
+    const hw = (Cw / z) / 2, hh = (Ch / z) / 2;
+    // Generous margin under polar tilt (frustum is a trapezoid on the ground).
+    const m = Math.max(hw, hh) * 0.35;
+    return {
+      zoom: z,
+      left: cx - hw - m,
+      right: cx + hw + m,
+      top: cy - hh - m,
+      bottom: cy + hh + m,
+      cx, cy,
+    };
+  }
+
   emit(font: any, atlas: any, inst: number[], crv: number[], rws: number[], now: number, view: { zoom: number; left: number; right: number; top: number; bottom: number }) {
-    this.lastView = view;
+    const rv = this.resolveView(view);
+    this.lastView = rv;
     const ctx: DrawCtx = { font, atlas, buff: { inst, crv, rws } };
     const draw = new DrawHelpers(ctx);
     const t = this.tourT;
     const fs = evalScene(this.doc, t, this.liveParams);
     const objMap = this.doc.objects as Record<string, ObjectSpec>;
 
-    // Ensure layout is solved
+    // Safe-page size driver: quantize barT so damping doesn't re-solve every frame.
+    if (this.cinematic && this._s) {
+      const barT = this.cinematicHud?.barValue ?? 0;
+      const barQ = Math.round(barT * 40) / 40;
+      if (barQ !== this.lastBarQ) {
+        this.lastBarQ = barQ;
+        const Cw = this._s.tCanvas?.width ?? 1600;
+        const Ch = this._s.tCanvas?.height ?? 900;
+        for (const [id, spec] of Object.entries(objMap)) {
+          const g = spec as any;
+          if (g.kind === 'group' && g.chapter && g.page?.safe) {
+            const nw = g.page.nominalW ?? g.size?.[0] ?? 1260;
+            const [wp, hp] = safePageWH(nw, Cw, Ch, barQ, !!g.page?.cover);
+            const prev = this.livePageSize.get(id);
+            if (!prev || Math.abs(prev[0] - wp) > 0.5 || Math.abs(prev[1] - hp) > 0.5) {
+              this.livePageSize.set(id, [wp, hp]);
+              this.invalidateLayout();
+            }
+          }
+        }
+      }
+    }
+
     this.ensureLayout();
 
-    if (this.cinematic) this.drawGrid(draw);
+    // Sparse grid only when zoomed out — dense grid at dive zooms tanks fill rate.
+    if (this.cinematic && rv.zoom < 1.4) this.drawGrid(draw);
 
-// Draw page backgrounds (page groups — top-level AND nested)
-    const margin = 160 / Math.max(view.zoom, 0.05);
-    const laidOutIds = new Set(this.layoutMap.keys());
+    const margin = 200 / Math.max(rv.zoom, 0.05);
+    const vL = rv.left, vR = rv.right, vT = rv.top, vB = rv.bottom;
+    const inView = (x: number, y: number, w: number, h: number) =>
+      !(x - margin > vR || x + w + margin < vL || y - margin > vB || y + h + margin < vT);
+
+    // Top-level pages visible in the frustum (content cull key).
+    const visibleTopPages = new Set<string>();
+    if (fs.currentChapterId) visibleTopPages.add(fs.currentChapterId);
+    for (const [id, spec] of Object.entries(objMap)) {
+      if (spec.kind !== 'group' || !(spec as any).page) continue;
+      if (this.isNestedPage(id)) continue;
+      const live = this.livePageSize.get(id);
+      const pw = live?.[0] ?? (spec as any).size?.[0] ?? 1260;
+      const ph = live?.[1] ?? (spec as any).size?.[1] ?? 820;
+      const isSafe = !!(spec as any).page?.safe;
+      const ox = isSafe ? (spec as any).at[0] - pw / 2 : (spec as any).at[0];
+      const oy = isSafe ? (spec as any).at[1] - ph / 2 : (spec as any).at[1];
+      if (inView(ox, oy, pw, ph)) visibleTopPages.add(id);
+    }
+
     const drawnPageBoxes: { id: string; x: number; y: number; w: number; h: number }[] = [];
     for (const [id, spec] of Object.entries(objMap)) {
       if (spec.kind !== 'group' || !(spec as any).page) continue;
       let wBox: { x: number; y: number; w: number; h: number };
       if (this.isNestedPage(id)) {
-        // Nested page: position/size come from the parent's layout tree.
         const topPage = this.findPageParent(id)!;
+        if (!visibleTopPages.has(topPage)) continue;
         const tp = objMap[topPage] as any;
         const local = this.layoutMap.get(id);
         if (!local) continue;
-        wBox = { x: tp.at[0] + local.x, y: tp.at[1] + local.y, w: local.w, h: local.h };
+        const tSafe = !!tp.page?.safe;
+        const tpw = (this.livePageSize.get(topPage) ?? tp.size)?.[0] ?? 1260;
+        const tph = (this.livePageSize.get(topPage) ?? tp.size)?.[1] ?? 820;
+        const tox = tSafe ? tp.at[0] - tpw / 2 : tp.at[0];
+        const toy = tSafe ? tp.at[1] - tph / 2 : tp.at[1];
+        wBox = { x: tox + local.x, y: toy + local.y, w: local.w, h: local.h };
       } else {
-        // Top-level page: at + livePageSize (or declared size).
+        if (!visibleTopPages.has(id)) continue;
         const live = this.livePageSize.get(id);
         const pw = live?.[0] ?? (spec as any).size?.[0] ?? 1260;
         const ph = live?.[1] ?? (spec as any).size?.[1] ?? 820;
-        wBox = { x: (spec as any).at[0], y: (spec as any).at[1], w: pw, h: ph };
+        const isSafe = !!(spec as any).page?.safe;
+        const ox = isSafe ? (spec as any).at[0] - pw / 2 : (spec as any).at[0];
+        const oy = isSafe ? (spec as any).at[1] - ph / 2 : (spec as any).at[1];
+        wBox = { x: ox, y: oy, w: pw, h: ph };
       }
-      if (wBox.x - margin > (view.right ?? 1e12) || wBox.x + wBox.w + margin < (view.left ?? -1e12) ||
-          wBox.y - margin > (view.bottom ?? 1e12) || wBox.y + wBox.h + margin < (view.top ?? -1e11)) continue;
-      // Nested page cards get a subtle inset so stacking reads visually.
+      if (!inView(wBox.x, wBox.y, wBox.w, wBox.h)) continue;
       const isNested = this.isNestedPage(id);
       const fill = isNested ? [0.145, 0.15, 0.175, 1] : [0.10, 0.105, 0.12, 1];
       const stroke = isNested ? [0.32, 0.33, 0.38, 1] : [0.25, 0.26, 0.30, 1];
@@ -216,94 +328,128 @@ export class SceneRuntime {
       draw.rectStroke(wBox.x, wBox.y, wBox.x + wBox.w, wBox.y + wBox.h, stroke, isNested ? 1.0 : 1.3);
       drawnPageBoxes.push({ id, ...wBox });
     }
-    // Draw resize handles for pages and items
-    const hRadius = Math.max(6, 10 / Math.max(view.zoom, 0.05));
-    const isGrabbed = (id: string) => this.grabbed?.kind === 'page' && this.grabbed.id === id;
-    const isHovered = (id: string) => false; // simple hover state for pages/items
-    for (const pb of drawnPageBoxes) {
-      const spec = objMap[pb.id] as any;
-      if (!spec.page?.resizable) continue;
-      const sx = pb.x + pb.w, sy = pb.y + pb.h;
-      draw.fillCircle(sx, sy, hRadius, isGrabbed(pb.id) ? [0.97, 0.73, 0.33, 1] : [0.30, 0.80, 0.40, 1]);
-      draw.strokeCircle(sx, sy, hRadius * 1.5, isGrabbed(pb.id) ? [0.97, 0.73, 0.33, 1] : [0.30, 0.80, 0.40, 1], 2);
-    }
-    // Item resize handles (drawn after island emits in the layout section; add here too)
-    for (const [oid, oSpec] of Object.entries(objMap)) {
-      if (oSpec.kind === 'group') continue;
-      const itemBox = this.layoutMap.get(oid);
-      if (!itemBox) continue;
-      const item = (oSpec as any).item;
-      if (!item?.resizable) continue;
-      const pageParent = this.findPageParent(oid);
-      if (!pageParent) continue;
-      const pp = objMap[pageParent] as any;
-      const sx = pp.at[0] + itemBox.x + itemBox.w;
-      const sy = pp.at[1] + itemBox.y + itemBox.h;
-      draw.fillCircle(sx, sy, hRadius, [0.12, 0.60, 0.95, 1]);
-      draw.strokeCircle(sx, sy, hRadius * 1.5, [0.12, 0.60, 0.95, 1], 2);
+
+    // Resize handles only in designer chrome mode
+    if (this.showChrome) {
+      const hRadius = Math.max(6, 10 / Math.max(view.zoom, 0.05));
+      const isGrabbed = (id: string) => this.grabbed?.kind === 'page' && this.grabbed.id === id;
+      for (const pb of drawnPageBoxes) {
+        const spec = objMap[pb.id] as any;
+        if (!spec.page?.resizable) continue;
+        const sx = pb.x + pb.w, sy = pb.y + pb.h;
+        draw.fillCircle(sx, sy, hRadius, isGrabbed(pb.id) ? [0.97, 0.73, 0.33, 1] : [0.30, 0.80, 0.40, 1]);
+        draw.strokeCircle(sx, sy, hRadius * 1.5, isGrabbed(pb.id) ? [0.97, 0.73, 0.33, 1] : [0.30, 0.80, 0.40, 1], 2);
+      }
+      for (const [oid, oSpec] of Object.entries(objMap)) {
+        if (oSpec.kind === 'group') continue;
+        const itemBox = this.layoutMap.get(oid);
+        if (!itemBox) continue;
+        if (!(oSpec as any).item?.resizable) continue;
+        const pageParent = this.findPageParent(oid);
+        if (!pageParent || !visibleTopPages.has(pageParent)) continue;
+        const pp = objMap[pageParent] as any;
+        const pSafe = !!pp.page?.safe;
+        const ppw = (this.livePageSize.get(pageParent) ?? pp.size)?.[0] ?? 1260;
+        const pph = (this.livePageSize.get(pageParent) ?? pp.size)?.[1] ?? 820;
+        const pox = pSafe ? pp.at[0] - ppw / 2 : pp.at[0];
+        const poy = pSafe ? pp.at[1] - pph / 2 : pp.at[1];
+        const sx = pox + itemBox.x + itemBox.w;
+        const sy = poy + itemBox.y + itemBox.h;
+        draw.fillCircle(sx, sy, hRadius, [0.12, 0.60, 0.95, 1]);
+        draw.strokeCircle(sx, sy, hRadius * 1.5, [0.12, 0.60, 0.95, 1], 2);
+      }
     }
 
-    // Build visible chapter set (for explainer-style scenes — skip for page-based)
-    const visibleChapters = new Set<string>();
+    const visibleChapters = new Set<string>(visibleTopPages);
     for (const [id, spec] of Object.entries(objMap)) {
-      if (spec.kind === 'group' && spec.chapter && spec.size) {
+      if (spec.kind === 'group' && spec.chapter && spec.size && !spec.page) {
         const g = spec;
         const sz = g.size!;
         const chAt = g.at;
-        if (chAt[0] - margin <= (view.right ?? 1e12) && chAt[0] + sz[0] + margin >= (view.left ?? -1e12) &&
-            chAt[1] - margin <= (view.bottom ?? 1e12) && chAt[1] + sz[1] + margin >= (view.top ?? -1e12)) {
-          visibleChapters.add(id);
-        }
+        if (inView(chAt[0], chAt[1], sz[0], sz[1])) visibleChapters.add(id);
       }
     }
-    if (fs.currentChapterId) visibleChapters.add(fs.currentChapterId);
+
+    // Page origins for layout children (computed once)
+    const pageOrigin = new Map<string, { ox: number; oy: number }>();
+    for (const pid of visibleTopPages) {
+      const pageSpec = objMap[pid] as any;
+      if (!pageSpec) continue;
+      const isSafePage = !!pageSpec.page?.safe;
+      const pgW = (this.livePageSize.get(pid) ?? pageSpec.size)?.[0] ?? 1260;
+      const pgH = (this.livePageSize.get(pid) ?? pageSpec.size)?.[1] ?? 820;
+      pageOrigin.set(pid, {
+        ox: isSafePage ? pageSpec.at[0] - pgW / 2 : pageSpec.at[0],
+        oy: isSafePage ? pageSpec.at[1] - pgH / 2 : pageSpec.at[1],
+      });
+    }
 
     for (const [oid, spec] of Object.entries(objMap)) {
       if (spec.kind === 'group') continue;
-      // Use layout position if available
-      const layoutBox = laidOutIds.has(oid) ? this.layoutMap.get(oid) : null;
+      const layoutBox = this.layoutMap.get(oid);
       if (layoutBox) {
-        // Find the page this object belongs to — skip chapter culling
         const parentPage = this.findPageParent(oid);
-        if (!parentPage) continue;
-        const pageSpec = objMap[parentPage] as any;
-        const worldX = pageSpec.at[0] + layoutBox.x;
-        const worldY = pageSpec.at[1] + layoutBox.y;
+        if (!parentPage || !visibleTopPages.has(parentPage)) continue;
+        const origin = pageOrigin.get(parentPage);
+        if (!origin) continue;
+        const worldX = origin.ox + layoutBox.x;
+        const worldY = origin.oy + layoutBox.y;
+        // Cheap AABB cull of individual objects
+        if (!inView(worldX, worldY, layoutBox.w, layoutBox.h)) continue;
         const frame = fs.objects.get(oid);
         if (!frame || !frame.visible) continue;
-        const chAlpha = parentPage ? 1 : 1;
-        const effOp = frame.opacityMult * chAlpha;
+        const effOp = frame.opacityMult;
         if (effOp <= 0.001) continue;
         this.emitObjectAt(oid, spec, frame, draw, fs, ctx.buff, view, now, effOp, worldX, worldY, layoutBox.w, layoutBox.h);
         continue;
       }
 
-      // Legacy chapter path — neighbors keep drawing (like original explainer cache)
+      // Page children without a layout box yet — never fall through to legacy.
+      if (this.findPageParent(oid)) continue;
+
       const chId = this.childToChapter.get(oid);
       if (chId && !visibleChapters.has(chId)) continue;
       const chAlpha = chId ? (fs.chapters.get(chId)?.alpha ?? 0) : 1;
       if (chAlpha <= 0.02) continue;
       const frame = fs.objects.get(oid);
-      if (!frame) continue;
-      if (!frame.visible) continue;
-      // Current chapter full opacity; neighbors fade with chapter alpha
+      if (!frame || !frame.visible) continue;
       const isCurrent = !chId || chId === fs.currentChapterId;
       const effOp = frame.opacityMult * (isCurrent ? chAlpha : Math.min(chAlpha, 0.55));
       if (effOp <= 0.001) continue;
-
       this.emitObject(oid, spec, frame, draw, fs, ctx.buff, view, now, effOp);
     }
     if (this.showChrome) this.chrome.emit(draw, view, now);
     draw.setOrigin(0, 0);
 
-    // Cinematic screen-space HUD overlay: built into its own buffers (screen px),
-    // then frame.ts draws them with a screen-ortho matrix in this same pass.
+    // ── Living UI peel ──────────────────────────────────────────────────────
+    // Screen HUD stays solid until detach is well underway. World HUD is posed
+    // from a REAL viewport (orbit target + scale), not the 3D sentinel bounds.
+    // Complementary alphas (screen + world = 1) — no disappear gap.
+    const hudDetach = this.cinematic ? (fs.params.get('hudDetach') ?? 0) : 0;
+    if (this.cinematicHud) this.cinematicHud.worldDetached = hudDetach > 0.5;
+    this.hudPeel = null;
+
+    const chapters = this.chapterWindows();
+    const activeIdx = fs.currentChapterId ? chapters.findIndex((c) => c.id === fs.currentChapterId) : -1;
+    const hudInfo = { t, total: this.totalDuration(), playing: this.playing, chapters, activeIdx };
+
+    const Cw = this._s?.tCanvas?.width ?? 0;
+    const Ch = this._s?.tCanvas?.height ?? 0;
+    if (hudDetach > 0.001 && this.cinematicHud && this._s && Cw > 0 && Ch > 0) {
+      const slotBox = this.layoutWorldBox('sm-slot');
+      if (slotBox) {
+        const cx = (rv as any).cx ?? (rv.left + rv.right) / 2;
+        const cy = (rv as any).cy ?? (rv.top + rv.bottom) / 2;
+        const screenPose = screenLockedHudPose(Cw, Ch, cx, cy, rv.zoom);
+        const slotPose: HudWorldSlot = { x: slotBox.x, y: slotBox.y, w: slotBox.w, h: slotBox.h };
+        const pose = lerpSlot(screenPose, slotPose, hudDetach);
+        this.hudPeel = { pose, Wv: Cw, Hv: Ch };
+        emitHudWorld(this.cinematicHud, this, this.hudPeel, this.font, this.atlas, ctx.buff, now, hudInfo, hudDetach);
+      }
+    }
+
+    // Screen overlay: letterbox always full; timeline/buttons = (1 - detach).
     if (this.cinematic && this.cinematicHud && this._s) {
-      const chapters = this.chapterWindows();
-      const activeIdx = fs.currentChapterId ? chapters.findIndex((c) => c.id === fs.currentChapterId) : -1;
-      // Seed the overlay's curve/row buffers with the atlas base tables so the
-      // glyph band indices emitted by layoutStr resolve (rects then append after
-      // them with correct offsets). Without this, overlay text renders blank.
       const bs = this._s as any;
       this.hudInst.length = 0;
       const bcl = bs.baseCrvLen ?? 0;
@@ -312,9 +458,10 @@ export class SceneRuntime {
       const brl = bs.baseRwsLen ?? 0;
       this.hudRws.length = brl;
       for (let i = 0; i < brl; i++) this.hudRws[i] = bs.baseRws[i];
-      this.cinematicHud.build(this.font, this.atlas, now, this._s.tCanvas.width, this._s.tCanvas.height,
-        { t, total: this.totalDuration(), playing: this.playing, chapters, activeIdx },
-        { inst: this.hudInst, crv: this.hudCrv, rws: this.hudRws });
+      const froze = hudDetach > 0.001 && !!this.hudPeel;
+      this.cinematicHud.build(this.font, this.atlas, now, Cw, Ch,
+        hudInfo, { inst: this.hudInst, crv: this.hudCrv, rws: this.hudRws },
+        { masterAlpha: 1 - hudDetach, freezeBar: froze });
       this.hudCount = this.hudInst.length / 16;
       if (this.hudInst.length > this.hudInstFA.length) this.hudInstFA = new Float32Array(this.hudInst.length * 2);
       this.hudInstFA.set(this.hudInst); this.hudInstLen = this.hudInst.length;
@@ -344,15 +491,15 @@ export class SceneRuntime {
     }
   }
 
-  private buildParentMap(): Map<string, string> {
+  private getParentMap(): Map<string, string> {
+    if (this.parentMap) return this.parentMap;
     const pm = new Map<string, string>();
     for (const [pid, spec] of Object.entries(this.doc.objects)) {
       if (spec.kind === 'group') {
-        for (const cid of (spec as GroupSpec).children) {
-          pm.set(cid, pid);
-        }
+        for (const cid of (spec as GroupSpec).children) pm.set(cid, pid);
       }
     }
+    this.parentMap = pm;
     return pm;
   }
 
@@ -360,7 +507,8 @@ export class SceneRuntime {
    *  For a child of a nested page, returns the outermost page (not the
    *  immediate one) so world coordinates are top-page-local. */
   private findPageParent(id: string): string | null {
-    const pm = this.buildParentMap();
+    if (this.topPageCache.has(id)) return this.topPageCache.get(id)!;
+    const pm = this.getParentMap();
     let cur = id;
     const visited = new Set<string>();
     let lastPage: string | null = null;
@@ -372,6 +520,7 @@ export class SceneRuntime {
       if (parentSpec?.page) lastPage = parent;
       cur = parent;
     }
+    this.topPageCache.set(id, lastPage);
     return lastPage;
   }
 
@@ -658,6 +807,13 @@ export class SceneRuntime {
   // ── Camera driving (mirrors ExplainerBoard.update) ──────────────────────
   update(now: number, s: AppState) {
     this._s = s;
+    // Fit settling: after stopTour, keep adjusting camera while barT damps down
+    if (!this.playing && this.fitSettling && this.cinematic) {
+      const barT = this.cinematicHud?.barValue ?? 0;
+      if (barT < 0.01) { this.fitSettling = false; return; }
+      this.applyPose(s);
+      return;
+    }
     if (!this.playing) return;
     const dt = this.lastNow < 0 ? 0 : Math.min((now - this.lastNow) / 1000, 0.05);
     this.lastNow = now;
@@ -668,24 +824,50 @@ export class SceneRuntime {
   }
 
   private resolveFit(canvasW: number, canvasH: number) {
+    const barT = this.cinematic ? (this.cinematicHud?.barValue ?? 0) : 0;
+    const H = barT > 0.001 ? effHeight(canvasH, barT) : canvasH;
     return (fitId: string) => {
       const obj = this.doc.objects[fitId];
       if (!obj || obj.kind !== 'group') return null;
       const g = obj as any;
       if (!g.size) return null;
-      const zoom = Math.min(canvasW / (g.size[0] - 80), canvasH / (g.size[1] - 20)) * 1.02;
+      // Safe pages: zoom uses safePageZoom, center = at (which is the page center)
+      if (g.page?.safe) {
+        const nw = g.page.nominalW ?? g.size[0] ?? 1260;
+        const z = safePageZoom(nw, canvasW);
+        return { center: [g.at[0], g.at[1]] as [number, number], zoom: z };
+      }
+      const zoom = Math.min(canvasW / (g.size[0] - 80), H / (g.size[1] - 20)) * 1.02;
       return { center: [g.at[0] + g.size[0] / 2, g.at[1] + g.size[1] / 2] as [number, number], zoom };
     };
   }
 
   private applyPose(s: AppState) {
+    // Skip camera driving while Taffy WASM hasn't settled into place.  Trying to
+    // frame layout-resolved targets before they exist causes ugly snapping/panning.
+    if (!this.layoutReady) return;
     const canvasW = s.tCanvas?.width ?? 800;
     const canvasH = s.tCanvas?.height ?? 600;
-    const pose = poseAt(this.doc.camera, this.tourT, this.resolveFit(canvasW, canvasH), canvasW, canvasH);
+    const pose = poseAt(this.doc.camera, this.tourT, this.resolveFit(canvasW, canvasH), canvasW, canvasH, this.makeResolveFitObj(canvasW, canvasH));
     if (!s.cam3d.active) enter3D(s);
     orbitSetPose(pose.x, pose.y, orbitDistForZoom(pose.zoom, canvasH), pose.azimuth, pose.polar);
     updateOrbit(16);
     s.velX = s.velY = 0;
+  }
+
+  /** Layout-resolved fit: frame an object's laid-out world box within the safe
+   *  area (between letterbox bars). Drives `fitObj` dive keyframes so a deep zoom
+   *  tracks its card through reflow/resize and stays centered. */
+  private makeResolveFitObj(canvasW: number, canvasH: number) {
+    return (oid: string): { center: Vec2; zoom: number } | null => {
+      const box = this.layoutWorldBox(oid);
+      if (!box || box.w <= 0 || box.h <= 0) return null;
+      // Contain fit with zero margin — the slot is canvas-aspect (cover page),
+      // so this fills the screen exactly at zoomMul=1.
+      const m = 0;
+      const zoom = Math.min(canvasW / (box.w + m), canvasH / (box.h + m));
+      return { center: [box.x + box.w / 2, box.y + box.h / 2] as Vec2, zoom };
+    };
   }
 
   // ── Playback controls ───────────────────────────────────────────────────
@@ -702,11 +884,12 @@ export class SceneRuntime {
     this._s = s;
     this.playing = true; this.tourT = Math.max(0, Math.min(from, this.totalDuration()));
     this.lastNow = -1;
+    this.fitSettling = false;
     if (!s.cam3d.active) enter3D(s);
     this.applyPose(s);
   }
 
-  stopTour(_s: AppState) { this.playing = false; }
+  stopTour(_s: AppState) { this.playing = false; if (this.cinematic) this.fitSettling = true; }
   replay(s: AppState) { this.play(s, 0); }
   resume(s: AppState) { this.play(s, this.tourT); }
 
@@ -731,14 +914,13 @@ export class SceneRuntime {
     const pageId = this.findPageParent(oid);
     if (!pageId) return null;
     const pageSpec = this.doc.objects[pageId] as any;
+    const isSafe = !!pageSpec.page?.safe;
     const pageW = (this.livePageSize.get(pageId) ?? pageSpec.size)?.[0] ?? 1260;
     const pageH = (this.livePageSize.get(pageId) ?? pageSpec.size)?.[1] ?? 820;
-    const pageLocal = this.layoutMap.get(pageId);
-    return {
-      x: pageSpec.at[0] + (pageLocal?.x ?? 0) + local.x,
-      y: pageSpec.at[1] + (pageLocal?.y ?? 0) + local.y,
-      w: local.w, h: local.h,
-    };
+    // Layout boxes are already top-page-local — do not add the page's own layout box.
+    const ox = isSafe ? pageSpec.at[0] - pageW / 2 : pageSpec.at[0];
+    const oy = isSafe ? pageSpec.at[1] - pageH / 2 : pageSpec.at[1];
+    return { x: ox + local.x, y: oy + local.y, w: local.w, h: local.h };
   }
 
   private buildWorldBoxes(): Map<string, { x: number; y: number; w: number; h: number }> {
@@ -757,12 +939,33 @@ export class SceneRuntime {
     for (const pid of pageIds) {
       if (!boxMap.has(pid)) {
         const pageSpec = this.doc.objects[pid] as any;
+        const isSafe = !!pageSpec.page?.safe;
         const w = (this.livePageSize.get(pid) ?? pageSpec.size)?.[0] ?? 1260;
         const h = (this.livePageSize.get(pid) ?? pageSpec.size)?.[1] ?? 820;
-        boxMap.set(pid, { x: pageSpec.at[0], y: pageSpec.at[1], w, h });
+        const ox = isSafe ? pageSpec.at[0] - w / 2 : pageSpec.at[0];
+        const oy = isSafe ? pageSpec.at[1] - h / 2 : pageSpec.at[1];
+        boxMap.set(pid, { x: ox, y: oy, w, h });
       }
     }
     return boxMap;
+  }
+
+  /** Current evaluated `hudDetach` (0 = screen overlay, 1 = world card). */
+  private currentHudDetach(): number {
+    if (!this.cinematic) return 0;
+    // Always use tourT — paused mid-chapter must keep the in-card hit path.
+    return evalScene(this.doc, this.tourT, this.liveParams).params.get('hudDetach') ?? 0;
+  }
+
+  /** Map a world point into HUD-local virtual px for hit-testing: through the
+   *  world-card transform while detached (so the in-card timeline stays live and
+   *  scrubbable, even mid-dive), else through the screen projection. */
+  private hudPoint(wx: number, wy: number): [number, number] | null {
+    if (!this.cinematicHud) return null;
+    if (this.currentHudDetach() > 0.5 && this.hudPeel) {
+      return hudWorldToScreen(wx, wy, this.hudPeel);
+    }
+    return this.cinematicHud.worldToScreen(wx, wy);
   }
 
   tryBeginDrag(wx: number, wy: number, scale: number): boolean {
@@ -770,11 +973,11 @@ export class SceneRuntime {
     if (this.showChrome && this.lastView && this.chrome.handleClick(wx, wy, this.lastView)) {
       return true;
     }
-    // DOM-free cinematic HUD (controls + scrubber) sits above everything; it is
-    // hit-tested in screen space (the world point is projected through viewProj).
+    // Cinematic HUD (controls + scrubber): screen-space while attached, world-space
+    // (inverse card transform) while detached — so it stays interactive in the card.
     if (this.cinematicHud) {
-      const [sx, sy] = this.cinematicHud.worldToScreen(wx, wy);
-      if (this.cinematicHud.pointerDownScreen(sx, sy)) { this.grabbed = { kind: 'hud' }; return true; }
+      const pt = this.hudPoint(wx, wy);
+      if (pt && this.cinematicHud.pointerDownScreen(pt[0], pt[1])) { this.grabbed = { kind: 'hud' }; return true; }
     }
     const r = Math.max(12, 18 / Math.max(scale, 0.05));
     const boxMap = this.buildWorldBoxes();
@@ -838,7 +1041,7 @@ export class SceneRuntime {
     const g = this.grabbed;
 
     if (g.kind === 'hud') {
-      if (this.cinematicHud) { const [sx] = this.cinematicHud.worldToScreen(wx, wy); this.cinematicHud.dragToScreen(sx); }
+      if (this.cinematicHud) { const pt = this.hudPoint(wx, wy); if (pt) this.cinematicHud.dragToScreen(pt[0]); }
       return;
     }
 
@@ -915,7 +1118,7 @@ export class SceneRuntime {
   }
 
   updateHover(wx: number, wy: number, scale: number): boolean {
-    if (this.cinematicHud) { const [sx, sy] = this.cinematicHud.worldToScreen(wx, wy); if (this.cinematicHud.hoverScreen(sx, sy)) return true; }
+    if (this.cinematicHud) { const pt = this.hudPoint(wx, wy); if (pt && this.cinematicHud.hoverScreen(pt[0], pt[1])) return true; }
     const r = Math.max(12, 18 / Math.max(scale, 0.05));
     const boxMap = this.buildWorldBoxes();
     // Check item resize handles first (most specific)

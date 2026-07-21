@@ -34,6 +34,7 @@ function layoutSpecToProps(ls: LayoutSpec): StyleProps {
       : justify === 'start' ? 'flex-start'
       : justify === 'end' ? 'flex-end' : 'center';
   }
+  if (ls.wrap) sp.flexWrap = 'wrap';
   return sp;
 }
 

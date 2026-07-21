@@ -185,8 +185,11 @@ export function validateSceneDoc(doc: unknown, knownIslandIds?: Set<string>): st
         const hasCenter = kf.center !== undefined && isVec2(kf.center);
         const hasZoom = typeof kf.zoom === 'number' && isFinite(kf.zoom as number) && (kf.zoom as number) > 0;
         const hasFit = typeof kf.fit === 'string' && !!kf.fit;
-        if (!hasFit && !(hasCenter && hasZoom))
-          errs.push(`camera.keyframes[${i}]: must have either (center + zoom) or fit`);
+        const hasFitObj = typeof kf.fitObj === 'string' && !!kf.fitObj;
+        if (!hasFit && !hasFitObj && !(hasCenter && hasZoom))
+          errs.push(`camera.keyframes[${i}]: must have either (center + zoom), fit, or fitObj`);
+        if (hasFitObj && !(d.objects as Record<string, unknown>)[kf.fitObj as string])
+          errs.push(`camera.keyframes[${i}].fitObj "${kf.fitObj}" not found in objects`);
         if (kf.zoomMul !== undefined && (typeof kf.zoomMul !== 'number' || !isFinite(kf.zoomMul as number) || (kf.zoomMul as number) <= 0))
           errs.push(`camera.keyframes[${i}].zoomMul: must be > 0`);
         if (kf.offset !== undefined && !isVec2(kf.offset))

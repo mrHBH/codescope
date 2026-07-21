@@ -68,6 +68,12 @@ export class CinematicHud {
   private geo: Geo | null = null;
   /** 0 = compact (fps only), 1 = detailed readout. Click the panel or press D. */
   debugDetail = 0;
+  /** True while the HUD is detached into a world card (Living UI). The world copy
+   *  then renders its timeline at full strength and stays scrubbable even when
+   *  the screen overlay's timeline has faded with the bars (e.g. while paused). */
+  worldDetached = false;
+  private screenGeo: Geo | null = null;
+  private worldGeo: Geo | null = null;
   private _debugRect: { x0: number; y0: number; x1: number; y1: number } | null = null;
 
   toggleDebug() { this.debugDetail = this.debugDetail ? 0 : 1; }
@@ -79,6 +85,7 @@ export class CinematicHud {
   }
 
   setBars(on: boolean) { this.barTarget = on ? 1 : 0; }
+  get barValue(): number { return this.barT; }
 
   // ── coordinate helpers ────────────────────────────────────────────────────
   worldToScreen(wx: number, wy: number): [number, number] {
@@ -92,8 +99,10 @@ export class CinematicHud {
     return [(nx * 0.5 + 0.5) * Cw, (0.5 - 0.5 * ny) * Ch];
   }
 
-  private computeGeo(W: number, H: number): Geo {
-    const d = this.s.dpr || 1;
+  private computeGeo(W: number, H: number, dprOverride?: number): Geo {
+    // World card is virtual design-px (1280×720) scaled by an affine xform — never
+    // bake device DPR into that space or buttons/timeline blow past the slot.
+    const d = dprOverride ?? (this.s.dpr || 1);
     const marginLR = 0.07 * W;
     const timeW = 170 * d, gap = 14 * d;
     const trackL = marginLR, trackR = W - marginLR - timeW - gap, trackW = trackR - trackL;
@@ -149,8 +158,9 @@ export class CinematicHud {
     for (const b of g.buttons) {
       if (sx >= b.x && sx <= b.x + b.s && sy >= b.y && sy <= b.y + b.s) return b.id;
     }
-    // The timeline is only interactive while it is shown (fades out when paused).
-    if (this.barT > 0.5 && sx >= g.trackL && sx <= g.W - 0.07 * g.W && sy >= g.scrubY0 && sy <= g.scrubY1) return 'scrub';
+    // The timeline is interactive while shown — on screen that's only while the
+    // bars are up (playing); once detached into the world card it stays live.
+    if ((this.barT > 0.5 || this.worldDetached) && sx >= g.trackL && sx <= g.W - 0.07 * g.W && sy >= g.scrubY0 && sy <= g.scrubY1) return 'scrub';
     return null;
   }
   private scrubRatio(sx: number): number {
@@ -189,33 +199,64 @@ export class CinematicHud {
     return h !== null;
   }
 
-  // ── build overlay geometry (screen px) into the given buffers ─────────────
-  build(font: any, atlas: any, now: number, W: number, H: number, info: HudInfo, out: EmitBuffers) {
+  // ── build overlay geometry into the given buffers ───────────────────────────
+  // By default emits in screen pixels (identity transform). For the Living UI,
+  // `opts.xform` maps the HUD's virtual resolution into a world-space card slot
+  // (DrawHelpers transforms every primitive, text included → razor-sharp), and
+  // `opts.masterAlpha` drives the screen↔world crossfade during the peel.
+  // `worldLetterbox` draws bars in world mode so the peel matches the screen HUD.
+  build(font: any, atlas: any, now: number, W: number, H: number, info: HudInfo, out: EmitBuffers, opts?: {
+    xform?: { ox: number; oy: number; sx: number; sy: number };
+    masterAlpha?: number;
+    worldLetterbox?: boolean;
+    /** Skip barT damping (second build same frame — world then screen). */
+    freezeBar?: boolean;
+  }) {
     // NOTE: out.crv/out.rws are seeded by the runtime with the atlas base tables
     // (so glyph band indices resolve); out.inst is empty. We only append here.
-    const dt = this.lastNow < 0 ? 0 : Math.min(now - this.lastNow, 50);
-    this.lastNow = now;
-    const k = 1 - Math.pow(0.0015, dt / 1000);
-    this.barT += (this.barTarget - this.barT) * k;
+    if (!opts?.freezeBar) {
+      const dt = this.lastNow < 0 ? 0 : Math.min(now - this.lastNow, 50);
+      this.lastNow = now;
+      const k = 1 - Math.pow(0.0015, dt / 1000);
+      this.barT += (this.barTarget - this.barT) * k;
+    }
 
+    const ma = opts?.masterAlpha ?? 1;
+    const world = !!opts?.xform;
+    // World peel uses canvas-sized virtual res → same DPR as the screen overlay
+    // so buttons/timeline match 1:1 at detach=0.
     const g = this.computeGeo(W, H);
-    this.geo = g;
+    if (world) this.worldGeo = g;
+    else this.screenGeo = g;
+    // Hit-testing must use the geo that matches the active coordinate space.
+    this.geo = (this.worldDetached && this.worldGeo) ? this.worldGeo : (this.screenGeo ?? g);
     const d = g.d;
     const ctx: DrawCtx = { font, atlas, buff: out };
     const draw = new DrawHelpers(ctx);
+    if (opts?.xform) draw.setTransform(opts.xform.ox, opts.xform.oy, opts.xform.sx, opts.xform.sy);
+    // World copy fully faded: keep geo/barT fresh (hit-testing + bar damping) but
+    // emit nothing into the card, so its instance count drops to zero.
+    if (world && ma <= 0.001) return;
 
-    // Letterbox bars (slide with barT)
+    // Letterbox: always on the true screen overlay (frame chrome). Also on the
+    // world copy during peel so the projected HUD is optically identical — only
+    // the camera dive reveals it lives in world space.
     const barH = 0.11 * H * this.barT;
-    if (barH > 0.5) {
-      draw.rect(0, 0, W, barH, BAR_COL);
-      draw.rect(0, H - barH, W, H, BAR_COL);
+    if (barH > 0.5 && (!world || opts?.worldLetterbox)) {
+      // Screen bars ignore peel alpha (frame never loses its letterbox).
+      // World bars ride masterAlpha so they crossfade with the rest of the HUD.
+      const ba = world ? ma : 1;
+      draw.rect(0, 0, W, barH, BAR_COL, ba);
+      draw.rect(0, H - barH, W, H, BAR_COL, ba);
     }
 
     const chapters = info.chapters;
-    // The timeline (like the DOM chrome) is only shown while playing; it fades
-    // with the letterbox bars (barT) and is non-interactive once faded out.
-    const tl = this.barT;
-    if (chapters.length && tl > 0.01) {
+    // Timeline + controls crossfade with the peel (ma): the screen overlay fades
+    // out as the world copy fades in. The WORLD copy (the Living UI) always shows
+    // its timeline at full strength — it must stay visibly "live" even when the
+    // screen overlay's timeline has faded with the bars (paused), so it uses tl=1.
+    const tl = world ? 1 : this.barT;
+    if (ma > 0.01 && chapters.length && tl > 0.01) {
       const L = this.layout(chapters, info.activeIdx);
       const total = Math.max(0.001, info.total);
       const ratio = clamp01(info.t / total);
@@ -230,21 +271,21 @@ export class CinematicHud {
       const labelsTop = trackTop + trackH + labelsMT;
 
       // base line
-      draw.rect(g.trackL, lineY - 1 * d, g.trackR, lineY + 1 * d, LINE_COL, tl);
+      draw.rect(g.trackL, lineY - 1 * d, g.trackR, lineY + 1 * d, LINE_COL, tl * ma);
       // chapter markers
       for (let i = 0; i < chapters.length; i++) {
         const mx = g.trackL + L.visStart[i] * g.trackW;
-        draw.rect(mx - 0.5 * d, trackTop + 1 * d, mx + 0.5 * d, trackTop + trackH - 1 * d, MARK_COL, tl);
+        draw.rect(mx - 0.5 * d, trackTop + 1 * d, mx + 0.5 * d, trackTop + trackH - 1 * d, MARK_COL, tl * ma);
       }
       // playhead + glow
       const hx = g.trackL + vis * g.trackW;
       for (let i = 3; i >= 1; i--) {
         const sp = i * 2 * d;
-        draw.rect(hx - sp, headTop - sp, hx + 3 * d + sp, headBot + sp, HEAD_COL, 0.16 * (1 - i / 4) * tl);
+        draw.rect(hx - sp, headTop - sp, hx + 3 * d + sp, headBot + sp, HEAD_COL, 0.16 * (1 - i / 4) * tl * ma);
       }
-      draw.rect(hx, headTop, hx + 3 * d, headBot, HEAD_COL, tl);
+      draw.rect(hx, headTop, hx + 3 * d, headBot, HEAD_COL, tl * ma);
       // time label (right aligned)
-      draw.text(`${info.t.toFixed(1)}s / ${total.toFixed(1)}s`, g.W - 0.07 * g.W, trackTop + 3 * d, 11 * d, TIME_COL, tl, 'end');
+      draw.text(`${info.t.toFixed(1)}s / ${total.toFixed(1)}s`, g.W - 0.07 * g.W, trackTop + 3 * d, 11 * d, TIME_COL, tl * ma, 'end');
 
       // chapter labels — telescoping like the DOM timeline: inactive titles are
       // clipped to their shrunken slot (so they pack/compress), the active one is
@@ -254,41 +295,41 @@ export class CinematicHud {
       for (let i = 0; i < chapters.length; i++) {
         if (i === info.activeIdx) continue;
         const lx = g.trackL + L.visStart[i] * g.trackW;
-        this.clippedText(draw, font, chapters[i].title, lx, labelsTop + 6 * d, 10 * d * INACT_SCALE, TITLE_COL, 0.52 * tl, slotW[i]);
+        this.clippedText(draw, font, chapters[i].title, lx, labelsTop + 6 * d, 10 * d * INACT_SCALE, TITLE_COL, 0.52 * tl * ma, slotW[i]);
       }
       const ai = info.activeIdx;
       if (ai >= 0 && ai < chapters.length) {
         const lx = g.trackL + L.visStart[ai] * g.trackW;
         const ts = 10 * d * ACTIVE_SCALE, ss = 9 * d * ACTIVE_SCALE;
-        draw.text(chapters[ai].title, lx, labelsTop - 1 * d, ts, TITLE_COL, tl, 'start');
-        draw.text((chapters[ai].sub ?? '').toUpperCase(), lx, labelsTop - 1 * d + ts * 1.15, ss, SUB_COL, tl, 'start');
+        draw.text(chapters[ai].title, lx, labelsTop - 1 * d, ts, TITLE_COL, tl * ma, 'start');
+        draw.text((chapters[ai].sub ?? '').toUpperCase(), lx, labelsTop - 1 * d + ts * 1.15, ss, SUB_COL, tl * ma, 'start');
       }
     }
 
     // control buttons (top-right)
-    for (const b of g.buttons) {
+    if (ma > 0.01) for (const b of g.buttons) {
       const hot = this.hoverBtn === b.id;
-      draw.rect(b.x, b.y, b.x + b.s, b.y + b.s, hot ? BTN_HOV : BTN_BG);
-      draw.rectStroke(b.x, b.y, b.x + b.s, b.y + b.s, hot ? HEAD_COL : BTN_BD, 1 * d);
-      this.icon(draw, b.id, b.x, b.y, b.s, info.playing);
+      draw.rect(b.x, b.y, b.x + b.s, b.y + b.s, hot ? BTN_HOV : BTN_BG, ma);
+      draw.rectStroke(b.x, b.y, b.x + b.s, b.y + b.s, hot ? HEAD_COL : BTN_BD, 1 * d, ma);
+      this.icon(draw, b.id, b.x, b.y, b.s, info.playing, ma);
     }
 
-    // lower-third caption (fades with the bars)
-    if (this.barT > 0.01 && info.activeIdx >= 0 && chapters[info.activeIdx]) {
+    // lower-third caption — screen-only chrome (fades with the bars)
+    if (!world && ma > 0.01 && this.barT > 0.01 && info.activeIdx >= 0 && chapters[info.activeIdx]) {
       const c = chapters[info.activeIdx];
       const titleSize = Math.max(23 * d, Math.min(40 * d, 0.025 * W));
       const subSize = Math.max(10 * d, Math.min(13 * d, 0.0095 * W));
       const lx = 0.07 * W;
       const subY = H - 0.134 * H - subSize;
       const titleY = subY - titleSize * 1.12 - 8 * d;
-      draw.text(c.title, lx, titleY, titleSize, CAP_TITLE, this.barT, 'start');
-      draw.text((c.sub ?? '').toUpperCase(), lx, subY, subSize, CAP_SUB, this.barT * 0.9, 'start');
+      draw.text(c.title, lx, titleY, titleSize, CAP_TITLE, this.barT * ma, 'start');
+      draw.text((c.sub ?? '').toUpperCase(), lx, subY, subSize, CAP_SUB, this.barT * 0.9 * ma, 'start');
     }
 
-    // Analytic debug panel (top-left), drawn last so it sits over the letterbox.
-    // Click it (or press D) to toggle compact ↔ detailed.
+    // Analytic debug panel (top-left) — screen-only chrome, drawn last so it sits
+    // over the letterbox. Click it (or press D) to toggle compact ↔ detailed.
     const full = this.s.hudDebugText;
-    if (full) {
+    if (!world && full) {
       const dbg = this.debugDetail ? full : `${parseInt(full, 10) || 0} fps`;
       const ds = 12 * d, m = 10 * d, padX = 10 * d, padY = 6 * d;
       const w = tw(dbg, font, ds) + padX * 2;
@@ -316,24 +357,24 @@ export class CinematicHud {
     if (best) draw.text(best, x, y, size, color, alpha, 'start');
   }
 
-  private icon(draw: DrawHelpers, id: string, bx: number, by: number, s: number, playing: boolean) {
+  private icon(draw: DrawHelpers, id: string, bx: number, by: number, s: number, playing: boolean, ma = 1) {
     const fx = (f: number) => bx + f * s, fy = (f: number) => by + f * s;
     if (id === 'play') {
       if (playing) {
-        draw.rect(fx(0.32), fy(0.28), fx(0.44), fy(0.72), ICON);
-        draw.rect(fx(0.56), fy(0.28), fx(0.68), fy(0.72), ICON);
+        draw.rect(fx(0.32), fy(0.28), fx(0.44), fy(0.72), ICON, ma);
+        draw.rect(fx(0.56), fy(0.28), fx(0.68), fy(0.72), ICON, ma);
       } else {
-        draw.fillPoly([[fx(0.36), fy(0.28)], [fx(0.36), fy(0.72)], [fx(0.72), fy(0.5)]], ICON);
+        draw.fillPoly([[fx(0.36), fy(0.28)], [fx(0.36), fy(0.72)], [fx(0.72), fy(0.5)]], ICON, ma);
       }
     } else if (id === 'replay') {
       const cx = fx(0.5), cy = fy(0.52), r = s * 0.22;
-      draw.strokeCircle(cx, cy, r, ICON, s * 0.07);
-      draw.fillPoly([[cx + r, cy - s * 0.10], [cx + r, cy + s * 0.12], [cx + r + s * 0.13, cy + s * 0.01]], ICON);
+      draw.strokeCircle(cx, cy, r, ICON, s * 0.07, ma);
+      draw.fillPoly([[cx + r, cy - s * 0.10], [cx + r, cy + s * 0.12], [cx + r + s * 0.13, cy + s * 0.01]], ICON, ma);
     } else {
       draw.fillPoly([
         [fx(0.50), fy(0.26)], [fx(0.22), fy(0.52)], [fx(0.32), fy(0.52)],
         [fx(0.32), fy(0.76)], [fx(0.68), fy(0.76)], [fx(0.68), fy(0.52)], [fx(0.78), fy(0.52)],
-      ], ICON);
+      ], ICON, ma);
     }
   }
 }

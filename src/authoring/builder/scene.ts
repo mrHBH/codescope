@@ -63,13 +63,43 @@ export class SceneBuilder {
   }
 
   // ── Chapter builder ─────────────────────────────────────────────────────
-  chapter(id: string, opts: { title: string; sub: string; at: Vec2; dur: number; size?: Vec2 }): ChapterBuilder {
+  chapter(id: string, opts: {
+    title: string; sub: string; at: Vec2; dur: number; size?: Vec2;
+    page?: { safe?: boolean; nominalW?: number; title?: string };
+    layout?: import('../ir/types').LayoutSpec;
+  }): ChapterBuilder {
     const grpId = id;
     const size = opts.size ?? [1260, 820];
     this.assertUnique(grpId);
-    const grp: GroupSpec = { kind: 'group', id: grpId, at: opts.at, size, children: [], chapter: { title: opts.title, sub: opts.sub, duration: opts.dur } };
+    const grp: GroupSpec = {
+      kind: 'group', id: grpId, at: opts.at, size, children: [],
+      chapter: { title: opts.title, sub: opts.sub, duration: opts.dur },
+      page: opts.page ? { ...opts.page } : undefined,
+      layout: opts.layout,
+    };
     this.doc.objects[grpId] = grp;
     return new ChapterBuilder(this, grpId, opts.at, size);
+  }
+
+  // ── Chapter-page (chapter + safe Taffy page) ────────────────────────────
+  chapterPage(id: string, opts: {
+    title: string; sub: string; at: Vec2; dur: number;
+    nominalW?: number;
+    cover?: boolean;
+    layout?: { direction?: 'row' | 'column'; gap?: number; padding?: number | number[]; align?: 'start' | 'center' | 'end' | 'stretch'; justify?: 'start' | 'center' | 'end' | 'space-between' | 'space-around'; wrap?: boolean };
+  }): ChapterBuilder {
+    const nw = opts.nominalW ?? 1260;
+    const grpId = id;
+    this.assertUnique(grpId);
+    const grp: GroupSpec = {
+      kind: 'group', id: grpId, at: opts.at, size: [nw, nw * 0.5625],
+      children: [],
+      chapter: { title: opts.title, sub: opts.sub, duration: opts.dur },
+      page: { safe: true, nominalW: nw, cover: opts.cover },
+      layout: opts.layout ? { kind: 'flex', ...opts.layout as any } : { kind: 'flex', direction: 'column', gap: 20, padding: 40, align: 'stretch', justify: 'start' },
+    };
+    this.doc.objects[grpId] = grp;
+    return new ChapterBuilder(this, grpId, opts.at, [nw, nw * 0.5625]);
   }
 
   // ── Top-level camera keyframes ──────────────────────────────────────────
@@ -174,9 +204,77 @@ export class ChapterBuilder {
     return new ChapterBuilder(this.s, oid, this.abs(opts.at ?? [0, 0]), this.chSize);
   }
 
+  // ── Layout methods (Taffy-based) ───────────────────────────────────────
+  private pUid(base: string): string { return (this.s as any).uid(base); }
+
+  row(id: string | null, opts: { gap?: number; align?: 'start' | 'center' | 'end' | 'stretch'; justify?: 'start' | 'center' | 'end' | 'space-between' | 'space-around'; wrap?: boolean; item?: any }, build: (r: any) => void): string {
+    return this.layoutGroup(id, { kind: 'flex', direction: 'row', gap: opts.gap, align: opts.align, justify: opts.justify, wrap: opts.wrap }, opts.item, build);
+  }
+
+  col(id: string | null, opts: { gap?: number; align?: 'start' | 'center' | 'end' | 'stretch'; justify?: 'start' | 'center' | 'end' | 'space-between' | 'space-around'; item?: any }, build: (c: any) => void): string {
+    return this.layoutGroup(id, { kind: 'flex', direction: 'column', gap: opts.gap, align: opts.align, justify: opts.justify }, opts.item, build);
+  }
+
+  private layoutGroup(id: string | null, layout: any, item: any | undefined, build: (b: any) => void): string {
+    const oid = id ?? this.pUid('group');
+    const grp = { kind: 'group', id: oid, at: [0, 0] as Vec2, children: [], layout, item } as any;
+    this.s.addSpec(grp);
+    (this.s as any).doc.objects[this.grpId].children.push(oid);
+    const pb = new PageBuilder(this.s, oid);
+    build(pb);
+    return oid;
+  }
+
+  lRect(id: string | null, opts: { size: Vec2; fill?: Color; stroke?: { color: Color; width: number }; opacity?: number; item?: any }) {
+    const oid = id ?? this.pUid('rect');
+    this.s.addSpec({ kind: 'rect', id: oid, at: [0, 0], size: opts.size, fill: opts.fill, stroke: opts.stroke, opacity: opts.opacity, item: opts.item } as any);
+    (this.s as any).doc.objects[this.grpId].children.push(oid);
+    return oid;
+  }
+
+  lText(id: string | null, content: string, opts: { size: number; color: Color; weight?: number; align?: 'left' | 'center' | 'right'; opacity?: number; item?: any }) {
+    const oid = id ?? this.pUid('text');
+    this.s.addSpec({ kind: 'text', id: oid, content, at: [0, 0], size: opts.size, color: opts.color, weight: opts.weight, align: opts.align, opacity: opts.opacity, item: opts.item } as any);
+    (this.s as any).doc.objects[this.grpId].children.push(oid);
+    return oid;
+  }
+
+  lIsland(id: string | null, islandId: string, opts: { size?: Vec2; params?: Record<string, any>; opacity?: number; item?: any }) {
+    const oid = id ?? this.pUid('island');
+    this.s.addSpec({ kind: 'island', id: oid, island: islandId, at: [0, 0], size: opts.size, params: opts.params, opacity: opts.opacity, item: opts.item } as any);
+    (this.s as any).doc.objects[this.grpId].children.push(oid);
+    return oid;
+  }
+
+  lMath(id: string | null, latex: string, opts: { size: number; color: Color; opacity?: number; item?: any }) {
+    const oid = id ?? this.pUid('math');
+    this.s.addSpec({ kind: 'math', id: oid, latex, at: [0, 0], size: opts.size, color: opts.color, opacity: opts.opacity, item: opts.item } as any);
+    (this.s as any).doc.objects[this.grpId].children.push(oid);
+    return oid;
+  }
+
+  accentHead(prefix: string, opts: { kicker: string; title: string; accent: Color; item?: any }): string {
+    return this.row(prefix + '-head', { gap: 12, align: 'start', item: { flexShrink: 0, ...opts.item } }, (r: any) => {
+      r.rect(prefix + '-bar', { size: [6, 78], fill: opts.accent, item: { flexShrink: 0 } });
+      r.col(prefix + '-hc', { gap: 2, item: { flexGrow: 1, minWidth: 60 } }, (c: any) => {
+        c.text(prefix + '-kicker', opts.kicker.toUpperCase(), { size: 14, color: [0.55, 0.56, 0.60, 1] as Color, item: { flexShrink: 0 } });
+        c.text(prefix + '-ttl', opts.title, { size: 40, color: [0.94, 0.95, 0.97, 1] as Color, item: { flexShrink: 0 } });
+      });
+    });
+  }
+
+  body(prefix: string, lines: string[], opts: { item?: any } = {}): string {
+    if (lines.length === 0) return '';
+    return this.col(prefix + '-body', { gap: 4, item: opts.item }, (c: any) => {
+      lines.forEach((l, k) => {
+        if (l) c.text(prefix + '-l' + k, l, { size: 20, color: [0.73, 0.74, 0.77, 1] as Color, item: { flexShrink: 0 } });
+      });
+    });
+  }
+
   // ── Camera gestures ─────────────────────────────────────────────────────
   cam = {
-    moveTo: (t: number, pose: { center?: Vec2; zoom?: number; fit?: string; offset?: Vec2; zoomMul?: number; polar?: number; azimuth?: number; ease?: EasingName; drift?: any }) => {
+    moveTo: (t: number, pose: { center?: Vec2; zoom?: number; fit?: string; fitObj?: string; offset?: Vec2; zoomMul?: number; polar?: number; azimuth?: number; ease?: EasingName; drift?: any }) => {
       (this.s as any).doc.camera.keyframes.push({ time: this.start + t, ...pose });
     },
     drop: (d = 2.6) => {
@@ -216,6 +314,35 @@ export class ChapterBuilder {
     },
     hold: (t: number) => {
       (this.s as any).doc.camera.keyframes.push({ time: this.start + t, fit: this.grpId, ease: 'smoothstep' });
+    },
+    /** Layout-resolved dive: target an object id instead of a fraction+box. */
+    diveObj: (opts: { target: string; zoom: number; hold?: number; d?: number }) => {
+      const h = opts.hold ?? 3.2, d = opts.d ?? 2.2;
+      (this.s as any).doc.camera.keyframes.push({ time: this.start, fit: this.grpId, ease: 'easeInOutCubic' });
+      (this.s as any).doc.camera.keyframes.push({ time: this.start + h, fit: this.grpId, ease: 'smoothstep' });
+      (this.s as any).doc.camera.keyframes.push({
+        time: this.start + h + d,
+        fitObj: opts.target,
+        zoomMul: 1 + opts.zoom,
+        ease: 'smoothstep',
+      });
+    },
+    /** Glyph-trace dive: follow the glyph outline at deep zoom. */
+    trace: (opts: { target: string; zoom: number; d: number; samples?: number; pullBack?: boolean; char?: string }) => {
+      // Store trace metadata in a special keyframe that the runtime expands
+      (this.s as any).doc.camera.keyframes.push({
+        time: this.start,
+        fit: this.grpId,
+        ease: 'easeInOutCubic',
+        trace: {
+          target: opts.target,
+          zoom: opts.zoom,
+          d: opts.d,
+          samples: opts.samples ?? 48,
+          pullBack: opts.pullBack ?? false,
+          char: opts.char,
+        },
+      } as any);
     },
   };
 

@@ -1,6 +1,6 @@
 # Windfoil — Progress & Project State
 
-_Last updated: 2026-07-12_
+_Last updated: 2026-07-14_
 
 This document tracks the current state of the Windfoil codebase against the
 roadmap in `VISION.md`. It supersedes the "what's done" mental model — read this
@@ -8,7 +8,80 @@ for ground truth on structure and feature completeness.
 
 ---
 
-## 0. Current content: yasmineOS Design Language Reference
+## 0. Authoring System v2 (Sprint Complete)
+
+A document-centric authoring system for realtime, interactive, cinematic
+explainers — authored by AI and humans, inspectable in code/JSON/terminal/GUI.
+Rendered through the existing analytic pipeline. See `SPRINT.md` for the full
+architecture.
+
+### Architecture
+
+```
+src/authoring/
+  ir/              SceneDoc schema + validation + serialize (P1)
+    types.ts       All SceneDoc types (SceneDoc, ObjectSpec, ClipSpec, …)
+    validate.ts    Full validation (referential integrity, geometry, timing)
+    serialize.ts   JSON ↔ SceneDoc round-trip with validation
+    __test_ir.ts   19 tests, all passing
+  builder/          Declarative TS builder (P2)
+    scene.ts       scene() + SceneBuilder + ChapterBuilder; camera gesture compile
+    helpers.ts     clamp, smooth, bump, rgba, lerp, ping, starPoints
+    __test_builder.ts  8 tests, all passing
+  runtime/          SceneDoc evaluator + camera driver (P3)
+    timeline.ts    evalScene: pure-function frame evaluator; chapter alpha; clip compositing
+    camera.ts      poseAt: keyframe interpolation + drift + geometric zoom
+    runtime.ts     SceneRuntime: implements s.interactive contract; drives orbit camera
+    chrome.ts      ChromeController: object tree, inspector, timeline panels (P9)
+    cinematicHud.ts  DOM-free cinematic HUD (letterbox, caption, scrubber)
+    __test_timeline.ts  7 tests, all passing
+  islands/          Procedural island system (P4-P5)
+    registry.ts    registerIsland / getIsland / listIslands
+    draw.ts        DrawHelpers — 10+ GPU draw primitives shared by runtime + islands
+    glyphAsset.ts  Extracted glyph visuals (bitmap, SDF, tessellation, outline)
+    gallery.ts     IslandGallery: s.interactive board for browsing islands
+    builtin/       6 builtin islands extracted from the explainer
+      bitmapDissolve.ts, sdfField.ts, tessellationFan.ts,
+      coverageSweep.ts, windingRay.ts, bandProbe.ts
+  scenes/           SceneDoc definitions (P6)
+    sampleScene.ts  Smoke-test scene (text + rect + circle + param animation)
+    explainerScene.ts  Full 12-chapter explainer recreation
+    pagesScene.ts   Taffy layout demo page
+  layout/           Taffy layout solver (P3)
+    measure.ts, solve.ts, __test_layout.ts (7 tests)
+  demo.ts           Boot functions (bootAuthoring, bootExplainerV2, bootPages)
+  repl.ts           REPL with 13 scene commands (P7)
+  emitTS.ts         Code projection: SceneDoc → builder TS (P8)
+  __test_emit.ts    5 tests, all passing
+```
+
+### Demo URLs
+
+| Hash | Name | Description |
+|------|------|-------------|
+| `#authoring` | Authoring (smoke test) | Sample scene with DOM chrome + REPL terminal |
+| `#explainer-v2` | Explainer (builder recreation) | Full 12-chapter cinematic tour via builder |
+| `#islands` | Island Gallery | Browse all registered procedural islands |
+| `#pages` | Pages Layout Demo | Taffy-based multi-page layout with resizable handles |
+
+### Phase completion
+
+| Phase | Status | Tests |
+|-------|--------|-------|
+| P1 IR | ✅ | 19/19 |
+| P2 Builder | ✅ | 8/8 |
+| P3 Runtime | ✅ | 7+7/14 |
+| P4 Islands | ✅ | — |
+| P5 Builtins | ✅ | — |
+| P6 Explainer | ✅ | — |
+| P7 REPL | ✅ | — |
+| P8 Projection | ✅ | 5/5 |
+| P9 GUI Chrome | ✅ | — |
+| P10 Polish | ✅ | — |
+
+---
+
+## 0b. Current content: yasmineOS Design Language Reference
 
 The document content is now a faithful recreation of the yasmineOS
 `design_language_reference` (a VS Code-style dark component catalog), rendered
@@ -228,11 +301,28 @@ tangle and avoids circular imports (modules import only types or leaf modules).
   - `plot.ts` — barrel re-export
 - Full demo: sin(x) + cubic + area fill; Riemann rectangles; implicit circle/hyperbola; rotational vector field; slope field showing circular flow; step series + bar chart with scatter markers
 
-### Phase 4 — Animation ❌ not started
-### Phase 5 — Interactivity ❌ not started
-### Phase 6 — Math typesetting ❌ not started
-### Phase 7 — 3D graphing ❌ not started
-### Phase 8 — Export/polish ❌ not started
+### Phase 4 — Animation ✅
+- `anim/animations.ts` — `Animation` base class: absolute-time seekable, `onBegin`/`apply`/`onFinish` lifecycle, deterministic `state = f(t)`
+- `anim/timeline.ts` — `Timeline` class: `play()`, `playWith()`, `at()`, `wait()`, `seek()`, `ValueTracker` for tweenable numbers/Vec2
+- `anim/scene.ts` — `Scene` class: owns mobjects + timeline, `emit()` renders frame, `CameraRig` for scripted camera moves
+- `anim/easing.ts` — 21 easing functions: linear, quad/cubic/quint in/out/inOut, smoothstep, smootherstep, sine, back, elastic, bounce, rush
+
+### Phase 5 — Interactivity ✅
+- `interact/drag.ts` — `DragController`: pointer picking with pixel-radius hit-test, hover/begin/drag/end lifecycle, calls constraint graph on move
+- `interact/graph.ts` — `GObject` base: reactive dependency graph with topological recompute order
+- `interact/constraints.ts` — Geometric constraint library: `GPoint` (free/derived), `Midpoint`, `Centroid`, `Circumcircle`, `LineIntersection`, `GliderOnHost`, `Reflection`, `PerpendicularLine`, `ParallelLine`, angle + distance measures
+
+### Phase 6 — Math typesetting ✅
+- `math/mathtex.ts` — `MathTex` class: LaTeX → analytic windfoil instances (glyphs + fraction/rule rects + radical strokes), `emit()`, `measure()`
+- `math/parse.ts` — LaTeX parser: fractions, superscripts/subscripts, radicals, operators, braces
+- `math/layout.ts` — Math layout engine: `Box` tree with baseline/height/depth, `Atlas` for glyph metrics
+- `math/fonts.ts` — Font metrics for math layout
+
+### Phase 7 — 3D graphing ✅
+- `space3d/project3d.ts` — `Projector` class: azimuth/elevation orbit, 3D→2D world projection with depth for painter sorting
+
+### Phase 8 — Story authoring + export ✅
+- `story/story.ts` — Declarative `Story` API: ordered `Beat`s with `setup()` (build mobjects) + `play()` (author animations onto shared Timeline). `MathMobject` wraps MathTex as animatable mobject. `CameraPose` for scripted camera moves synced on the same clock.
 
 ---
 

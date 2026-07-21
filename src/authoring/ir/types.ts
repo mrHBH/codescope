@@ -108,6 +108,7 @@ export type LayoutSpec = {
   padding?: number | [number, number] | [number, number, number, number];
   align?: 'start' | 'center' | 'end' | 'stretch';
   justify?: 'start' | 'center' | 'end' | 'space-between' | 'space-around';
+  wrap?: boolean;
 };
 
 export interface PageMeta {
@@ -115,6 +116,13 @@ export interface PageMeta {
   resizable?: boolean;
   minSize?: Vec2;
   maxSize?: Vec2;
+  /** Safe-area page: sized for the letterbox-band state, reflows on band toggle. */
+  safe?: boolean;
+  /** Authored world width for safe pages (default 1260). Height tracks canvas ratio. */
+  nominalW?: number;
+  /** Cover page: height tracks the FULL canvas (not band-shrunk) → canvas-aspect.
+   *  Used for the Living-UI chapter so the slot fills the screen at fitObj. */
+  cover?: boolean;
 }
 
 export interface LayoutItem {
@@ -175,6 +183,17 @@ export interface CameraKeyframe {
   drift?: {
     xAmp?: number; yAmp?: number; xPeriod?: number; yPeriod?: number;
     azAmp?: number; azPeriod?: number;
+  };
+  /** Layout-resolved dive: resolve center/zoom from this object's laid-out box. */
+  fitObj?: string;
+  /** Trace metadata — expanded by runtime into sub-keyframes. */
+  trace?: {
+    target: string;
+    zoom: number;
+    d: number;
+    samples?: number;
+    pullBack?: boolean;
+    char?: string;
   };
 }
 
