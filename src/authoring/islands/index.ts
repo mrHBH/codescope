@@ -15,3 +15,6 @@ import './builtin/coverageSweep';
 import './builtin/windingRay';
 import './builtin/bandProbe';
 import './builtin/gpuPipeline';
+import './builtin/slider';
+import './builtin/fourierPlot';
+import './builtin/fourierSpectrum';

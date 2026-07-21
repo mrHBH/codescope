@@ -9,6 +9,7 @@ import { SceneRuntime } from './runtime/runtime';
 import { CinematicHud } from './runtime/cinematicHud';
 import { SAMPLE_DOC } from './scenes/sampleScene';
 import { EXPLAINER_DOC } from './scenes/explainerScene';
+import { FOURIER_DOC } from './scenes/fourierScene';
 import type { SceneDoc } from './ir/types';
 import { createTimelineHud } from '../playground/timelineHud';
 import { createPostFx } from '../windfoil/postfx';
@@ -236,6 +237,10 @@ export function bootAuthoring(engine: Engine, onBack: () => void): () => void {
 
 export function bootExplainerV2(engine: Engine, onBack: () => void): () => void {
   return bootScene(engine, onBack, EXPLAINER_DOC, { chrome: false, cinematic: true });
+}
+
+export function bootFourierExplainer(engine: Engine, onBack: () => void): () => void {
+  return bootScene(engine, onBack, FOURIER_DOC, { chrome: false, cinematic: true });
 }
 
 import { PAGE_DEMO_DOC } from './scenes/pagesScene';
