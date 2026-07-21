@@ -572,14 +572,20 @@ export class SceneRuntime {
    *  emit, which emitted a chapter fully whenever visible). */
   private emitPage(page: PlanPage, wBox: { x: number; y: number; w: number; h: number }, fs: FrameState, draw: DrawHelpers, ctx: DrawCtx, view: { zoom: number; left: number; right: number; top: number; bottom: number }, now: number) {
     const objMap = this.doc.objects as Record<string, ObjectSpec>;
-    draw.rect(wBox.x, wBox.y, wBox.x + wBox.w, wBox.y + wBox.h, [0.10, 0.105, 0.12, 1]);
-    draw.rectStroke(wBox.x, wBox.y, wBox.x + wBox.w, wBox.y + wBox.h, [0.25, 0.26, 0.30, 1], 1.3);
+    const spec = objMap[page.id] as any;
+    if (!spec.page?.noChrome) {
+      draw.rect(wBox.x, wBox.y, wBox.x + wBox.w, wBox.y + wBox.h, [0.10, 0.105, 0.12, 1]);
+      draw.rectStroke(wBox.x, wBox.y, wBox.x + wBox.w, wBox.y + wBox.h, [0.25, 0.26, 0.30, 1], 1.3);
+    }
     for (const nid of page.nested) {
       const local = this.layoutMap.get(nid);
       if (!local) continue;
+      const ns = objMap[nid] as any;
       const nx = wBox.x + local.x, ny = wBox.y + local.y;
-      draw.rect(nx, ny, nx + local.w, ny + local.h, [0.145, 0.15, 0.175, 1]);
-      draw.rectStroke(nx, ny, nx + local.w, ny + local.h, [0.32, 0.33, 0.38, 1], 1.0);
+      if (!ns.page?.noChrome) {
+        draw.rect(nx, ny, nx + local.w, ny + local.h, [0.145, 0.15, 0.175, 1]);
+        draw.rectStroke(nx, ny, nx + local.w, ny + local.h, [0.32, 0.33, 0.38, 1], 1.0);
+      }
     }
     for (const oid of page.children) {
       const spec = objMap[oid];

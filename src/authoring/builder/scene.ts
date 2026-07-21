@@ -86,6 +86,7 @@ export class SceneBuilder {
     title: string; sub: string; at: Vec2; dur: number;
     nominalW?: number;
     cover?: boolean;
+    noChrome?: boolean;
     layout?: { direction?: 'row' | 'column'; gap?: number; padding?: number | number[]; align?: 'start' | 'center' | 'end' | 'stretch'; justify?: 'start' | 'center' | 'end' | 'space-between' | 'space-around'; wrap?: boolean };
   }): ChapterBuilder {
     const nw = opts.nominalW ?? 1260;
@@ -95,7 +96,7 @@ export class SceneBuilder {
       kind: 'group', id: grpId, at: opts.at, size: [nw, nw * 0.5625],
       children: [],
       chapter: { title: opts.title, sub: opts.sub, duration: opts.dur },
-      page: { safe: true, nominalW: nw, cover: opts.cover },
+      page: { safe: true, nominalW: nw, cover: opts.cover, noChrome: opts.noChrome },
       layout: opts.layout ? { kind: 'flex', ...opts.layout as any } : { kind: 'flex', direction: 'column', gap: 20, padding: 40, align: 'stretch', justify: 'start' },
     };
     this.doc.objects[grpId] = grp;

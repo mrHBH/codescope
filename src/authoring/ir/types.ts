@@ -123,6 +123,9 @@ export interface PageMeta {
   /** Cover page: height tracks the FULL canvas (not band-shrunk) → canvas-aspect.
    *  Used for the Living-UI chapter so the slot fills the screen at fitObj. */
   cover?: boolean;
+  /** Suppress the page-card chrome rect (fill + stroke) — the content floats
+   *  directly on the canvas backdrop. */
+  noChrome?: boolean;
 }
 
 export interface LayoutItem {
