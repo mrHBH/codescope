@@ -24,15 +24,31 @@ import {
   type HudPeelState, type HudWorldSlot,
 } from './hudWorld';
 
-type DragState = 
+type DragState =
   | { kind: 'island'; islandId: string; instId: string; handleName: string }
   | { kind: 'page'; id: string; startWx: number; startWy: number; startSize: Vec2 }
   | { kind: 'item'; id: string; startWx: number; startWy: number; startW: number; startH: number }
   | { kind: 'hud' }
   | null;
 
+/** Per top-page emit plan: what to draw and when it becomes static. Built once
+ *  per doc — the page is the cache/cull unit, mirroring the original explainer's
+ *  per-chapter EmitCache (only the current chapter rebuilds every frame). */
+interface PlanPage {
+  id: string;
+  nested: string[];      // nested-page group ids (card chrome), doc order
+  children: string[];    // non-group descendants, doc order
+  staticAfter: number;   // latest clip end touching the page (t beyond → static)
+}
+
 const SEC_W = 1260, SEC_H = 820;
 const TOTAL_W = 14500, TOTAL_H = 5200;
+
+function sigVal(v: any): string {
+  if (typeof v === 'number') return v.toFixed(2);
+  if (Array.isArray(v)) return v.map((x) => (typeof x === 'number' ? x.toFixed(2) : String(x))).join(',');
+  return String(v);
+}
 
 export class SceneRuntime {
   x0 = -900; y0 = -2200; width = TOTAL_W; height = TOTAL_H;
@@ -70,6 +86,15 @@ export class SceneRuntime {
   private lastBarQ = -1;
   /** Active Living-UI peel pose for hit-testing. */
   private hudPeel: HudPeelState | null = null;
+  /** Page emit plan (lazy-built per doc). */
+  private pagePlan: PlanPage[] | null = null;
+  /** Static grid replay cache. */
+  private gridCache = new EmitCache();
+  /** Bumped on every layout invalidation — part of the page cache signature. */
+  private layoutRev = 0;
+  /** FrameState memo (evalScene results by t, dropped on any param write). */
+  private fsMemo = new Map<number, FrameState>();
+  private paramVersion = 0;
   chrome: ChromeController;
   /** DOM-free cinematic HUD (letterbox + scrubber + controls + caption). */
   cinematicHud: CinematicHud | null = null;
@@ -83,12 +108,11 @@ export class SceneRuntime {
   constructor(doc: SceneDoc, ctx: { font: any; atlas: any }) {
     this.doc = doc;
     this.font = ctx.font; this.atlas = ctx.atlas;
-    this.measure = makeMeasureFn(ctx.font);
+    this.measure = makeMeasureFn(ctx.font, undefined, ctx.atlas);
     this.chrome = new ChromeController(this);
     for (const [k, p] of Object.entries(doc.params)) this.liveParams.set(k, p.default);
     for (const [id, spec] of Object.entries(doc.objects)) {
       if (spec.kind === 'group' && spec.chapter) {
-        this.caches.set(id, new EmitCache());
         for (const cid of spec.children) this.childToChapter.set(cid, id);
       }
     }
@@ -101,7 +125,92 @@ export class SceneRuntime {
     });
   }
 
-  private invalidateLayout() { this.layoutDirty = true; }
+  private invalidateLayout() { this.layoutDirty = true; this.layoutRev++; }
+
+  /** evalScene memoized per t — emit/hover/drag used to run the full evaluation
+   *  several times per frame (and with different t's while paused). */
+  private frameState(t: number): FrameState {
+    let fs = this.fsMemo.get(t);
+    if (!fs) {
+      fs = evalScene(this.doc, t, this.liveParams);
+      if (this.fsMemo.size > 6) this.fsMemo.clear();
+      this.fsMemo.set(t, fs);
+    }
+    return fs;
+  }
+
+  /** Doc structure or spec props changed outside the timeline (REPL/designer):
+   *  drop cached plans, parent lookups and emit slices so they rebuild. */
+  invalidateCaches() {
+    for (const c of this.caches.values()) c.invalidate();
+    this.gridCache.invalidate();
+    this.pagePlan = null;
+    this.parentMap = null;
+    this.topPageCache.clear();
+    this.fsMemo.clear();
+    this.paramVersion++;
+    this.invalidateLayout();
+  }
+
+  /** Ordered top pages + their emit content — the page is the cache/cull unit. */
+  private buildPagePlan() {
+    const objMap = this.doc.objects as Record<string, ObjectSpec>;
+    this.getParentMap();
+    const plan: PlanPage[] = [];
+    const byId = new Map<string, PlanPage>();
+    for (const [id, spec] of Object.entries(objMap)) {
+      if (spec.kind === 'group' && (spec as any).page && !this.isNestedPage(id)) {
+        const p: PlanPage = { id, nested: [], children: [], staticAfter: 0 };
+        plan.push(p); byId.set(id, p);
+        if (!this.caches.has(id)) this.caches.set(id, new EmitCache());
+      }
+    }
+    for (const [oid, spec] of Object.entries(objMap)) {
+      if (byId.has(oid)) continue;
+      const tp = this.findPageParent(oid);
+      if (!tp || !byId.has(tp)) continue;
+      const page = byId.get(tp)!;
+      if (spec.kind === 'group') { if ((spec as any).page) page.nested.push(oid); }
+      else page.children.push(oid);
+    }
+    // staticAfter: latest clip end touching the page's objects (beyond it the
+    // frame state is constant → the per-object section of the sig is skipped).
+    for (const page of plan) {
+      const ids = new Set([page.id, ...page.nested, ...page.children]);
+      let sa = 0;
+      for (const c of this.doc.clips) {
+        if (!ids.has(c.target)) continue;
+        const end = c.start + c.duration;
+        if (end > sa) sa = end;
+      }
+      page.staticAfter = sa;
+    }
+    this.pagePlan = plan;
+  }
+
+  /** Emit-cache signature for a static page: layout revision, interaction state,
+   *  per-object frame values (only while clips still run) and island params. */
+  private pageSig(page: PlanPage, fs: FrameState, t: number): string {
+    let sig = `L${this.layoutRev}|H${this.hoveredHandle ?? ''}|G${this.grabbed ? this.grabbed.kind + (this.grabbed.kind === 'island' ? ':' + this.grabbed.handleName : '') : ''}`;
+    if (t < page.staticAfter) {
+      for (const oid of page.children) {
+        const f = fs.objects.get(oid);
+        if (!f) continue;
+        sig += `;${f.opacityMult.toFixed(2)},${f.reveal.toFixed(2)},${f.chars},${f.dx.toFixed(1)},${f.dy.toFixed(1)},${f.scaleX.toFixed(2)},${f.scaleY.toFixed(2)},${f.visible ? 1 : 0}`;
+      }
+    }
+    const objMap = this.doc.objects as Record<string, ObjectSpec>;
+    for (const oid of page.children) {
+      const s = objMap[oid] as any;
+      if (s.kind !== 'island' || !s.params) continue;
+      sig += ';' + oid;
+      for (const [k, v] of Object.entries(s.params)) {
+        const val = v && typeof v === 'object' && (v as any).$param ? fs.params.get((v as any).$param) : v;
+        sig += `|${k}=${sigVal(val)}`;
+      }
+    }
+    return sig;
+  }
 
   /**
    * Two-pass layout:
@@ -180,7 +289,7 @@ export class SceneRuntime {
     this.layoutDirty = false;
   }
 
-  setParam(name: string, value: any) { this.liveParams.set(name, value); }
+  setParam(name: string, value: any) { this.liveParams.set(name, value); this.paramVersion++; }
   getDoc(): SceneDoc { return this.doc; }
   chapterWindows(): ChapterWindow[] {
     if (!this._chapterWindows) this._chapterWindows = chapterWindows(this.doc);
@@ -202,9 +311,12 @@ export class SceneRuntime {
     this._chapterWindows = null;
     this.lastBarQ = -1;
     this.hudPeel = null;
+    this.pagePlan = null;
+    this.gridCache.invalidate();
+    this.fsMemo.clear();
+    this.paramVersion++;
     for (const [id, spec] of Object.entries(newDoc.objects)) {
       if (spec.kind === 'group' && spec.chapter) {
-        this.caches.set(id, new EmitCache());
         for (const cid of spec.children) this.childToChapter.set(cid, id);
       }
     }
@@ -243,7 +355,7 @@ export class SceneRuntime {
     const ctx: DrawCtx = { font, atlas, buff: { inst, crv, rws } };
     const draw = new DrawHelpers(ctx);
     const t = this.tourT;
-    const fs = evalScene(this.doc, t, this.liveParams);
+    const fs = this.frameState(t);
     const objMap = this.doc.objects as Record<string, ObjectSpec>;
 
     // Safe-page size driver: quantize barT so damping doesn't re-solve every frame.
@@ -272,61 +384,56 @@ export class SceneRuntime {
     this.ensureLayout();
 
     // Sparse grid only when zoomed out — dense grid at dive zooms tanks fill rate.
-    if (this.cinematic && rv.zoom < 1.4) this.drawGrid(draw);
+    // Static over the board bounds → replayed through its own cache.
+    if (this.cinematic && rv.zoom < 1.4) {
+      this.gridCache.run(`grid|${this.x0},${this.y0},${this.width},${this.height}`, inst, crv, rws, () => this.drawGrid(draw));
+    }
 
     const margin = 200 / Math.max(rv.zoom, 0.05);
     const vL = rv.left, vR = rv.right, vT = rv.top, vB = rv.bottom;
     const inView = (x: number, y: number, w: number, h: number) =>
       !(x - margin > vR || x + w + margin < vL || y - margin > vB || y + h + margin < vT);
 
+    if (!this.pagePlan) this.buildPagePlan();
+    const plan = this.pagePlan!;
+
+    // World box of a top page (safe pages are center-anchored).
+    const pageBox = (id: string): { x: number; y: number; w: number; h: number } => {
+      const spec = objMap[id] as any;
+      const live = this.livePageSize.get(id);
+      const pw = live?.[0] ?? spec.size?.[0] ?? 1260;
+      const ph = live?.[1] ?? spec.size?.[1] ?? 820;
+      const isSafe = !!spec.page?.safe;
+      return {
+        x: isSafe ? spec.at[0] - pw / 2 : spec.at[0],
+        y: isSafe ? spec.at[1] - ph / 2 : spec.at[1],
+        w: pw, h: ph,
+      };
+    };
+
     // Top-level pages visible in the frustum (content cull key).
     const visibleTopPages = new Set<string>();
     if (fs.currentChapterId) visibleTopPages.add(fs.currentChapterId);
-    for (const [id, spec] of Object.entries(objMap)) {
-      if (spec.kind !== 'group' || !(spec as any).page) continue;
-      if (this.isNestedPage(id)) continue;
-      const live = this.livePageSize.get(id);
-      const pw = live?.[0] ?? (spec as any).size?.[0] ?? 1260;
-      const ph = live?.[1] ?? (spec as any).size?.[1] ?? 820;
-      const isSafe = !!(spec as any).page?.safe;
-      const ox = isSafe ? (spec as any).at[0] - pw / 2 : (spec as any).at[0];
-      const oy = isSafe ? (spec as any).at[1] - ph / 2 : (spec as any).at[1];
-      if (inView(ox, oy, pw, ph)) visibleTopPages.add(id);
+    for (const page of plan) {
+      const b = pageBox(page.id);
+      if (inView(b.x, b.y, b.w, b.h)) visibleTopPages.add(page.id);
     }
 
+    // Emit page by page: the CURRENT chapter rebuilds (it animates); every other
+    // visible page replays its captured instance slice when its signature holds —
+    // the original explainer's per-chapter strategy that kept the tour smooth.
     const drawnPageBoxes: { id: string; x: number; y: number; w: number; h: number }[] = [];
-    for (const [id, spec] of Object.entries(objMap)) {
-      if (spec.kind !== 'group' || !(spec as any).page) continue;
-      let wBox: { x: number; y: number; w: number; h: number };
-      if (this.isNestedPage(id)) {
-        const topPage = this.findPageParent(id)!;
-        if (!visibleTopPages.has(topPage)) continue;
-        const tp = objMap[topPage] as any;
-        const local = this.layoutMap.get(id);
-        if (!local) continue;
-        const tSafe = !!tp.page?.safe;
-        const tpw = (this.livePageSize.get(topPage) ?? tp.size)?.[0] ?? 1260;
-        const tph = (this.livePageSize.get(topPage) ?? tp.size)?.[1] ?? 820;
-        const tox = tSafe ? tp.at[0] - tpw / 2 : tp.at[0];
-        const toy = tSafe ? tp.at[1] - tph / 2 : tp.at[1];
-        wBox = { x: tox + local.x, y: toy + local.y, w: local.w, h: local.h };
-      } else {
-        if (!visibleTopPages.has(id)) continue;
-        const live = this.livePageSize.get(id);
-        const pw = live?.[0] ?? (spec as any).size?.[0] ?? 1260;
-        const ph = live?.[1] ?? (spec as any).size?.[1] ?? 820;
-        const isSafe = !!(spec as any).page?.safe;
-        const ox = isSafe ? (spec as any).at[0] - pw / 2 : (spec as any).at[0];
-        const oy = isSafe ? (spec as any).at[1] - ph / 2 : (spec as any).at[1];
-        wBox = { x: ox, y: oy, w: pw, h: ph };
-      }
+    for (const page of plan) {
+      if (!visibleTopPages.has(page.id)) continue;
+      const wBox = pageBox(page.id);
       if (!inView(wBox.x, wBox.y, wBox.w, wBox.h)) continue;
-      const isNested = this.isNestedPage(id);
-      const fill = isNested ? [0.145, 0.15, 0.175, 1] : [0.10, 0.105, 0.12, 1];
-      const stroke = isNested ? [0.32, 0.33, 0.38, 1] : [0.25, 0.26, 0.30, 1];
-      draw.rect(wBox.x, wBox.y, wBox.x + wBox.w, wBox.y + wBox.h, fill);
-      draw.rectStroke(wBox.x, wBox.y, wBox.x + wBox.w, wBox.y + wBox.h, stroke, isNested ? 1.0 : 1.3);
-      drawnPageBoxes.push({ id, ...wBox });
+      drawnPageBoxes.push({ id: page.id, ...wBox });
+      if (page.id === fs.currentChapterId) {
+        this.emitPage(page, wBox, fs, draw, ctx, view, now);
+      } else {
+        this.caches.get(page.id)!.run(this.pageSig(page, fs, t), inst, crv, rws,
+          () => this.emitPage(page, wBox, fs, draw, ctx, view, now));
+      }
     }
 
     // Resize handles only in designer chrome mode
@@ -370,41 +477,9 @@ export class SceneRuntime {
       }
     }
 
-    // Page origins for layout children (computed once)
-    const pageOrigin = new Map<string, { ox: number; oy: number }>();
-    for (const pid of visibleTopPages) {
-      const pageSpec = objMap[pid] as any;
-      if (!pageSpec) continue;
-      const isSafePage = !!pageSpec.page?.safe;
-      const pgW = (this.livePageSize.get(pid) ?? pageSpec.size)?.[0] ?? 1260;
-      const pgH = (this.livePageSize.get(pid) ?? pageSpec.size)?.[1] ?? 820;
-      pageOrigin.set(pid, {
-        ox: isSafePage ? pageSpec.at[0] - pgW / 2 : pageSpec.at[0],
-        oy: isSafePage ? pageSpec.at[1] - pgH / 2 : pageSpec.at[1],
-      });
-    }
-
+    // Legacy (non-page) objects — page objects were emitted per page above.
     for (const [oid, spec] of Object.entries(objMap)) {
       if (spec.kind === 'group') continue;
-      const layoutBox = this.layoutMap.get(oid);
-      if (layoutBox) {
-        const parentPage = this.findPageParent(oid);
-        if (!parentPage || !visibleTopPages.has(parentPage)) continue;
-        const origin = pageOrigin.get(parentPage);
-        if (!origin) continue;
-        const worldX = origin.ox + layoutBox.x;
-        const worldY = origin.oy + layoutBox.y;
-        // Cheap AABB cull of individual objects
-        if (!inView(worldX, worldY, layoutBox.w, layoutBox.h)) continue;
-        const frame = fs.objects.get(oid);
-        if (!frame || !frame.visible) continue;
-        const effOp = frame.opacityMult;
-        if (effOp <= 0.001) continue;
-        this.emitObjectAt(oid, spec, frame, draw, fs, ctx.buff, view, now, effOp, worldX, worldY, layoutBox.w, layoutBox.h);
-        continue;
-      }
-
-      // Page children without a layout box yet — never fall through to legacy.
       if (this.findPageParent(oid)) continue;
 
       const chId = this.childToChapter.get(oid);
@@ -488,6 +563,33 @@ export class SceneRuntime {
     for (let y = top; y <= bottom; y += step) {
       const M = y % (step * 4) === 0, w = M ? 1.4 : 0.8;
       draw.rect(left, y - w / 2, right, y + w / 2, border, M ? 0.22 : 0.10);
+    }
+  }
+
+  /** One top page's full content: card chrome (top + nested) then its objects in
+   *  doc order. The page is the cache/cull unit — no per-object cull inside, so a
+   *  captured replay is always the complete page (mirrors the original per-chapter
+   *  emit, which emitted a chapter fully whenever visible). */
+  private emitPage(page: PlanPage, wBox: { x: number; y: number; w: number; h: number }, fs: FrameState, draw: DrawHelpers, ctx: DrawCtx, view: { zoom: number; left: number; right: number; top: number; bottom: number }, now: number) {
+    const objMap = this.doc.objects as Record<string, ObjectSpec>;
+    draw.rect(wBox.x, wBox.y, wBox.x + wBox.w, wBox.y + wBox.h, [0.10, 0.105, 0.12, 1]);
+    draw.rectStroke(wBox.x, wBox.y, wBox.x + wBox.w, wBox.y + wBox.h, [0.25, 0.26, 0.30, 1], 1.3);
+    for (const nid of page.nested) {
+      const local = this.layoutMap.get(nid);
+      if (!local) continue;
+      const nx = wBox.x + local.x, ny = wBox.y + local.y;
+      draw.rect(nx, ny, nx + local.w, ny + local.h, [0.145, 0.15, 0.175, 1]);
+      draw.rectStroke(nx, ny, nx + local.w, ny + local.h, [0.32, 0.33, 0.38, 1], 1.0);
+    }
+    for (const oid of page.children) {
+      const spec = objMap[oid];
+      const layoutBox = this.layoutMap.get(oid);
+      if (!layoutBox) continue;
+      const frame = fs.objects.get(oid);
+      if (!frame || !frame.visible) continue;
+      const effOp = frame.opacityMult;
+      if (effOp <= 0.001) continue;
+      this.emitObjectAt(oid, spec, frame, draw, fs, ctx.buff, view, now, effOp, wBox.x + layoutBox.x, wBox.y + layoutBox.y, layoutBox.w, layoutBox.h);
     }
   }
 
@@ -673,9 +775,14 @@ export class SceneRuntime {
         const s = spec;
         let tex = this.texCache.get(oid);
         if (!tex) { tex = new MathTex(s.latex); this.texCache.set(oid, tex); }
+        const size = s.size * frame.scaleX;
+        // MathTex emits on the BASELINE; the Taffy box is sized (h+d)×size, so
+        // the baseline sits h×size below the box top — the formula fills its
+        // layout slot exactly instead of drifting up into the previous sibling.
+        const asc = tex.measure(this.atlas).h * size;
         tex.emit(this.atlas, buff.inst, buff.crv, buff.rws, {
-          x: worldX + frame.dx, y: worldY + frame.dy,
-          size: s.size * frame.scaleX, color: s.color, opacity: op, reveal: frame.reveal,
+          x: worldX + frame.dx, y: worldY + frame.dy + asc,
+          size, color: s.color, opacity: op, reveal: frame.reveal,
         });
         break;
       }
@@ -859,14 +966,14 @@ export class SceneRuntime {
    *  area (between letterbox bars). Drives `fitObj` dive keyframes so a deep zoom
    *  tracks its card through reflow/resize and stays centered. */
   private makeResolveFitObj(canvasW: number, canvasH: number) {
-    return (oid: string): { center: Vec2; zoom: number } | null => {
+    return (oid: string): { center: Vec2; zoom: number; box?: { x: number; y: number; w: number; h: number } } | null => {
       const box = this.layoutWorldBox(oid);
       if (!box || box.w <= 0 || box.h <= 0) return null;
       // Contain fit with zero margin — the slot is canvas-aspect (cover page),
       // so this fills the screen exactly at zoomMul=1.
       const m = 0;
       const zoom = Math.min(canvasW / (box.w + m), canvasH / (box.h + m));
-      return { center: [box.x + box.w / 2, box.y + box.h / 2] as Vec2, zoom };
+      return { center: [box.x + box.w / 2, box.y + box.h / 2] as Vec2, zoom, box };
     };
   }
 
@@ -954,7 +1061,7 @@ export class SceneRuntime {
   private currentHudDetach(): number {
     if (!this.cinematic) return 0;
     // Always use tourT — paused mid-chapter must keep the in-card hit path.
-    return evalScene(this.doc, this.tourT, this.liveParams).params.get('hudDetach') ?? 0;
+    return this.frameState(this.tourT).params.get('hudDetach') ?? 0;
   }
 
   /** Map a world point into HUD-local virtual px for hit-testing: through the
@@ -1012,7 +1119,7 @@ export class SceneRuntime {
     // 3) Island handles (use layout position if available, else spec.at)
     const objMap = this.doc.objects as Record<string, ObjectSpec>;
     const t = this.playing ? this.tourT : this.totalDuration();
-    const fs = evalScene(this.doc, t, this.liveParams);
+    const fs = this.frameState(t);
     for (const [oid, spec] of Object.entries(objMap)) {
       if (spec.kind !== 'island') continue;
       const s = spec;
@@ -1085,7 +1192,7 @@ export class SceneRuntime {
       const def = getIsland(spec.island);
       if (!def.handles) return;
       const t = this.playing ? this.tourT : this.totalDuration();
-      const fs = evalScene(this.doc, t, this.liveParams);
+      const fs = this.frameState(t);
       const params = this.resolveIslandParams(def, spec.params ?? {}, fs);
       // Compute handle origin from layout if available
       const boxMap = this.buildWorldBoxes();
@@ -1104,6 +1211,7 @@ export class SceneRuntime {
             if (!spec.params) spec.params = {};
             spec.params[handleName] = params[handleName].slice ? [...params[handleName]] : params[handleName];
           }
+          this.paramVersion++;   // island geometry depends on the written value
           break;
         }
       }
@@ -1118,6 +1226,7 @@ export class SceneRuntime {
   }
 
   updateHover(wx: number, wy: number, scale: number): boolean {
+    this.hoveredHandle = null;
     if (this.cinematicHud) { const pt = this.hudPoint(wx, wy); if (pt && this.cinematicHud.hoverScreen(pt[0], pt[1])) return true; }
     const r = Math.max(12, 18 / Math.max(scale, 0.05));
     const boxMap = this.buildWorldBoxes();
@@ -1146,7 +1255,7 @@ export class SceneRuntime {
     // Check island handles (uses layout box if available)
     const objMap = this.doc.objects as Record<string, ObjectSpec>;
     const t = this.playing ? this.tourT : this.totalDuration();
-    const fs = evalScene(this.doc, t, this.liveParams);
+    const fs = this.frameState(t);
     for (const [oid, spec] of Object.entries(objMap)) {
       if (spec.kind !== 'island') continue;
       const s = spec;
@@ -1161,11 +1270,11 @@ export class SceneRuntime {
         const lp = hDef.at(params);
         const hPos: Vec2 = [origin[0] + lp[0] * iscale, origin[1] + lp[1] * iscale];
         if (Math.hypot(wx - hPos[0], wy - hPos[1]) <= r) {
+          this.hoveredHandle = hDef.param;
           return true;
         }
       }
     }
-    this.hoveredHandle = null;
     return false;
   }
   autoDrive() {}

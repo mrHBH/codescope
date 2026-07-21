@@ -238,14 +238,14 @@ export class CinematicHud {
     // emit nothing into the card, so its instance count drops to zero.
     if (world && ma <= 0.001) return;
 
-    // Letterbox: always on the true screen overlay (frame chrome). Also on the
-    // world copy during peel so the projected HUD is optically identical — only
-    // the camera dive reveals it lives in world space.
+    // Letterbox: always on the true screen overlay (frame chrome) unless the
+    // HUD is detached into a world card — then the world card draws its own bars
+    // *behind* the timeline, and the screen bars must not occlude the in-canvas
+    // timeline during the dive (they fade with masterAlpha).
     const barH = 0.11 * H * this.barT;
     if (barH > 0.5 && (!world || opts?.worldLetterbox)) {
-      // Screen bars ignore peel alpha (frame never loses its letterbox).
-      // World bars ride masterAlpha so they crossfade with the rest of the HUD.
-      const ba = world ? ma : 1;
+      const screenBarAlpha = opts?.freezeBar ? (opts?.masterAlpha ?? 1) : 1;
+      const ba = world ? ma : screenBarAlpha;
       draw.rect(0, 0, W, barH, BAR_COL, ba);
       draw.rect(0, H - barH, W, H, BAR_COL, ba);
     }
@@ -314,8 +314,10 @@ export class CinematicHud {
       this.icon(draw, b.id, b.x, b.y, b.s, info.playing, ma);
     }
 
-    // lower-third caption — screen-only chrome (fades with the bars)
-    if (!world && ma > 0.01 && this.barT > 0.01 && info.activeIdx >= 0 && chapters[info.activeIdx]) {
+    // lower-third caption — crossfades with the peel like the timeline: it is
+    // part of the Living UI, so the WORLD copy draws it too (it used to be
+    // screen-only, which made the caption vanish mid-peel).
+    if (ma > 0.01 && this.barT > 0.01 && info.activeIdx >= 0 && chapters[info.activeIdx]) {
       const c = chapters[info.activeIdx];
       const titleSize = Math.max(23 * d, Math.min(40 * d, 0.025 * W));
       const subSize = Math.max(10 * d, Math.min(13 * d, 0.0095 * W));

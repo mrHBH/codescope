@@ -274,7 +274,7 @@ export class ChapterBuilder {
 
   // ── Camera gestures ─────────────────────────────────────────────────────
   cam = {
-    moveTo: (t: number, pose: { center?: Vec2; zoom?: number; fit?: string; fitObj?: string; offset?: Vec2; zoomMul?: number; polar?: number; azimuth?: number; ease?: EasingName; drift?: any }) => {
+    moveTo: (t: number, pose: { center?: Vec2; zoom?: number; fit?: string; fitObj?: string; fitPoint?: Vec2; offset?: Vec2; zoomMul?: number; polar?: number; azimuth?: number; ease?: EasingName; drift?: any }) => {
       (this.s as any).doc.camera.keyframes.push({ time: this.start + t, ...pose });
     },
     drop: (d = 2.6) => {

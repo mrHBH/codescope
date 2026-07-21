@@ -4,7 +4,7 @@
 
 import type { FontFace } from '../../windfoil/font';
 import { glyphQuads } from '../../windfoil/font';
-import { fillQuads, strokeQuadPath, strokeInto, type StrokeStyle, type Pt } from '../../windgraph/stroke/stroke';
+import { fillQuads, strokeQuadPath, strokeInto, strokePolyline, type StrokeStyle, type Pt } from '../../windgraph/stroke/stroke';
 import type { DrawHelpers } from './draw';
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -113,27 +113,60 @@ export function renderGlyphField(as: GlyphAsset, bx: number, by: number, bw: num
   renderGlyphOutline(as, bx, by, bw, bh, [0.94, 0.95, 0.97, 1], 3, 0.62 * alpha, inst, crv, rws, draw.ox, draw.oy, draw.sx, draw.sy);
 }
 
+// ── Tessellation geometry (precomputed in unit glyph space) ─────────────────
+// The old renderGlyphTess re-stroked everything every frame — strokeQuadPath
+// drops a 24-segment disc at EVERY facet vertex (~7k quads through the bander
+// per frame → the FPS dip). All pieces are static, so they are built once per
+// (subdivision, stroke-width) and only transformed per frame.
+interface TessGeo {
+  fill: number[];      // faceted glyph fill (coarse boundary as line-quads)
+  edges: number[];     // coarse boundary stroke (bevel joins, closed loop)
+  outline: number[];   // true-curve outline stroke (fine flatten, bevel joins)
+  fan: number[][];     // per-spoke strokes (center → boundary), 18 max
+}
+const tessGeoCache = new Map<string, TessGeo>();
+
+/** Stroke a closed loop: append the first two points so the seam becomes an
+ *  interior bevel join (dedup only drops consecutive duplicates). */
+function closedLoopStroke(pts: Pt[], width: number): number[] {
+  const q: number[] = [];
+  strokePolyline([...pts, pts[0], pts[1]], { width, cap: 'butt', join: 'bevel' }, q);
+  return q;
+}
+
+function tessGeo(as: GlyphAsset, sub: number, wUnit: number): TessGeo {
+  const key = `${sub}|${Math.round(wUnit * 4096) / 4096}`;
+  let g = tessGeoCache.get(key);
+  if (g) return g;
+  const coarse = flattenNorm(as.quadsN, sub);
+  const fill: number[] = [];
+  for (const [x0, y0, x1, y1] of coarse) fill.push(x0, y0, (x0 + x1) / 2, (y0 + y1) / 2, x1, y1);
+  const edges = closedLoopStroke(coarse.map((s) => [s[0], s[1]] as Pt), 2 * wUnit);
+  // True-curve outline: the 6× flattened boundary is indistinguishable from the
+  // analytic stroke at 1.6px, and bevel joins avoid the per-vertex discs.
+  const outline = closedLoopStroke(as.segs.map((s) => [s[0], s[1]] as Pt), 1.6 * wUnit);
+  const cx = as.W * 0.5, cy = as.H * 0.5;
+  const fan: number[][] = [];
+  const step = Math.max(1, Math.floor(coarse.length / 18));
+  for (let k = 0; k < coarse.length; k += step) {
+    const q: number[] = [];
+    strokePolyline([[cx, cy], [coarse[k][0], coarse[k][1]]], { width: 2.2 * wUnit, cap: 'round', join: 'round' }, q);
+    fan.push(q);
+  }
+  g = { fill, edges, outline, fan };
+  tessGeoCache.set(key, g);
+  return g;
+}
+
 export function renderGlyphTess(as: GlyphAsset, bx: number, by: number, bw: number, bh: number, sub: number, color: number[], alpha: number, t: number, inst: number[], crv: number[], rws: number[], ox = 0, oy = 0, sx = 1, sy = 1) {
   const { sc, ox: offX, oy: offY } = place(as, bx, by, bw, bh);
-  const coarse = tessCache.get(sub) ?? (() => { const c = flattenNorm(as.quadsN, sub); tessCache.set(sub, c); return c; })();
-  const lq: number[] = [];
-  for (const [x0, y0, x1, y1] of coarse) {
-    const ax = ox + (offX + x0 * sc) * sx, ay = oy + (offY + y0 * sc) * sy;
-    const b1 = ox + (offX + x1 * sc) * sx, c1 = oy + (offY + y1 * sc) * sy;
-    lq.push(ax, ay, (ax + b1) / 2, (ay + c1) / 2, b1, c1);
-  }
+  const geo = tessGeo(as, sub, 1 / sc);
+  const mapQ = (qs: number[]): number[] => qs.map((v, i) => (i % 2 === 0 ? ox + (offX + v * sc) * sx : oy + (offY + v * sc) * sy));
   const qc = color.length === 4 ? [color[0], color[1], color[2], color[3] * alpha] : [...color.slice(0, 3), alpha * (color[3] ?? 1)];
-  fillQuads(lq, qc, inst, crv, rws);
-  const oq: number[] = [];
-  strokeQuadPath(lq, { width: 2 * sx, cap: 'butt', join: 'bevel' }, false, oq);
-  fillQuads(oq, [0.97, 0.73, 0.33, 0.9 * alpha], inst, crv, rws);
-  renderGlyphOutline(as, bx, by, bw, bh, [0.94, 0.95, 0.97, 1], 1.6, 0.35 * alpha, inst, crv, rws, ox, oy, sx, sy);
-  const cxp = ox + (offX + as.W * sc * 0.5) * sx, cyp = oy + (offY + as.H * sc * 0.5) * sy;
-  const nFan = Math.max(4, Math.floor(18 * t));
-  const step = Math.max(1, Math.floor(coarse.length / nFan));
-  for (let k = 0; k < coarse.length; k += step) {
-    const s = coarse[k];
-    strokeInto([[cxp, cyp], [ox + (offX + s[0] * sc) * sx, oy + (offY + s[1] * sc) * sy]], { width: 2.2 * sx, cap: 'round', join: 'round' }, [0.97, 0.73, 0.33, 0.72 * alpha], inst, crv, rws);
-  }
+  fillQuads(mapQ(geo.fill), qc, inst, crv, rws);
+  fillQuads(mapQ(geo.edges), [0.97, 0.73, 0.33, 0.9 * alpha], inst, crv, rws);
+  fillQuads(mapQ(geo.outline), [0.94, 0.95, 0.97, 0.35 * alpha], inst, crv, rws);
+  const n = Math.min(geo.fan.length, Math.max(4, Math.floor(geo.fan.length * t)));
+  const gold = [0.97, 0.73, 0.33, 0.72 * alpha];
+  for (let k = 0; k < n; k++) fillQuads(mapQ(geo.fan[k]), gold, inst, crv, rws);
 }
-const tessCache = new Map<number, Seg[]>();

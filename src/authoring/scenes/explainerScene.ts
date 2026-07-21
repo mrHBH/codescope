@@ -222,8 +222,11 @@ function buildChapter(chB: ChapterBuilder, id: string, ch: ChCfg) {
       chB.clip.fadeIn('bd-eq0', { start: 0.8, duration: 1.0 });
       break;
     case 'same': {
-      // The slot IS the page — canvas-aspect (cover mode). Slots fills the entire
-      // page with zero padding/gap, so fitObj = page center. Peel is seamless.
+      // The Living UI: the slot IS the page — canvas-aspect (cover mode), zero
+      // padding, so at fitObj the slot fills the screen EXACTLY and the HUD peel
+      // is an identity crossfade (nothing appears to change). Once detached, the
+      // UI is world geometry: the tour dives into the live timeline with a 3D
+      // tilt to prove it's analytic, then re-attaches at the identical pose.
       chB.lRect('sm-slot', {
         size: [10, 10],
         fill: [0.045, 0.048, 0.06, 1],
@@ -231,13 +234,26 @@ function buildChapter(chB: ChapterBuilder, id: string, ch: ChCfg) {
       });
       chB.clip.fadeIn('sm-slot', { start: 0, duration: 0.5 });
 
+      // Peel the HUD (screen overlay → world card) while the camera holds the
+      // slot full-bleed; re-attach on the way out at the same pose.
+      chB.clip.param('hudDetach', { start: 4.3, duration: 1.2, to: 1 });
+      chB.clip.param('hudDetach', { start: 14.3, duration: 1.2, to: 0 });
+
       chB.cam.moveTo(0.0, { fit: 'same', ease: 'easeInOutCubic' });
       chB.cam.moveTo(2.0, { fit: 'same', ease: 'smoothstep' });
-      chB.cam.moveTo(4.0, { fitObj: 'sm-slot', zoomMul: 1.0, polar: 0.05, ease: 'easeInOutCubic' });
-      chB.cam.moveTo(6.0, { fitObj: 'sm-slot', zoomMul: 1.0, polar: 0.05, ease: 'smoothstep' });
-      chB.cam.moveTo(9.0, { fitObj: 'sm-slot', zoomMul: 6.0, polar: 0.08, ease: 'easeInOutCubic' });
-      chB.cam.moveTo(12.0, { fitObj: 'sm-slot', zoomMul: 6.0, polar: 0.08, ease: 'smoothstep' });
-      chB.cam.moveTo(14.2, { fit: 'same', zoomMul: 1.0, polar: 0.06, ease: 'easeInOutCubic' });
+      // Full-bleed slot, perfectly top-down: the world HUD lands pixel-exact
+      // where the screen HUD was (polar 0 → identity peel).
+      chB.cam.moveTo(4.0, { fitObj: 'sm-slot', zoomMul: 1.0, polar: 0.0, ease: 'easeInOutCubic' });
+      chB.cam.moveTo(6.0, { fitObj: 'sm-slot', zoomMul: 1.0, polar: 0.0, ease: 'smoothstep' });
+      // The reveal: dive into the in-canvas caption…
+      chB.cam.moveTo(9.0, { fitObj: 'sm-slot', fitPoint: [0.14, 0.84], zoomMul: 5.0, polar: 0.30, azimuth: 0.10, ease: 'easeInOutCubic' });
+      // …then pan right onto the live timeline strip (playhead keeps moving).
+      chB.cam.moveTo(11.0, { fitObj: 'sm-slot', fitPoint: [0.68, 0.93], zoomMul: 5.0, polar: 0.38, azimuth: 0.12, ease: 'easeInOutCubic' });
+      chB.cam.moveTo(13.0, { fitObj: 'sm-slot', fitPoint: [0.68, 0.93], zoomMul: 5.0, polar: 0.38, azimuth: 0.12, ease: 'smoothstep' });
+      // Back to the identical full-bleed pose → re-attach → return to the page.
+      chB.cam.moveTo(14.0, { fitObj: 'sm-slot', zoomMul: 1.0, polar: 0.0, azimuth: 0.0, ease: 'easeInOutCubic' });
+      chB.cam.moveTo(15.2, { fitObj: 'sm-slot', zoomMul: 1.0, polar: 0.0, ease: 'smoothstep' });
+      chB.cam.moveTo(16.0, { fit: 'same', ease: 'easeInOutCubic' });
       chB.cam.moveTo(16.5, { fit: 'same', ease: 'smoothstep', drift: { xAmp: 6, yAmp: 4, xPeriod: 14.96, yPeriod: 17.45 } });
       break;
     }

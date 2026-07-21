@@ -17,7 +17,8 @@ const EASING_MAP: Record<string, (t: number) => number> = {
 function getEase(name: EasingName | undefined): (t: number) => number { return (name && EASING_MAP[name]) || EASING_MAP.smoothstep; }
 
 export interface CameraPose { x: number; y: number; zoom: number; azimuth: number; polar: number; }
-export type FitResolver = (fitId: string) => { center: Vec2; zoom: number } | null;
+export interface FitResult { center: Vec2; zoom: number; box?: { x: number; y: number; w: number; h: number }; }
+export type FitResolver = (fitId: string) => FitResult | null;
 
 function resolveKeyframe(kf: any, resolveFit: FitResolver, resolveFitObj?: FitResolver): { center: Vec2; zoom: number } | null {
   if (kf.center && kf.zoom) return { center: kf.center, zoom: kf.zoom };
@@ -27,6 +28,11 @@ function resolveKeyframe(kf: any, resolveFit: FitResolver, resolveFitObj?: FitRe
     const fit = resolveFitObj ? resolveFitObj(kf.fitObj) : null;
     if (!fit) return null;
     let cx = fit.center[0], cy = fit.center[1];
+    // fitPoint aims at a FRACTION of the box (aspect-robust alternative to offset).
+    if (kf.fitPoint && fit.box) {
+      cx = fit.box.x + kf.fitPoint[0] * fit.box.w;
+      cy = fit.box.y + kf.fitPoint[1] * fit.box.h;
+    }
     if (kf.offset) { cx += kf.offset[0]; cy += kf.offset[1]; }
     return { center: [cx, cy], zoom: fit.zoom * (kf.zoomMul ?? 1) };
   }

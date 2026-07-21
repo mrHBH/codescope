@@ -186,6 +186,9 @@ export interface CameraKeyframe {
   };
   /** Layout-resolved dive: resolve center/zoom from this object's laid-out box. */
   fitObj?: string;
+  /** With fitObj: aim the camera at this FRACTION of the object's box instead of
+   *  its center — robust to aspect changes (unlike a world-unit `offset`). */
+  fitPoint?: Vec2;
   /** Trace metadata — expanded by runtime into sub-keyframes. */
   trace?: {
     target: string;

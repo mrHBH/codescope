@@ -70,6 +70,7 @@ export function emitHudWorld(
   hud.build(font, atlas, now, peel.Wv, peel.Hv, info, out, {
     xform,
     masterAlpha: alpha,
+    worldLetterbox: true,
   });
 }
 

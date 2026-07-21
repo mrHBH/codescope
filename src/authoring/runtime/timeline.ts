@@ -46,6 +46,31 @@ export interface ObjFrame {
   scaleX: number; scaleY: number; rotation: number; chars: number; visible: boolean;
 }
 
+// ── Clip index (per clips-array, rebuilt on identity/length change) ──────────
+// evalScene ran O(objects × clips) filters + per-kind sub-filters every frame —
+// the index collapses that to one map lookup per object and one sorted pass.
+interface ClipIndex { len: number; byTarget: Map<string, any[]>; paramClips: any[]; }
+const clipIndexCache = new WeakMap<object, ClipIndex>();
+const NO_CLIPS: any[] = [];
+
+function clipIndexFor(doc: any): ClipIndex {
+  const arr = doc.clips as any[];
+  let idx = clipIndexCache.get(arr);
+  if (idx && idx.len === arr.length) return idx;
+  const byTarget = new Map<string, any[]>();
+  const paramClips: any[] = [];
+  for (const c of arr) {
+    if (c.kind === 'param' && typeof c.target === 'string' && c.target.startsWith('param:')) paramClips.push(c);
+    const list = byTarget.get(c.target);
+    if (list) list.push(c); else byTarget.set(c.target, [c]);
+  }
+  for (const list of byTarget.values()) list.sort((a, b) => a.start - b.start);
+  paramClips.sort((a, b) => a.start - b.start);
+  idx = { len: arr.length, byTarget, paramClips };
+  clipIndexCache.set(arr, idx);
+  return idx;
+}
+
 export interface FrameState {
   objects: Map<string, ObjFrame>;
   params: Map<string, any>;
@@ -71,9 +96,10 @@ export function evalScene(doc: any, t: number, paramOverrides?: Map<string, any>
     }
   }
 
+  const clipIdx = clipIndexFor(doc);
+
   // Param clips
-  for (const clip of doc.clips) {
-    if (clip.kind !== 'param' || !clip.target.startsWith('param:')) continue;
+  for (const clip of clipIdx.paramClips) {
     const target = clip.target.slice(6);
     if (!paramValues.has(target)) continue;
     if (clip.start <= t) {
@@ -89,116 +115,47 @@ export function evalScene(doc: any, t: number, paramOverrides?: Map<string, any>
     }
   }
 
-  // Per-object frame
+  // Per-object frame — ONE pass over the target's sorted clips (independent
+  // properties tracked side by side; same "last-started driver" semantics).
   const objects = new Map<string, ObjFrame>();
   for (const [oid, spec] of Object.entries(doc.objects)) {
     const s = spec as any;
     const base: ObjFrame = { opacityMult: 1, reveal: 1, dx: 0, dy: 0, scaleX: 1, scaleY: 1, rotation: 0, chars: 0, visible: true };
-    let textLen = 0;
-    if (s.kind === 'text') textLen = s.content.length;
-    const objClips = (doc.clips as any[]).filter((c) => c.target === oid).sort((a: any, b: any) => a.start - b.start);
-
-    // opacity from fadeIn/fadeOut
-    const opClips = objClips.filter((c: any) => c.kind === 'fadeIn' || c.kind === 'fadeOut');
-    if (opClips.length > 0) {
-      let v = base.opacityMult;
-      for (const c of opClips) {
+    const objClips: any[] = clipIdx.byTarget.get(oid) ?? NO_CLIPS;
+    if (objClips.length > 0) {
+      const textLen = s.kind === 'text' ? s.content.length : 0;
+      let lastFadeOut: any = null;
+      for (const c of objClips) {
         if (c.start > t) break;
         const local = t - c.start;
-        const begin = c.kind === 'fadeIn' ? 0 : v;
-        const end = c.kind === 'fadeIn' ? 1 : 0;
-        if (local >= c.duration) v = end;
-        else if (local >= 0) v = begin + (end - begin) * getEase(c.ease)(clamp01(local / c.duration));
-      }
-      base.opacityMult = v;
-    }
-    // visible=false after fadeOut
-    const fadeOuts = opClips.filter((c: any) => c.kind === 'fadeOut');
-    if (fadeOuts.length > 0) {
-      const last = fadeOuts[fadeOuts.length - 1];
-      if (last.start <= t && t >= last.start + last.duration) base.visible = false;
-    }
-
-    // reveal from draw
-    const dwClips = objClips.filter((c: any) => c.kind === 'draw');
-    if (dwClips.length > 0) {
-      let v = base.reveal;
-      for (const c of dwClips) {
-        if (c.start > t) break;
-        const local = t - c.start;
-        if (local >= c.duration) v = 1;
-        else if (local >= 0) v = 0 + (1 - 0) * getEase(c.ease)(clamp01(local / c.duration));
-      }
-      base.reveal = v;
-    }
-
-    // dx,dy from moveTo (absolute target → offset)
-    const mvClips = objClips.filter((c: any) => c.kind === 'moveTo');
-    if (mvClips.length > 0) {
-      let dx = base.dx, dy = base.dy;
-      for (const c of mvClips) {
-        if (c.start > t) break;
-        const local = t - c.start;
-        const toX = (c.props.x as number), toY = (c.props.y as number);
-        if (local >= c.duration) { dx = toX; dy = toY; }
-        else if (local >= 0) {
-          const ep = getEase(c.ease)(clamp01(local / c.duration));
-          dx = dx + (toX - dx) * ep;
-          dy = dy + (toY - dy) * ep;
+        const done = local >= c.duration;
+        const ep = done ? 1 : getEase(c.ease)(clamp01(local / c.duration));
+        switch (c.kind) {
+          case 'fadeIn': base.opacityMult = ep; break;
+          case 'fadeOut': base.opacityMult = done ? 0 : base.opacityMult * (1 - ep); lastFadeOut = c; break;
+          case 'draw': base.reveal = ep; break;
+          case 'moveTo': {
+            const toX = (c.props.x as number), toY = (c.props.y as number);
+            base.dx = done ? toX : base.dx + (toX - base.dx) * ep;
+            base.dy = done ? toY : base.dy + (toY - base.dy) * ep;
+            break;
+          }
+          case 'scaleTo': {
+            const toX = (c.props.x as number), toY = ((c.props.y ?? c.props.x) as number);
+            base.scaleX = done ? toX : base.scaleX + (toX - base.scaleX) * ep;
+            base.scaleY = done ? toY : base.scaleY + (toY - base.scaleY) * ep;
+            break;
+          }
+          case 'rotateTo': {
+            const deg = (c.props.deg as number);
+            base.rotation = done ? deg : base.rotation + (deg - base.rotation) * ep;
+            break;
+          }
+          case 'write': base.chars = done ? textLen : Math.round(textLen * ep); break;
         }
       }
-      base.dx = dx; base.dy = dy;
+      if (lastFadeOut && t >= lastFadeOut.start + lastFadeOut.duration) base.visible = false;
     }
-
-    // scale from scaleTo
-    const scClips = objClips.filter((c: any) => c.kind === 'scaleTo');
-    if (scClips.length > 0) {
-      let sx = base.scaleX, sy = base.scaleY;
-      for (const c of scClips) {
-        if (c.start > t) break;
-        const local = t - c.start;
-        const toX = (c.props.x as number), toY = ((c.props.y ?? c.props.x) as number);
-        if (local >= c.duration) { sx = toX; sy = toY; }
-        else if (local >= 0) {
-          const ep = getEase(c.ease)(clamp01(local / c.duration));
-          sx = sx + (toX - sx) * ep;
-          sy = sy + (toY - sy) * ep;
-        }
-      }
-      base.scaleX = sx; base.scaleY = sy;
-    }
-
-    // rotation
-    const rotClips = objClips.filter((c: any) => c.kind === 'rotateTo');
-    if (rotClips.length > 0) {
-      let r = base.rotation;
-      for (const c of rotClips) {
-        if (c.start > t) break;
-        const local = t - c.start;
-        const deg = (c.props.deg as number);
-        if (local >= c.duration) r = deg;
-        else if (local >= 0) {
-          const ep = getEase(c.ease)(clamp01(local / c.duration));
-          r = r + (deg - r) * ep;
-        }
-      }
-      base.rotation = r;
-    }
-
-    // write
-    const wrClips = objClips.filter((c: any) => c.kind === 'write');
-    if (wrClips.length > 0) {
-      let chars = 0;
-      for (const c of wrClips) {
-        if (c.start <= t) {
-          const local = t - c.start;
-          if (local >= c.duration) chars = textLen;
-          else if (local >= 0) chars = Math.round(textLen * getEase(c.ease)(clamp01(local / c.duration)));
-        }
-      }
-      base.chars = chars;
-    }
-
     objects.set(oid, base);
   }
 

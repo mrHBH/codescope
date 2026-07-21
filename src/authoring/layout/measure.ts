@@ -3,9 +3,18 @@ import type { ObjectSpec, Vec2 } from '../ir/types';
 import type { FontFace } from '../../windfoil/font';
 import { tw } from '../../layout/metrics';
 import { getIsland } from '../islands/registry';
+import { MathTex } from '../../windgraph/math/mathtex';
 
 export type Size = { w: number; h: number };
 export type MeasureFn = (id: string, spec: ObjectSpec) => Size;
+
+// MathTex instances are layout-cached per latex — share them across measures.
+const mathCache = new Map<string, MathTex>();
+function mathTexFor(latex: string): MathTex {
+  let t = mathCache.get(latex);
+  if (!t) { t = new MathTex(latex); mathCache.set(latex, t); }
+  return t;
+}
 
 export function wrapText(text: string, font: FontFace, size: number, maxWidth: number): string[] {
   if (maxWidth <= 0) return [text];
@@ -31,7 +40,7 @@ export function measureWrapped(text: string, font: FontFace, size: number, maxWi
   return { lines, w: maxW, h: lines.length * size * 1.25 };
 }
 
-export function makeMeasureFn(font: FontFace, defaultIslandSize: Size = { w: 480, h: 360 }): MeasureFn {
+export function makeMeasureFn(font: FontFace, defaultIslandSize: Size = { w: 480, h: 360 }, atlas?: any): MeasureFn {
   return (id: string, spec: ObjectSpec): Size => {
     const item = (spec as any).item as { width?: number | 'auto'; height?: number | 'auto' } | undefined;
     const iw = item?.width, ih = item?.height;
@@ -65,8 +74,16 @@ export function makeMeasureFn(font: FontFace, defaultIslandSize: Size = { w: 480
         break;
       }
       case 'math': {
-        const latexLen = spec.latex.length;
-        s = { w: Math.max(80, latexLen * spec.size * 0.42), h: spec.size * 1.4 };
+        if (atlas) {
+          // True typeset measure: h = height above baseline, d = depth below
+          // (em units × size). The Taffy box then fits the formula exactly, so
+          // siblings never collide with it.
+          const m = mathTexFor(spec.latex).measure(atlas);
+          s = { w: Math.max(8, m.w * spec.size), h: Math.max(spec.size * 1.1, (m.h + m.d) * spec.size) };
+        } else {
+          const latexLen = spec.latex.length;
+          s = { w: Math.max(80, latexLen * spec.size * 0.42), h: spec.size * 1.4 };
+        }
         break;
       }
       case 'circle':

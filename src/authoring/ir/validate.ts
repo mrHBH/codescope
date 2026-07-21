@@ -194,6 +194,8 @@ export function validateSceneDoc(doc: unknown, knownIslandIds?: Set<string>): st
           errs.push(`camera.keyframes[${i}].zoomMul: must be > 0`);
         if (kf.offset !== undefined && !isVec2(kf.offset))
           errs.push(`camera.keyframes[${i}].offset: must be [x,y]`);
+        if (kf.fitPoint !== undefined && !isVec2(kf.fitPoint))
+          errs.push(`camera.keyframes[${i}].fitPoint: must be [fx,fy]`);
         if (kf.polar !== undefined && (typeof kf.polar !== 'number' || !isFinite(kf.polar as number)))
           errs.push(`camera.keyframes[${i}].polar: must be finite`);
         if (kf.azimuth !== undefined && (typeof kf.azimuth !== 'number' || !isFinite(kf.azimuth as number)))

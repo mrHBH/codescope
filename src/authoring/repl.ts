@@ -185,6 +185,7 @@ export function handleSceneCommand(
       } else {
         spec[prop] = val;
       }
+      runtime.invalidateCaches?.();
       log(`set ${target} = ${JSON.stringify(val)}`);
       return true;
     }
@@ -237,6 +238,7 @@ export function handleSceneCommand(
 
       const spec = fn();
       doc.objects[id] = spec;
+      runtime.invalidateCaches?.();
       log(`added ${kindArg} "${id}"`);
       return true;
     }
@@ -249,6 +251,7 @@ export function handleSceneCommand(
       delete doc.objects[arg];
       // Also remove clips targeting this object
       doc.clips = doc.clips.filter((c) => c.target !== arg && c.target !== `param:${arg}`);
+      runtime.invalidateCaches?.();
       log(`removed "${arg}"`);
       return true;
     }
