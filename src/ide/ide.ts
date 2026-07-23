@@ -6,7 +6,7 @@ import { Terminal, type TerminalTheme } from '../editor/terminal';
 import { FileTree, type FileTreeTheme, type TreeNode } from '../editor/fileTree';
 import { DEPTH_FORMAT } from '../windfoil/mesh3d';
 import { createToolbar } from '../playground/toolbar';
-import { enterOrbit, orbitViewProj, orbitScale, setOrbitEnabled, updateOrbit, screenToDocLocal, setOrbitWheelDolly, setOrbitNear, orbitDollyByWheel } from '../camera/orbit';
+import { enterOrbit, orbitViewProj, orbitScale, setOrbitEnabled, updateOrbit, screenToDocLocal, setOrbitNear, setOrbitPanChord, orbitTruck, orbitZoomToRect } from '../camera/orbit';
 import { ContextMenu } from '../ui/contextMenu';
 import { tabMenu, folderMenu, fileMenu, editorMenu, terminalMenu, searchMenu, type IdeMenuActions } from './menus';
 import { ideTheme as T } from './theme';
@@ -388,9 +388,10 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
 
   let mx = 0, my = 0;
   let rightDown = false;
-  let rightMoved = false, rightSX = 0, rightSY = 0;
+  let rightMoved = false, rightWheeled = false, rightSX = 0, rightSY = 0;
   let clickCount = 0, lastClickT = 0, lastClickX = 0, lastClickY = 0;
   let d3 = { x: 0, y: 0, t: 0, moved: false, active: false };
+  let dragSel = false, dragPX = 0, dragPY = 0;
   let hoverExplorer = false;
   let hoverTerminal = false;
   let hoverSource = -1;
@@ -752,6 +753,13 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
       if (d3.active && (Math.abs(e.clientX - d3.x) > 5 || Math.abs(e.clientY - d3.y) > 5)) d3.moved = true;
       const p = screenToDocLocal(mx * dpr, my * dpr, tCanvas.width, tCanvas.height);
       mx = p.x; my = p.y;
+      // Left-drag: extend the editor selection when the press started on the
+      // editor body, otherwise pan the camera.
+      if (d3.active && d3.moved) {
+        if (dragSel) tabs[activeTab].editor.placeCursor(mx, my, true);
+        else orbitTruck((e.clientX - dragPX) * dpr, (e.clientY - dragPY) * dpr, tCanvas.height);
+      }
+      dragPX = e.clientX; dragPY = e.clientY;
     }
     hoverExplorer = false; hoverTerminal = false; hoverSource = -1; hoverAction = -1; hoverSearch = false; hoverTab = -1;
 
@@ -767,7 +775,7 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
     else if (chrome && chrome.kind === 'source') hoverSource = chrome.i;
     else if (chrome && chrome.kind === 'action') hoverAction = chrome.i;
 
-    const { editorX } = layout();
+    const { editorX, editorH } = layout();
     if (my < TAB_BAR_H && mx >= editorX) {
       let txx = editorX + 4;
       for (let i = 0; i < tabs.length; i++) {
@@ -777,18 +785,34 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
       }
     }
 
+    // Cursor: text I-beam over the search box and editor body, pointer over
+    // chrome (icons, tabs, tree rows, toolbar), plain arrow everywhere else.
     const overChrome = hoverExplorer || hoverTerminal || hoverSearch || hoverSource >= 0 || hoverAction >= 0 || hoverTab >= 0;
-    rCanvas.style.cursor = overChrome ? 'pointer' : cam3d ? 'grab' : '';
+    const overEditorBody = mx >= editorX && my >= TAB_BAR_H && my < TAB_BAR_H + editorH;
+    rCanvas.style.cursor = hoverSearch || overEditorBody ? 'text' : overChrome ? 'pointer' : '';
   }
 
   function blurSearch() { searchFocused = false; focus = 'editor'; tabs[activeTab].editor.focused = true; }
 
   function onPointerDown(e: PointerEvent) {
-    if (e.button === 2) { rightDown = true; rightMoved = false; rightSX = e.clientX; rightSY = e.clientY; menu.hide(); return; }
+    if (e.button === 2) { rightDown = true; rightMoved = false; rightWheeled = false; rightSX = e.clientX; rightSY = e.clientY; setOrbitPanChord(true); menu.hide(); return; }
     if (e.button !== 0) return;
     [mx, my] = toWorld(e);
     if (cam3d) {
       d3 = { x: e.clientX, y: e.clientY, t: performance.now(), moved: false, active: true };
+      dragPX = e.clientX; dragPY = e.clientY;
+      // A press inside the editor body anchors a drag-selection (the caret is
+      // placed now so the drag extends from here); elsewhere a drag pans.
+      const p = screenToDocLocal(mx * dpr, my * dpr, tCanvas.width, tCanvas.height);
+      const { editorX, editorH } = layout();
+      if (!searchFocused && p.x >= editorX && p.y >= TAB_BAR_H && p.y < TAB_BAR_H + editorH) {
+        dragSel = true;
+        focus = 'editor';
+        const ed = tabs[activeTab].editor;
+        ed.focused = true;
+        ed.placeCursor(p.x, p.y, e.shiftKey);
+        if (!e.shiftKey) ed.anchor = { line: ed.cursor.line, col: ed.cursor.col };
+      }
       return;
     }
     handlePick(mx, my, e.shiftKey);
@@ -799,15 +823,19 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
     const { w, h, editorX, editorH, sw, termH } = layout();
     const tile = 34, ty = 8;
 
-    // Multi-click tracking: consecutive clicks within 400ms and ~6px escalate
-    // caret → token → line → all. Any pick outside the editor body (tab bar,
-    // tree, terminal, chrome) resets the sequence.
+    // Multi-click tracking (400ms / ~6px). On the editor body clicks escalate
+    // caret → token → line → all; on any other NON-TEXT surface the second
+    // click fits the whole IDE to the screen — the IDE is the "UI component"
+    // here, mirroring yasmineOS's double-click → HybridUIComponent.zoom.
     const inEditor = mx >= editorX && my >= TAB_BAR_H && my < TAB_BAR_H + editorH;
+    const overSearch = sw > 1 && sidebarT > 0.9 && mx >= AB_W + 10 && mx <= AB_W + sw - 10 && my >= SB_SEARCH_Y && my <= SB_SEARCH_Y + SB_SEARCH_H;
     const now = performance.now();
-    if (inEditor) {
-      clickCount = (now - lastClickT < 400 && Math.abs(mx - lastClickX) < 6 && Math.abs(my - lastClickY) < 6) ? clickCount + 1 : 1;
-    } else clickCount = 0;
+    clickCount = (now - lastClickT < 400 && Math.abs(mx - lastClickX) < 6 && Math.abs(my - lastClickY) < 6) ? clickCount + 1 : 1;
     lastClickT = now; lastClickX = mx; lastClickY = my;
+    if (!inEditor && !overSearch && clickCount === 2) {
+      clickCount = 0;
+      orbitZoomToRect(0, 0, cssW(), cssH(), tCanvas.width, tCanvas.height);
+    }
 
     if (mx < AB_W) {
       if (my >= ty && my <= ty + tile) {
@@ -917,8 +945,9 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
   }
 
   function onPointerUp(e: PointerEvent) {
-    if (e.button === 2) { rightDown = false; return; }
+    if (e.button === 2) { rightDown = false; setOrbitPanChord(false); return; }
     if (e.button !== 0) return;
+    dragSel = false;
     if (cam3d && d3.active) {
       d3.active = false;
       if (d3.moved || performance.now() - d3.t > 400) return;
@@ -930,11 +959,10 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
 
   function onWheel(e: WheelEvent) {
     e.preventDefault();
-    if (cam3d) {
-      const dy = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
-      orbitDollyByWheel(dy);
-      return;
-    }
+    // Wheeling during a right press is a zoom gesture, not a menu request.
+    if (rightDown) rightWheeled = true;
+    // In 3D the orbit library owns the wheel: native dolly-to-cursor zoom.
+    if (cam3d) return;
     const { editorX, editorH, sw } = layout();
     if (sw > 1 && mx >= AB_W && mx < AB_W + sw && my >= SB_TREE_Y) {
       fileTree.scrollBy(e.deltaY * 0.5);
@@ -994,7 +1022,6 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
 
   enterOrbit(cssW() / 2, cssH() / 2, dpr, tCanvas.height);
   setOrbitEnabled(true);
-  setOrbitWheelDolly(false);
   setOrbitNear(1e-3);
 
   // ── Context menu routing ───────────────────────────────────────────────────
@@ -1006,7 +1033,7 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
   // New surfaces: add a builder in menus.ts, then a branch here.
   function onContextMenu(e: MouseEvent) {
     e.preventDefault();
-    if (rightMoved) return;
+    if (rightMoved || rightWheeled) return;
     let [wx, wy] = toWorld(e);
     if (cam3d) {
       const p = screenToDocLocal(wx * dpr, wy * dpr, tCanvas.width, tCanvas.height);
@@ -1102,7 +1129,6 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
   return () => {
     alive = false;
     setOrbitEnabled(false);
-    setOrbitWheelDolly(true);
     setOrbitNear(1);
     rCanvas.removeEventListener('pointermove', onPointerMove);
     rCanvas.removeEventListener('pointerdown', onPointerDown);

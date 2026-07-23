@@ -231,7 +231,7 @@ export function runFrame(s: AppState): () => void {
     mark('staticCopy');
 
     const k = 1 - Math.pow(0.0015, dt / 1000);
-    let cursor = 'grab';
+    let cursor = 'default';
     // Layer 2: dynamic backgrounds (hover, bounce, heartbeat, progress, pulse) — BEFORE text.
     // Only elements flagged `dynamic` in walkDOM reach this loop; static text/boxes
     // are already baked into the precomputed buffers.
@@ -298,9 +298,15 @@ export function runFrame(s: AppState): () => void {
       }
     }
 
-    if (!cursor || cursor === 'grab') {
+    // Text-select surfaces: editable DOM text boxes and the code editor panel
+    // (a world-space panel, not in docRoot, so hit-tested directly here).
+    if (cursor === 'default') {
       let he: StyledEl | null = hovered; while (he && !he.editable) he = he.parent;
       if (he) cursor = 'text';
+      else if (s.editorMode && s.editor) {
+        const ed = s.editor;
+        if (s.mwx >= ed.x0 && s.mwx <= ed.x0 + ed.contentWidth() && s.mwy >= ed.y0 && s.mwy <= ed.y0 + ed.contentHeight()) cursor = 'text';
+      }
     }
     // File tree cursor: pointer when hovering over items
     if (s.fileTree && s.fileTree.hovered) {

@@ -30,11 +30,16 @@ const _rd = new THREE.Vector3();
 export function initOrbit(dom: HTMLElement) {
   camera = new THREE.PerspectiveCamera(50, 1, 1, 1e7);
   controls = new CameraControls(camera, dom);
-  // yasmineOS mouse map: left = truck/pan, right = rotate/orbit, wheel = dolly.
-  controls.mouseButtons.left = CameraControls.ACTION.TRUCK;
+  // Mouse map: left is NONE so the app layer owns it (per-surface rule: text
+  // cursor shown → drag selects, otherwise → drag pans via orbitTruck; clicks
+  // still pick on release), middle scrolls (truck), right-drag rotates, wheel
+  // dollies toward the cursor. Holding right swaps middle to zoom — see
+  // setOrbitPanChord().
+  controls.mouseButtons.left = CameraControls.ACTION.NONE;
   controls.mouseButtons.right = CameraControls.ACTION.ROTATE;
-  controls.mouseButtons.middle = CameraControls.ACTION.NONE;
+  controls.mouseButtons.middle = CameraControls.ACTION.TRUCK;
   controls.mouseButtons.wheel = CameraControls.ACTION.DOLLY;
+  controls.dollyToCursor = true;
   // Touch: one-finger orbit, two-finger dolly+truck (library defaults are fine).
   // Ground mode: never tilt below the floor. polar 0 = top-down (matches 2D).
   controls.minPolarAngle = 0;
@@ -163,6 +168,45 @@ export function setOrbitWheelDolly(enabled: boolean) {
   if (ready) controls.mouseButtons.wheel = enabled ? CameraControls.ACTION.DOLLY : CameraControls.ACTION.NONE;
 }
 
+// Right mouse acts as a zoom modifier chord: while it is held, middle-drag
+// zooms (dolly, toward the cursor via dollyToCursor) instead of scrolling.
+// Right-drag alone always rotates; left stays app-owned regardless.
+export function setOrbitPanChord(on: boolean) {
+  if (!ready) return;
+  controls.mouseButtons.middle = on ? CameraControls.ACTION.DOLLY : CameraControls.ACTION.TRUCK;
+}
+
+// Screen-space left-drag pan for the free camera (device-px deltas → world
+// truck). The content follows the cursor: truck() offsets the target by
+// right·x − up·y, so both deltas are negated.
+export function orbitTruck(dxPx: number, dyPx: number, viewHpx: number) {
+  if (!ready) return;
+  const wpp = (2 * controls.distance * Math.tan((camera.fov * DEG2RAD) / 2)) / viewHpx;
+  controls.truck(-dxPx * wpp, -dyPx * wpp, false);
+}
+
+// ── Double-click-to-fit ──────────────────────────────────────────────────────
+// Recreation of yasmineOS's HybridUIComponent.zoom + zoomTo (called there on
+// double-click of a UI component): the ideal distance fits the rect's height
+// and width against the vertical/horizontal FOV (their _calculateIdealRadius
+// formula, max of both), then the camera glides along the surface normal to
+// that distance, gazing at the rect centre — setLookAt(..., true) eases the
+// whole move. Their component faced the camera along its own normal; our
+// document lies flat on the ground, so the normal is world +Y (top-down fit).
+export function orbitZoomToRect(x0: number, y0: number, x1: number, y1: number, Cw: number, Ch: number, padding = 1.08) {
+  if (!ready) return;
+  const w = Math.max(x1 - x0, 1), h = Math.max(y1 - y0, 1);
+  const [cx, cy, cz] = transformPoint(GROUND_MODEL, (x0 + x1) / 2, (y0 + y1) / 2, 0);
+  const vFov = camera.fov * DEG2RAD;
+  const hFov = 2 * Math.atan(Math.tan(vFov / 2) * (Cw / Ch));
+  const dist = Math.max(
+    (h * padding) / (2 * Math.tan(vFov / 2)),
+    (w * padding) / (2 * Math.tan(hFov / 2)));
+  controls.normalizeRotations();
+  const eps = 0.0015; // same top-down gimbal avoidance as enterOrbit
+  controls.setLookAt(cx, cy + dist * Math.cos(eps), cz + dist * Math.sin(eps), cx, cy, cz, true);
+}
+
 export function orbitDolly(delta: number) {
   if (ready) controls.dolly(delta, false);
 }
@@ -180,6 +224,8 @@ export function setOrbitNear(near: number) {
 // distance by a constant ratio (distance *= e^(deltaY·k)), so a notch zooms by the
 // same *factor* whether you're close or far — constant sensitivity in log-space.
 // dollyTo(..., true) clamps to [minDistance, maxDistance] and eases smoothly.
+// (Cursor-anchored zooming is done by the library itself via dollyToCursor —
+// callers that can, let the library own the wheel instead of using this.)
 const WHEEL_DOLLY_K = 0.005;
 export function orbitDollyByWheel(deltaY: number) {
   if (!ready) return;

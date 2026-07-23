@@ -5,7 +5,7 @@
 import type { AppState } from '../state';
 import type { StyledEl } from '../layout/types';
 import { bufCoords, scrToWorld, scrToDoc, goToPage, fitDocument, cameraScale } from './camera';
-import { setOrbitEnabled } from './orbit';
+import { setOrbitEnabled, setOrbitPanChord, orbitTruck, orbitZoomToRect } from './orbit';
 import { hitTest, findEditableAncestor } from '../layout/walk';
 import { layoutEditable, placeCaretAtPoint, caretIndexAtPoint } from '../layout/editable';
 import { ContextMenu, type MenuItem } from '../ui/contextMenu';
@@ -103,15 +103,20 @@ export function attachInput(s: AppState): () => void {
     // canvas, except draggable world-space board handles, which are ray-cast to
     // the grounded document plane and temporarily disable orbit controls.
     if (s.cam3d.active) {
-      if (!s.pointerInput || !s.interactive) return;
+      // Track every left press so a drag pans the free camera (the library's
+      // left button is NONE — the app owns it). A press on a windgraph handle
+      // grabs the handle instead and suppresses camera motion.
       const b = bufCoords(s, e.clientX, e.clientY);
-      const w = scrToDoc(s, b.x, b.y);
-      if (!s.interactive.tryBeginDrag(w.x, w.y, cameraScale(s))) return;
       rCanvas.setPointerCapture(e.pointerId);
       s.pointers.set(e.pointerId, { x: b.x, y: b.y });
       s.dragging = true; s.velX = s.velY = 0; s.lastMoveT = performance.now();
-      setOrbitEnabled(false);
-      e.preventDefault();
+      if (s.pointerInput && s.interactive) {
+        const w = scrToDoc(s, b.x, b.y);
+        if (s.interactive.tryBeginDrag(w.x, w.y, cameraScale(s))) {
+          setOrbitEnabled(false);
+          e.preventDefault();
+        }
+      }
       return;
     }
     if (!s.pointerInput && !s.cameraInput) return; // both inputs disabled
@@ -228,14 +233,42 @@ export function attachInput(s: AppState): () => void {
         s.pointers.set(e.pointerId, { x: b.x, y: b.y });
         const w = scrToDoc(s, b.x, b.y);
         s.interactive.dragTo(w.x, w.y);
+        return;
+      }
+      // Left-drag pans the free camera; a release without a drag still picks
+      // (see the 3D-pick pointerup below).
+      if (tracking && s.cameraInput && s.pointers.size === 1) {
+        const b = bufCoords(s, e.clientX, e.clientY);
+        const prev = s.pointers.get(e.pointerId)!;
+        s.pointers.set(e.pointerId, { x: b.x, y: b.y });
+        orbitTruck(b.x - prev.x, b.y - prev.y, s.tCanvas.height);
       }
       return;
     }
     // With pointer input off, the ONLY work left is camera pan while dragging —
     // an untracked move does nothing (no mx/my, no hover downstream in frame()).
-    if (!s.pointerInput && !tracking) return;
+    if (!s.pointerInput && !tracking && !midDown) return;
     const b = bufCoords(s, e.clientX, e.clientY);
     if (s.pointerInput) { s.mx = b.x; s.my = b.y; }
+    // Middle-drag: scroll the document, or zoom toward the cursor while right
+    // is held. Independent of left-button tracking (the two can chord).
+    if (midDown && !s.cam3d.active && s.cameraInput) {
+      const Cw = s.tCanvas.width, Ch = s.tCanvas.height;
+      const dx = b.x - midX, dy = b.y - midY;
+      midX = b.x; midY = b.y;
+      if (s.rightDown) {
+        const wx = (b.x - Cw / 2) / s.camZ + s.camX, wy = (b.y - Ch / 2) / s.camZ + s.camY;
+        s.camZ *= Math.exp(-dy * 0.005);
+        if (s.camZ < s.minZoom) { s.camZ = s.minZoom; s.camX = s.PAGE_W / 2; s.camY = s.docH / 2; }
+        else { s.camX = wx - (b.x - Cw / 2) / s.camZ; s.camY = wy - (b.y - Ch / 2) / s.camZ; }
+        s.tgtX = s.camX; s.tgtY = s.camY; s.tgtZ = s.camZ;
+        s.viewX = s.camX; s.viewY = s.camY; s.viewZ = s.camZ;
+      } else {
+        s.camX -= dx / s.camZ; s.camY -= dy / s.camZ;
+        s.tgtX = s.camX; s.tgtY = s.camY; s.tgtZ = s.camZ;
+      }
+      return;
+    }
     if (!tracking) return;
     const prev = s.pointers.get(e.pointerId)!;
     s.pointers.set(e.pointerId, { x: b.x, y: b.y });
@@ -269,6 +302,9 @@ export function attachInput(s: AppState): () => void {
         return; // don't pan the camera while editing text
       }
     }
+    // Left-drag pans the camera — UNLESS the press started on a text surface,
+    // in which case the selection branches above consumed the drag (that's the
+    // "text cursor shown → drag selects; otherwise → drag pans" rule).
     if (s.pointers.size === 1 && s.cameraInput) {
       s.camX -= (b.x - prev.x) / s.camZ; s.camY -= (b.y - prev.y) / s.camZ;
       s.tgtX = s.camX; s.tgtY = s.camY; s.tgtZ = s.camZ;
@@ -299,6 +335,7 @@ export function attachInput(s: AppState): () => void {
     if (s.interactive) s.interactive.endDrag();
     if (s.cam3d.active) setOrbitEnabled(true);
     sliding = null; slidingPct = -1;
+    midDown = false;
     s.pointers.clear(); s.dragging = false; s.pressed = null; if (performance.now() - s.lastMoveT > 80) s.velX = s.velY = 0;
   };
   on(rCanvas, 'pointerup', rel);
@@ -314,9 +351,11 @@ export function attachInput(s: AppState): () => void {
   const LONG_PRESS_MS = 350, MOVE_TOL = 6;
   on(rCanvas, 'pointerdown', (e) => {
     if (e.button !== 2) return;
-    if (!s.pointerInput) return; // pointer input disabled (toolbar toggle)
-    // In 3D, right-drag is orbit (owned by camera-controls) — no context menu.
-    if (s.cam3d.active) return;
+    // In 3D, right-drag rotates (camera-controls); holding right also engages
+    // the pan/zoom chord (left-drag pans, middle-drag zooms) until release.
+    if (s.cam3d.active) { setOrbitPanChord(true); return; }
+    // Tracked even with pointer input toggled off: right is a CAMERA modifier
+    // (pan/zoom chord); only the context menu below requires pointer input.
     s.rightDown = true;
     rightDownT = performance.now();
     rightWheeled = false; rightMoved = false;
@@ -325,14 +364,57 @@ export function attachInput(s: AppState): () => void {
   });
   on(rCanvas, 'pointerup', (e) => {
     if (e.button !== 2) return;
+    if (s.cam3d.active) { setOrbitPanChord(false); return; }
     s.rightDown = false;
     const shortPress = performance.now() - rightDownT < LONG_PRESS_MS;
-    if (shortPress && !rightWheeled && !rightMoved) {
+    if (shortPress && !rightWheeled && !rightMoved && s.pointerInput) {
       menu.show(e.clientX, e.clientY, buildMenuItems());
     }
   });
-  on(rCanvas, 'pointercancel', () => { s.rightDown = false; });
+  on(rCanvas, 'pointercancel', (e) => { if (e.button === 2) { s.rightDown = false; setOrbitPanChord(false); } });
   on(rCanvas, 'contextmenu', (e) => e.preventDefault());
+
+  // ── Double-click to fit ────────────────────────────────────────────────────
+  // Double-clicking a non-text element smoothly fits it to the screen — the
+  // recreation of yasmineOS's HybridUIComponent.zoom, which we used to call on
+  // double-click there (a board/card/page here is the component equivalent).
+  // Text surfaces own double-click (word/token selection) and are skipped.
+  on(rCanvas, 'dblclick', (e) => {
+    if (!s.pointerInput) return;
+    const b = bufCoords(s, e.clientX, e.clientY);
+    const w = s.cam3d.active ? scrToDoc(s, b.x, b.y) : scrToWorld(s, b.x, b.y);
+    if (s.editorMode && s.editor) {
+      const ed = s.editor;
+      if (w.x >= ed.x0 && w.x <= ed.x0 + ed.contentWidth() && w.y >= ed.y0 && w.y <= ed.y0 + ed.contentHeight()) return;
+    }
+    const hit = hitTest(s.docRoot, w.x, w.y);
+    if (hit && findEditableAncestor(hit)) return;
+    let bx: number, by: number, bw: number, bh: number;
+    if (hit) { bx = hit.x; by = hit.y; bw = hit.w; bh = hit.h; }
+    else {
+      const pg = s.pageRoots.find((p) => w.x >= p.x && w.x <= p.x + p.w && w.y >= p.y && w.y <= p.y + p.h);
+      if (!pg) return;
+      bx = pg.x; by = pg.y; bw = pg.w; bh = pg.h;
+    }
+    orbitZoomToRect(bx, by, bx + bw, by + bh, s.tCanvas.width, s.tCanvas.height);
+  });
+
+  // Middle-button drag scrolls (pans) the document in 2D; with right held it
+  // zooms toward the cursor instead (right = shift-modifier for the mouse).
+  // In 3D camera-controls owns the middle button (truck, dolly while chorded).
+  let midDown = false, midX = 0, midY = 0;
+  on(rCanvas, 'pointerdown', (e) => {
+    if (e.button !== 1) return;
+    e.preventDefault(); // cancel the compatibility mousedown → no autoscroll
+    if (s.cam3d.active || !s.cameraInput) return;
+    midDown = true;
+    const b = bufCoords(s, e.clientX, e.clientY);
+    midX = b.x; midY = b.y;
+    s.velX = s.velY = 0;
+  });
+  const midUp = (e: PointerEvent) => { if (e.button === 1) midDown = false; };
+  on(rCanvas, 'pointerup', midUp);
+  on(rCanvas, 'pointercancel', midUp);
 
   // Wheel: normal = smooth scroll, right-click held OR trackpad pinch (ctrlKey)
   // = zoom to cursor. Trackpad pinch-zoom is delivered as a wheel event with
