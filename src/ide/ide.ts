@@ -392,6 +392,10 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
   let clickCount = 0, lastClickT = 0, lastClickX = 0, lastClickY = 0;
   let d3 = { x: 0, y: 0, t: 0, moved: false, active: false };
   let dragSel = false, dragPX = 0, dragPY = 0;
+  // "Fitted" = the camera frames the whole IDE (true at boot via enterOrbit
+  // and after a double-click fit). While set, window resizes re-fit the camera
+  // so the IDE keeps filling the screen; any manual navigation clears it.
+  let fitted = true, fitW = cssW(), fitH = cssH();
   let hoverExplorer = false;
   let hoverTerminal = false;
   let hoverSource = -1;
@@ -517,6 +521,14 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
     if (cam3d) updateOrbit(dt);
 
     const { w, h, editorX, editorH, sw, termH } = layout();
+
+    // The IDE layout adapts to the canvas every frame; while fitted, keep the
+    // camera framing in sync too (immediate re-fit, no animation).
+    if (fitted && (w !== fitW || h !== fitH)) {
+      fitW = w; fitH = h;
+      orbitZoomToRect(0, 0, w, h, tCanvas.width, tCanvas.height, 1, false);
+    }
+
     inst.length = 0; crv.length = 0; rws.length = 0;
 
     addRect(0, 0, w, h, T.editorBg, crv, rws, inst);
@@ -757,7 +769,7 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
       // editor body, otherwise pan the camera.
       if (d3.active && d3.moved) {
         if (dragSel) tabs[activeTab].editor.placeCursor(mx, my, true);
-        else orbitTruck((e.clientX - dragPX) * dpr, (e.clientY - dragPY) * dpr, tCanvas.height);
+        else { orbitTruck((e.clientX - dragPX) * dpr, (e.clientY - dragPY) * dpr, tCanvas.height); fitted = false; }
       }
       dragPX = e.clientX; dragPY = e.clientY;
     }
@@ -795,7 +807,8 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
   function blurSearch() { searchFocused = false; focus = 'editor'; tabs[activeTab].editor.focused = true; }
 
   function onPointerDown(e: PointerEvent) {
-    if (e.button === 2) { rightDown = true; rightMoved = false; rightWheeled = false; rightSX = e.clientX; rightSY = e.clientY; setOrbitPanChord(true); menu.hide(); return; }
+    if (e.button === 2) { rightDown = true; rightMoved = false; rightWheeled = false; rightSX = e.clientX; rightSY = e.clientY; setOrbitPanChord(true); fitted = false; menu.hide(); return; }
+    if (e.button === 1) { fitted = false; return; }
     if (e.button !== 0) return;
     [mx, my] = toWorld(e);
     if (cam3d) {
@@ -835,6 +848,7 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
     if (!inEditor && !overSearch && clickCount === 2) {
       clickCount = 0;
       orbitZoomToRect(0, 0, cssW(), cssH(), tCanvas.width, tCanvas.height);
+      fitted = true; fitW = cssW(); fitH = cssH();
     }
 
     if (mx < AB_W) {
@@ -959,6 +973,7 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
 
   function onWheel(e: WheelEvent) {
     e.preventDefault();
+    fitted = false;
     // Wheeling during a right press is a zoom gesture, not a menu request.
     if (rightDown) rightWheeled = true;
     // In 3D the orbit library owns the wheel: native dolly-to-cursor zoom.

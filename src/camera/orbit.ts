@@ -193,7 +193,7 @@ export function orbitTruck(dxPx: number, dyPx: number, viewHpx: number) {
 // that distance, gazing at the rect centre — setLookAt(..., true) eases the
 // whole move. Their component faced the camera along its own normal; our
 // document lies flat on the ground, so the normal is world +Y (top-down fit).
-export function orbitZoomToRect(x0: number, y0: number, x1: number, y1: number, Cw: number, Ch: number, padding = 1.08) {
+export function orbitZoomToRect(x0: number, y0: number, x1: number, y1: number, Cw: number, Ch: number, padding = 1, animate = true) {
   if (!ready) return;
   const w = Math.max(x1 - x0, 1), h = Math.max(y1 - y0, 1);
   const [cx, cy, cz] = transformPoint(GROUND_MODEL, (x0 + x1) / 2, (y0 + y1) / 2, 0);
@@ -204,7 +204,7 @@ export function orbitZoomToRect(x0: number, y0: number, x1: number, y1: number, 
     (w * padding) / (2 * Math.tan(hFov / 2)));
   controls.normalizeRotations();
   const eps = 0.0015; // same top-down gimbal avoidance as enterOrbit
-  controls.setLookAt(cx, cy + dist * Math.cos(eps), cz + dist * Math.sin(eps), cx, cy, cz, true);
+  controls.setLookAt(cx, cy + dist * Math.cos(eps), cz + dist * Math.sin(eps), cx, cy, cz, animate);
 }
 
 export function orbitDolly(delta: number) {
