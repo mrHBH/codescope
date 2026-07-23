@@ -16,12 +16,12 @@ const STATUS_H = 22;
 const TERM_HEADER_H = 28;
 const ANIM_MS = 220;
 
-const SB_HEADER_H = 36;
-const SB_SEARCH_Y = 44;
+const SB_HEADER_H = 53;
+const SB_SEARCH_Y = 61;
 const SB_SEARCH_H = 30;
-const SB_TOOL_Y = 82;
+const SB_TOOL_Y = 99;
 const SB_TOOL_H = 30;
-const SB_TREE_Y = 120;
+const SB_TREE_Y = 141;
 
 const smoothstep = (t: number) => { const c = t < 0 ? 0 : t > 1 ? 1 : t; return c * c * c * (c * (c * 6 - 15) + 10); };
 
@@ -174,10 +174,10 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
   tabs[0].editor.focused = true;
 
   const fileTree = new FileTree();
-  fileTree.fontSize = 13;
-  fileTree.lineHeightMul = 1.5;
-  fileTree.indent = 14;
-  fileTree.pad = 8;
+  fileTree.fontSize = 18;
+  fileTree.lineHeightMul = 1.6;
+  fileTree.indent = 24;
+  fileTree.pad = 18;
   fileTree.showTitleBar = false;
   fileTree.setRoots(SOURCES[1].roots, SOURCES[1].expanded);
 
@@ -351,7 +351,7 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
     emitIcon('icon:folder', tileX + 7, ty + 7, tile - 14, tile - 14, active ? T.activityBarActive : T.activityBarFg);
     // Separator between the top icon group and the bottom icon group
     const sepY = ty + tile + 10;
-    addRect(0, sepY, AB_W, sepY + 1, [0.34, 0.34, 0.38, 1], crv, rws, inst);
+    addRect(0, sepY, AB_W, sepY + 1, T.separator, crv, rws, inst);
     // Terminal icon (bottom)
     const bty = h - STATUS_H - 12 - tile;
     const termActive = termT > 0.5;
@@ -372,7 +372,8 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
       const op = smoothstep((sidebarT - 0.25) / 0.55);
       if (op > 0.01) {
         const contentStart = inst.length;
-        emitText('FILE EXPLORER', AB_W + 12, (SB_HEADER_H - 14) / 2, 14, T.headerText);
+        const headSize = 16;
+        emitText('FILE EXPLORER', AB_W + 12, ty + tile / 2 - headSize / 2, headSize, T.headerText);
         addRect(AB_W, SB_HEADER_H - 1, AB_W + sw, SB_HEADER_H, T.separator, crv, rws, inst);
 
         // Search box
@@ -421,6 +422,8 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
           }
         }
 
+        addRect(AB_W, SB_TREE_Y - 4, AB_W + sw, SB_TREE_Y - 3, T.separator, crv, rws, inst);
+
         // Tree
         fileTree.hovered = null;
         if (sidebarT > 0.9 && mx >= AB_W && mx < AB_W + sw && my > SB_TREE_Y && my < h - STATUS_H && !searchFocused) {
@@ -453,10 +456,8 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
         addRect(cx - cs, cy - 0.5, cx + cs, cy + 0.5, isActive ? T.tabActiveFg : T.tabFg, crv, rws, inst);
         addRect(cx - 0.5, cy - cs, cx + 0.5, cy + cs, isActive ? T.tabActiveFg : T.tabFg, crv, rws, inst);
       }
-      if (i < tabs.length - 1) addRect(tx + tw2, 4, tx + tw2 + 1, TAB_BAR_H - 4, T.tabBorder, crv, rws, inst);
       tx += tw2;
     }
-    addRect(editorX, TAB_BAR_H - 1, w, TAB_BAR_H, T.border, crv, rws, inst);
 
     // ── Editor ──
     const ed = tabs[activeTab].editor;
@@ -485,6 +486,12 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
     emitText('main', 10, h - STATUS_H + (STATUS_H - 11) / 2, 11, T.statusbarFg);
     const right = 'UTF-8  ·  TypeScript  ·  Ln ' + (ed.cursor.line + 1) + ', Col ' + (ed.cursor.col + 1);
     emitText(right, w - textW(right, 11) - 14, h - STATUS_H + (STATUS_H - 11) / 2, 11, [1, 1, 1, 0.85]);
+
+    // ── App frame ─
+    addRect(0, 0, w, 1, T.separator, crv, rws, inst);
+    addRect(0, h - 1, w, h, T.separator, crv, rws, inst);
+    addRect(0, 1, 1, h - 1, T.separator, crv, rws, inst);
+    addRect(w - 1, 1, w, h - 1, T.separator, crv, rws, inst);
 
     // ── Draw ─
     const Cw = tCanvas.width, Ch = tCanvas.height;
