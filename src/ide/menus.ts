@@ -46,6 +46,12 @@ export interface IdeMenuActions {
   // ── Terminal ──
   clearTerminal(): void;
   closeTerminal(): void;
+  // ── Search box ──
+  hasQuery(): boolean;
+  cutQuery(): void;
+  copyQuery(): void;
+  pasteQuery(): void;
+  clearQuery(): void;
 }
 
 // Editor tab strip. `tabCount` drives the enabled-state of the bulk closes.
@@ -96,6 +102,18 @@ export function editorMenu(a: IdeMenuActions): MenuItem[] {
     { id: 'comment', label: 'Toggle Line Comment', icon: 'comment', shortcut: 'Ctrl+/', action: () => a.toggleComment() },
     { id: 'sep3', separator: true },
     { id: 'selectAll', label: 'Select All', icon: 'selectAll', shortcut: 'Ctrl+A', action: () => a.selectAll() },
+  ];
+}
+
+// Sidebar search box. The query is a single line with no selection model, so
+// cut/copy always act on the whole query and paste appends at the end.
+export function searchMenu(a: IdeMenuActions): MenuItem[] {
+  return [
+    { id: 'cut', label: 'Cut', icon: 'cut', shortcut: 'Ctrl+X', enabled: () => a.hasQuery(), action: () => a.cutQuery() },
+    { id: 'copy', label: 'Copy', icon: 'copy', shortcut: 'Ctrl+C', enabled: () => a.hasQuery(), action: () => a.copyQuery() },
+    { id: 'paste', label: 'Paste', icon: 'paste', shortcut: 'Ctrl+V', action: () => a.pasteQuery() },
+    { id: 'sep1', separator: true },
+    { id: 'clear', label: 'Clear', icon: 'close', enabled: () => a.hasQuery(), action: () => a.clearQuery() },
   ];
 }
 

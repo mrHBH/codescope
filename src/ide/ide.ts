@@ -8,7 +8,7 @@ import { DEPTH_FORMAT } from '../windfoil/mesh3d';
 import { createToolbar } from '../playground/toolbar';
 import { enterOrbit, orbitViewProj, orbitScale, setOrbitEnabled, updateOrbit, screenToDocLocal, setOrbitWheelDolly, setOrbitNear, orbitDollyByWheel } from '../camera/orbit';
 import { ContextMenu } from '../ui/contextMenu';
-import { tabMenu, folderMenu, fileMenu, editorMenu, terminalMenu, type IdeMenuActions } from './menus';
+import { tabMenu, folderMenu, fileMenu, editorMenu, terminalMenu, searchMenu, type IdeMenuActions } from './menus';
 import { ideTheme as T } from './theme';
 
 const AB_W = 50;
@@ -366,6 +366,24 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
       tabs[activeTab].editor.focused = true;
       terminal.focused = false;
     },
+    hasQuery: () => searchQuery.length > 0,
+    cutQuery: () => {
+      if (searchQuery) navigator.clipboard?.writeText(searchQuery).catch(() => {});
+      searchQuery = '';
+      fileTree.setFilter('');
+    },
+    copyQuery: () => {
+      if (searchQuery) navigator.clipboard?.writeText(searchQuery).catch(() => {});
+    },
+    pasteQuery: () => {
+      navigator.clipboard?.readText().then((t) => {
+        if (!t) return;
+        searchQuery += t.replace(/\s+/g, ' ').trim();
+        fileTree.setFilter(searchQuery);
+        searchCaretPhase = 0;
+      }).catch(() => {});
+    },
+    clearQuery: () => { searchQuery = ''; fileTree.setFilter(''); },
   };
 
   let mx = 0, my = 0;
@@ -914,10 +932,14 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
 
   function onKeyDown(e: KeyboardEvent) {
     if (searchFocused) {
+      const ctrl = e.ctrlKey || e.metaKey;
       if (e.key === 'Escape') { e.preventDefault(); blurSearch(); }
       else if (e.key === 'Enter') { e.preventDefault(); blurSearch(); }
+      else if (ctrl && e.key === 'v') { e.preventDefault(); actions.pasteQuery(); }
+      else if (ctrl && e.key === 'c') { e.preventDefault(); actions.copyQuery(); }
+      else if (ctrl && e.key === 'x') { e.preventDefault(); actions.cutQuery(); }
       else if (e.key === 'Backspace') { e.preventDefault(); searchQuery = searchQuery.slice(0, -1); fileTree.setFilter(searchQuery); }
-      else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey) { e.preventDefault(); searchQuery += e.key; fileTree.setFilter(searchQuery); searchCaretPhase = 0; }
+      else if (e.key.length === 1 && !ctrl) { e.preventDefault(); searchQuery += e.key; fileTree.setFilter(searchQuery); searchCaretPhase = 0; }
       return;
     }
     if (focus === 'terminal') {
@@ -936,6 +958,9 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
     if (ctrl && e.key === 'z') { e.preventDefault(); ed.undo(); return; }
     if (ctrl && e.key === 'y') { e.preventDefault(); ed.redo(); return; }
     if (ctrl && e.key === 'a') { e.preventDefault(); ed.selectAll(); return; }
+    if (ctrl && e.key === 'c') { e.preventDefault(); actions.copy(); return; }
+    if (ctrl && e.key === 'x') { e.preventDefault(); actions.cut(); return; }
+    if (ctrl && e.key === 'v') { e.preventDefault(); actions.paste(); return; }
     if (ctrl && e.key === 'p') { e.preventDefault(); sidebarOpen = true; sidebarDir = 1; searchFocused = true; tabs[activeTab].editor.focused = false; searchCaretPhase = 0; return; }
     if (ctrl && e.key === '`') { e.preventDefault(); termOpen = !termOpen; termDir = termOpen ? 1 : -1; if (termOpen) { focus = 'terminal'; terminal.focused = true; ed.focused = false; } else { focus = 'editor'; ed.focused = true; terminal.focused = false; } return; }
     if (e.key === 'ArrowLeft') { e.preventDefault(); ed.moveLeft(e.shiftKey); }
@@ -989,6 +1014,18 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
         menu.show(e.clientX, e.clientY, tabMenu(actions, idx, tabs.length));
       }
       return;
+    }
+
+    // Sidebar search box.
+    if (sw > 1 && sidebarT > 0.9) {
+      const sx0 = AB_W + 10, sx1 = AB_W + sw - 10;
+      if (wx >= sx0 && wx <= sx1 && wy >= SB_SEARCH_Y && wy <= SB_SEARCH_Y + SB_SEARCH_H) {
+        searchFocused = true;
+        tabs[activeTab].editor.focused = false;
+        searchCaretPhase = 0;
+        menu.show(e.clientX, e.clientY, searchMenu(actions));
+        return;
+      }
     }
 
     // File tree rows — folders and files get distinct menus.
