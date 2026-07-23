@@ -226,6 +226,44 @@ export class CodeEditor {
   moveDocEnd(extend: boolean) { this.setCursor(this.doc.end(), extend); this.desiredX = this.cursorX(); }
   selectAll() { this.anchor = { line: 0, col: 0 }; this.cursor = this.doc.end(); }
 
+  // Multi-click selection (VS Code-style). Double-click selects the syntax
+  // token under the point (string, keyword, number, comment run…) via the
+  // highlighter, falling back to a word/punctuation run where the line has no
+  // token coverage; triple-click selects the whole line (including its
+  // newline); callers escalate to selectAll() on the fourth click.
+  selectTokenAt(wx: number, wy: number) {
+    const p = this.worldToPos(wx, wy);
+    const text = this.doc.lineText(p.line);
+    const tk = this.hl.tokensFor(this.doc.lines, p.line)
+      .find((t) => t.end > t.start && p.col >= t.start && p.col < t.end);
+    let a: number, b: number;
+    if (tk) { a = tk.start; b = tk.end; }
+    else {
+      // Character classes: word > whitespace > punctuation. A run of the
+      // point's class is selected; a single punct char selects just itself.
+      const cls = (c: string) => /[\w$]/.test(c) ? 2 : /\s/.test(c) ? 1 : 0;
+      const k = cls(text[p.col] ?? '');
+      a = p.col; b = p.col;
+      if (k === 2 || k === 1) {
+        while (a > 0 && cls(text[a - 1]) === k) a--;
+        while (b < text.length && cls(text[b]) === k) b++;
+      } else if (p.col < text.length) b = p.col + 1;
+    }
+    this.anchor = { line: p.line, col: a };
+    this.cursor = { line: p.line, col: b };
+    this.desiredX = this.cursorX();
+  }
+
+  selectLineAt(wy: number) {
+    let line = Math.floor((wy - this.y0) / this.lineHeight);
+    line = Math.max(0, Math.min(line, this.doc.lineCount - 1));
+    this.anchor = { line, col: 0 };
+    this.cursor = line + 1 < this.doc.lineCount
+      ? { line: line + 1, col: 0 }
+      : { line, col: this.doc.lineLen(line) };
+    this.desiredX = 0;
+  }
+
   placeCursor(wx: number, wy: number, extend: boolean) {
     this.setCursor(this.worldToPos(wx, wy), extend);
     this.desiredX = this.cursorX();

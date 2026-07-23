@@ -389,6 +389,7 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
   let mx = 0, my = 0;
   let rightDown = false;
   let rightMoved = false, rightSX = 0, rightSY = 0;
+  let clickCount = 0, lastClickT = 0, lastClickX = 0, lastClickY = 0;
   let d3 = { x: 0, y: 0, t: 0, moved: false, active: false };
   let hoverExplorer = false;
   let hoverTerminal = false;
@@ -795,8 +796,18 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
 
   function handlePick(px: number, py: number, shift: boolean) {
     mx = px; my = py;
-    const { w, h, editorX, sw, termH } = layout();
+    const { w, h, editorX, editorH, sw, termH } = layout();
     const tile = 34, ty = 8;
+
+    // Multi-click tracking: consecutive clicks within 400ms and ~6px escalate
+    // caret → token → line → all. Any pick outside the editor body (tab bar,
+    // tree, terminal, chrome) resets the sequence.
+    const inEditor = mx >= editorX && my >= TAB_BAR_H && my < TAB_BAR_H + editorH;
+    const now = performance.now();
+    if (inEditor) {
+      clickCount = (now - lastClickT < 400 && Math.abs(mx - lastClickX) < 6 && Math.abs(my - lastClickY) < 6) ? clickCount + 1 : 1;
+    } else clickCount = 0;
+    lastClickT = now; lastClickX = mx; lastClickY = my;
 
     if (mx < AB_W) {
       if (my >= ty && my <= ty + tile) {
@@ -895,8 +906,13 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
 
     if (mx >= editorX && my >= TAB_BAR_H && my < h - STATUS_H) {
       focus = 'editor';
-      tabs[activeTab].editor.focused = true;
-      tabs[activeTab].editor.placeCursor(mx, my, shift);
+      const ed = tabs[activeTab].editor;
+      ed.focused = true;
+      if (shift) ed.placeCursor(mx, my, true);
+      else if (clickCount === 2) ed.selectTokenAt(mx, my);
+      else if (clickCount === 3) ed.selectLineAt(my);
+      else if (clickCount >= 4) { ed.selectAll(); clickCount = 0; }
+      else ed.placeCursor(mx, my, false);
     }
   }
 
