@@ -94,9 +94,28 @@ export function screenToDocLocal(sx: number, sy: number, Cw: number, Ch: number)
   return { x: _ro.x + _rd.x * hit, y: _ro.z + _rd.z * hit };
 }
 
-// Advance damping; returns true while still animating.
+// Advance damping; returns true while still animating. The dt/2.2 scaling
+// matches yasmineOS's CameraManager.update (their per-frame call is
+// cameraControls.update(dt / 2.2)): camera-controls drives ALL smoothDamp-based
+// motion — rotation damping, dolly easing, and setLookAt transitions like the
+// double-click fit — off this delta, so the factor gives zoom/rotation their
+// characteristic slower, smoother glide.
 export function updateOrbit(dtMs: number): boolean {
-  return controls.update(dtMs / 1000);
+  if (!ready) return false;
+  // Ease out any pending drag-pan (see orbitTruck) via instant micro-trucks —
+  // per-frame exponential steps read as one smooth damped motion. Paused
+  // during setLookAt transitions so the snaps can't stomp them.
+  if (!inTransition && (panPX !== 0 || panPY !== 0)) {
+    const k = 1 - Math.exp(-(dtMs / 1000) / TRUCK_SMOOTH_TAU);
+    const ax = panPX * k, ay = panPY * k;
+    panPX -= ax; panPY -= ay;
+    if (Math.abs(panPX) < 1e-6) panPX = 0;
+    if (Math.abs(panPY) < 1e-6) panPY = 0;
+    controls.truck(ax, ay, false);
+  }
+  const moving = controls.update(dtMs / 1000 / 2.2);
+  if (inTransition && !moving) inTransition = false;
+  return moving;
 }
 
 // Enter from the current 2D framing: place the camera straight above the ground
@@ -106,6 +125,8 @@ export function updateOrbit(dtMs: number): boolean {
 export function enterOrbit(docX: number, docY: number, viewZ: number, viewHpx: number) {
   const dist = viewHpx / (2 * viewZ * Math.tan((camera.fov * DEG2RAD) / 2));
   const [wx, wy, wz] = transformPoint(GROUND_MODEL, docX, docY, 0);
+  panPX = 0; panPY = 0;
+  inTransition = false;
   controls.enabled = true;
   const eps = 0.0015; // ~0.09°, visually flat but not degenerate; +Z lean = azimuth 0
   controls.setLookAt(wx, wy + dist * Math.cos(eps), wz + dist * Math.sin(eps), wx, wy, wz, false);
@@ -177,12 +198,25 @@ export function setOrbitPanChord(on: boolean) {
 }
 
 // Screen-space left-drag pan for the free camera (device-px deltas → world
-// truck). The content follows the cursor: truck() offsets the target by
-// right·x − up·y, so both deltas are negated.
+// truck; the content follows the cursor, so deltas are negated — truck()
+// offsets the target by right·x − up·y). Deltas ACCUMULATE into a pending
+// offset that updateOrbit eases out every frame with a tight exponential
+// (TRUCK_SMOOTH_TAU): responsive while dragging, a visible glide + soft
+// settle on release. External truck(..., true) ran on the long smoothTime
+// (sluggish) and truck(..., false) was teleport-instant; owning the chase
+// here keeps smoothTime free to tune fit/zoom/rotate independently.
+let panPX = 0, panPY = 0;
+// True while a setLookAt transition (double-click fit) is easing. The pan
+// chase must pause then: its instant micro-trucks snap _target to _targetEnd,
+// which would teleport the camera mid-transition (position jumps, only the
+// rotation keeps easing). updateOrbit clears it once the controls rest.
+let inTransition = false;
+const TRUCK_SMOOTH_TAU = 0.14;
 export function orbitTruck(dxPx: number, dyPx: number, viewHpx: number) {
   if (!ready) return;
   const wpp = (2 * controls.distance * Math.tan((camera.fov * DEG2RAD) / 2)) / viewHpx;
-  controls.truck(-dxPx * wpp, -dyPx * wpp, false);
+  panPX -= dxPx * wpp;
+  panPY -= dyPx * wpp;
 }
 
 // ── Double-click-to-fit ──────────────────────────────────────────────────────
@@ -203,6 +237,10 @@ export function orbitZoomToRect(x0: number, y0: number, x1: number, y1: number, 
     (h * padding) / (2 * Math.tan(vFov / 2)),
     (w * padding) / (2 * Math.tan(hFov / 2)));
   controls.normalizeRotations();
+  // The fit is an absolute pose: drop any stale pan glide and mark the
+  // transition so the pan chase can't teleport the camera mid-flight.
+  panPX = 0; panPY = 0;
+  inTransition = animate;
   const eps = 0.0015; // same top-down gimbal avoidance as enterOrbit
   controls.setLookAt(cx, cy + dist * Math.cos(eps), cz + dist * Math.sin(eps), cx, cy, cz, animate);
 }
