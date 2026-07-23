@@ -421,26 +421,40 @@ export function attachInput(s: AppState): () => void {
   // ctrlKey set, so we treat that as the zoom gesture.
   on(rCanvas, 'wheel', (e) => {
     e.preventDefault();
-    if (!s.cameraInput) return; // camera input disabled (toolbar toggle)
+    if (!s.cameraInput) return;
     s.lastWheelT = performance.now();
-    // 3D free camera: the camera-controls library handles the wheel (dolly).
-    if (s.cam3d.active) return;
-    const b = bufCoords(s, e.clientX, e.clientY);
-    const Cw = s.tCanvas.width, Ch = s.tCanvas.height;
-    const w = scrToWorld(s, b.x, b.y);
+    if (s.rightDown) rightWheeled = true;
 
-    // File-tree local scroll (when in file-tree mode and wheel is over panel).
-    if (!s.rightDown && !e.ctrlKey && s.fileTree) {
-      const ft = s.fileTree;
-      const inPanel = w.x >= ft.x0 && w.x <= ft.x0 + ft.width && w.y >= ft.y0 && w.y <= ft.y0 + ft.contentHeight;
-      if (inPanel) {
-        ft.scrollBy((e.deltaY / s.camZ) * 0.9);
-        return;
+    const b = bufCoords(s, e.clientX, e.clientY);
+    const w = s.cam3d.active ? scrToDoc(s, b.x, b.y) : scrToWorld(s, b.x, b.y);
+
+    // Over scrollable content + no right held → scroll, consume event so the
+    // orbit library doesn't also zoom in 3D.
+    if (!s.rightDown) {
+      let scrolled = false;
+      if (s.fileTree) {
+        const ft = s.fileTree;
+        if (w.x >= ft.x0 && w.x <= ft.x0 + ft.width && w.y >= ft.y0 && w.y <= ft.y0 + ft.contentHeight) {
+          ft.scrollBy((e.deltaY / s.camZ) * 0.9);
+          scrolled = true;
+        }
       }
+      if (!scrolled && s.editorMode && s.editor) {
+        const ed = s.editor;
+        if (w.x >= ed.x0 && w.x <= ed.x0 + ed.contentWidth() && w.y >= ed.y0 && w.y <= ed.y0 + ed.contentHeight()) {
+          ed.y0 -= e.deltaY * 0.5;
+          const maxScroll = Math.max(0, ed.contentHeight() - (s.tCanvas.height / s.dpr - ed.y0));
+          ed.y0 = Math.max(ed.y0, -maxScroll);
+          scrolled = true;
+        }
+      }
+      if (scrolled) { e.stopImmediatePropagation(); return; }
     }
 
+    // Not over scrollable content (or right held) → zoom.
+    if (s.cam3d.active) return; // library handles dolly-to-cursor
+    const Cw = s.tCanvas.width, Ch = s.tCanvas.height;
     if (s.rightDown || e.ctrlKey) {
-      if (s.rightDown) rightWheeled = true;
       const wx = (b.x - Cw / 2) / s.camZ + s.camX, wy = (b.y - Ch / 2) / s.camZ + s.camY;
       s.camZ *= Math.exp(-e.deltaY * .0022);
       if (s.camZ < s.minZoom) { s.camZ = s.minZoom; s.camX = s.PAGE_W / 2; s.camY = s.docH / 2; s.tgtX = s.camX; s.tgtY = s.camY; s.tgtZ = s.camZ; }
@@ -451,7 +465,7 @@ export function attachInput(s: AppState): () => void {
       s.velX = 0;
       s.tgtX = s.camX; s.tgtY = s.camY; s.tgtZ = s.camZ;
     }
-  }, { passive: false });
+  }, { passive: false, capture: true });
 
   // ── 3D picking ────────────────────────────────────────────────────────────
   // While the camera-controls library owns left-drag (truck), a left *click*

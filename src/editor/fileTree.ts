@@ -11,6 +11,7 @@
 import type { FontFace } from '../windfoil/font';
 import { advanceOf } from '../windfoil/font';
 import { addRect } from '../layout/metrics';
+import { fileIconForPath } from './fileIcons';
 
 export interface FileTreeTheme {
   bg: number[]; barBg: number[]; barFg: number[];
@@ -421,20 +422,7 @@ export class FileTree {
   }
 
   private fileIconFor(path: string): { name: string; color: number[] } {
-    const p = path.toLowerCase();
-    const ext = p.includes('.') ? p.slice(p.lastIndexOf('.') + 1) : '';
-    if (ext === 'ts' || ext === 'tsx' || ext === 'js' || ext === 'jsx' || ext === 'wgsl') {
-      return { name: 'icon:code', color: [0.39, 0.67, 0.96, 1] };
-    }
-    if (ext === 'jpg' || ext === 'jpeg' || ext === 'png' || ext === 'gif' || ext === 'svg') {
-      return { name: 'icon:file', color: [1.0, 0.694, 0.231, 1] };
-    }
-    if (ext === 'pdf') return { name: 'icon:file', color: [0.561, 0.671, 0.071, 1] };
-    if (ext === 'html') return { name: 'icon:file', color: [0.90, 0.56, 0.36, 1] };
-    if (ext === 'css') return { name: 'icon:file', color: [0.56, 0.70, 0.96, 1] };
-    if (ext === 'json' || ext === 'wasm') return { name: 'icon:file', color: [0.90, 0.80, 0.45, 1] };
-    if (ext === 'md') return { name: 'icon:file', color: [0.62, 0.78, 0.70, 1] };
-    return { name: 'icon:file', color: [0.62, 0.66, 0.76, 1] };
+    return fileIconForPath(path);
   }
 
   private get bodyTop() { return this.y0 + (this.showTitleBar ? this.pad + this.barH : this.pad * 0.5); }

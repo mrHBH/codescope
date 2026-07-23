@@ -100,42 +100,161 @@ const LOCAL_TREE: TreeNode[] = [
     { name: 'camera', path: 'src/camera', type: 'folder', children: [
       { name: 'camera.ts', path: 'src/camera/camera.ts', type: 'file' },
       { name: 'input.ts', path: 'src/camera/input.ts', type: 'file' },
+      { name: 'orbit.ts', path: 'src/camera/orbit.ts', type: 'file' },
+      { name: 'mat4.ts', path: 'src/camera/mat4.ts', type: 'file' },
     ]},
     { name: 'css', path: 'src/css', type: 'folder', children: [
       { name: 'engine.ts', path: 'src/css/engine.ts', type: 'file' },
       { name: 'theme.ts', path: 'src/css/theme.ts', type: 'file' },
+      { name: 'themeController.ts', path: 'src/css/themeController.ts', type: 'file' },
     ]},
     { name: 'editor', path: 'src/editor', type: 'folder', children: [
       { name: 'document.ts', path: 'src/editor/document.ts', type: 'file' },
       { name: 'editor.ts', path: 'src/editor/editor.ts', type: 'file' },
+      { name: 'editorInput.ts', path: 'src/editor/editorInput.ts', type: 'file' },
       { name: 'fileTree.ts', path: 'src/editor/fileTree.ts', type: 'file' },
+      { name: 'fileIcons.ts', path: 'src/editor/fileIcons.ts', type: 'file' },
       { name: 'highlight.ts', path: 'src/editor/highlight.ts', type: 'file' },
+      { name: 'sample.ts', path: 'src/editor/sample.ts', type: 'file' },
       { name: 'terminal.ts', path: 'src/editor/terminal.ts', type: 'file' },
+      { name: 'terminalInput.ts', path: 'src/editor/terminalInput.ts', type: 'file' },
+    ]},
+    { name: 'layout', path: 'src/layout', type: 'folder', children: [
+      { name: 'editable.ts', path: 'src/layout/editable.ts', type: 'file' },
+      { name: 'flow.ts', path: 'src/layout/flow.ts', type: 'file' },
+      { name: 'metrics.ts', path: 'src/layout/metrics.ts', type: 'file' },
+      { name: 'types.ts', path: 'src/layout/types.ts', type: 'file' },
+      { name: 'walk.ts', path: 'src/layout/walk.ts', type: 'file' },
+    ]},
+    { name: 'ui', path: 'src/ui', type: 'folder', children: [
+      { name: 'contextMenu.ts', path: 'src/ui/contextMenu.ts', type: 'file' },
+      { name: 'icons.ts', path: 'src/ui/icons.ts', type: 'file' },
+      { name: 'interactions.ts', path: 'src/ui/interactions.ts', type: 'file' },
     ]},
     { name: 'windfoil', path: 'src/windfoil', type: 'folder', children: [
       { name: 'bands.ts', path: 'src/windfoil/bands.ts', type: 'file' },
+      { name: 'font.ts', path: 'src/windfoil/font.ts', type: 'file' },
+      { name: 'geometry.ts', path: 'src/windfoil/geometry.ts', type: 'file' },
       { name: 'gpu.ts', path: 'src/windfoil/gpu.ts', type: 'file' },
+      { name: 'svg.ts', path: 'src/windfoil/svg.ts', type: 'file' },
       { name: 'windfoil.wgsl', path: 'src/windfoil/windfoil.wgsl', type: 'file' },
     ]},
     { name: 'frame.ts', path: 'src/frame.ts', type: 'file' },
+    { name: 'main.ts', path: 'src/main.ts', type: 'file' },
+    { name: 'precompute.ts', path: 'src/precompute.ts', type: 'file' },
     { name: 'state.ts', path: 'src/state.ts', type: 'file' },
+  ]},
+  { name: 'public', path: 'public', type: 'folder', children: [
+    { name: 'favicon.ico', path: 'public/favicon.ico', type: 'file' },
+    { name: 'logo.svg', path: 'public/logo.svg', type: 'file' },
+    { name: 'Lato-Regular.ttf', path: 'public/Lato-Regular.ttf', type: 'file' },
+  ]},
+  { name: 'scripts', path: 'scripts', type: 'folder', children: [
+    { name: 'build.sh', path: 'scripts/build.sh', type: 'file' },
+    { name: 'deploy.ps1', path: 'scripts/deploy.ps1', type: 'file' },
+    { name: 'bench.py', path: 'scripts/bench.py', type: 'file' },
+    { name: 'gen_atlas.rs', path: 'scripts/gen_atlas.rs', type: 'file' },
+  ]},
+  { name: 'docs', path: 'docs', type: 'folder', children: [
+    { name: 'architecture.md', path: 'docs/architecture.md', type: 'file' },
+    { name: 'api-reference.tex', path: 'docs/api-reference.tex', type: 'file' },
+    { name: 'bibliography.bib', path: 'docs/bibliography.bib', type: 'file' },
+    { name: 'whitepaper.pdf', path: 'docs/whitepaper.pdf', type: 'file' },
+    { name: 'diagram.png', path: 'docs/diagram.png', type: 'file' },
+    { name: 'screenshot.jpg', path: 'docs/screenshot.jpg', type: 'file' },
+    { name: 'demo.mp4', path: 'docs/demo.mp4', type: 'file' },
+  ]},
+  { name: 'assets', path: 'assets', type: 'folder', children: [
+    { name: 'hero.webp', path: 'assets/hero.webp', type: 'file' },
+    { name: 'background.avif', path: 'assets/background.avif', type: 'file' },
+    { name: 'icon-set.gif', path: 'assets/icon-set.gif', type: 'file' },
+    { name: 'texture.tiff', path: 'assets/texture.tiff', type: 'file' },
+    { name: 'ambient.mp3', path: 'assets/ambient.mp3', type: 'file' },
+    { name: 'click.wav', path: 'assets/click.wav', type: 'file' },
+    { name: 'theme.flac', path: 'assets/theme.flac', type: 'file' },
+    { name: 'voiceover.ogg', path: 'assets/voiceover.ogg', type: 'file' },
+    { name: 'podcast.m4a', path: 'assets/podcast.m4a', type: 'file' },
+    { name: 'jingle.aac', path: 'assets/jingle.aac', type: 'file' },
+  ]},
+  { name: 'models', path: 'models', type: 'folder', children: [
+    { name: 'scene.glb', path: 'models/scene.glb', type: 'file' },
+    { name: 'character.gltf', path: 'models/character.gltf', type: 'file' },
+    { name: 'llama-7b.gguf', path: 'models/llama-7b.gguf', type: 'file' },
+    { name: 'mmproj-vision.gguf', path: 'models/mmproj-vision.gguf', type: 'file' },
+  ]},
+  { name: 'data', path: 'data', type: 'folder', children: [
+    { name: 'schema.sql', path: 'data/schema.sql', type: 'file' },
+    { name: 'seed.xml', path: 'data/seed.xml', type: 'file' },
+    { name: 'config.yaml', path: 'data/config.yaml', type: 'file' },
+    { name: 'settings.toml', path: 'data/settings.toml', type: 'file' },
+    { name: 'env.ini', path: 'data/env.ini', type: 'file' },
+    { name: 'records.csv', path: 'data/records.csv', type: 'file' },
+  ]},
+  { name: 'native', path: 'native', type: 'folder', children: [
+    { name: 'renderer.cpp', path: 'native/renderer.cpp', type: 'file' },
+    { name: 'renderer.h', path: 'native/renderer.h', type: 'file' },
+    { name: 'math.hpp', path: 'native/math.hpp', type: 'file' },
+    { name: 'bridge.java', path: 'native/bridge.java', type: 'file' },
+    { name: 'interop.cs', path: 'native/interop.cs', type: 'file' },
+    { name: 'plugin.php', path: 'native/plugin.php', type: 'file' },
+    { name: 'server.rb', path: 'native/server.rb', type: 'file' },
+    { name: 'cli.go', path: 'native/cli.go', type: 'file' },
+    { name: 'app.swift', path: 'native/app.swift', type: 'file' },
+    { name: 'module.kt', path: 'native/module.kt', type: 'file' },
+  ]},
+  { name: 'releases', path: 'releases', type: 'folder', children: [
+    { name: 'v1.0.0.zip', path: 'releases/v1.0.0.zip', type: 'file' },
+    { name: 'v1.0.0.tar.gz', path: 'releases/v1.0.0.tar.gz', type: 'file' },
+    { name: 'v0.9.0.7z', path: 'releases/v0.9.0.7z', type: 'file' },
+    { name: 'v0.8.0.rar', path: 'releases/v0.8.0.rar', type: 'file' },
+    { name: 'v0.7.0.tar.bz2', path: 'releases/v0.7.0.tar.bz2', type: 'file' },
+  ]},
+  { name: 'infra', path: 'infra', type: 'folder', children: [
+    { name: 'Dockerfile', path: 'infra/Dockerfile', type: 'file' },
+    { name: 'docker-compose.yml', path: 'infra/docker-compose.yml', type: 'file' },
+    { name: 'Makefile', path: 'infra/Makefile', type: 'file' },
+    { name: 'nginx.conf', path: 'infra/nginx.conf', type: 'file' },
+    { name: 'setup.bat', path: 'infra/setup.bat', type: 'file' },
+  ]},
+  { name: 'timelines', path: 'timelines', type: 'folder', children: [
+    { name: 'intro.timeline.json', path: 'timelines/intro.timeline.json', type: 'file' },
+    { name: 'outro.timeline.json', path: 'timelines/outro.timeline.json', type: 'file' },
+  ]},
+  { name: 'office', path: 'office', type: 'folder', children: [
+    { name: 'report.docx', path: 'office/report.docx', type: 'file' },
+    { name: 'budget.xlsx', path: 'office/budget.xlsx', type: 'file' },
+    { name: 'pitch.pptx', path: 'office/pitch.pptx', type: 'file' },
+    { name: 'contract.rtf', path: 'office/contract.rtf', type: 'file' },
   ]},
   { name: 'index.html', path: 'index.html', type: 'file' },
   { name: 'package.json', path: 'package.json', type: 'file' },
-  { name: 'VISION.md', path: 'VISION.md', type: 'file' },
+  { name: 'tsconfig.json', path: 'tsconfig.json', type: 'file' },
   { name: 'vite.config.ts', path: 'vite.config.ts', type: 'file' },
+  { name: 'VISION.md', path: 'VISION.md', type: 'file' },
+  { name: 'PROGRESS.md', path: 'PROGRESS.md', type: 'file' },
+  { name: 'README.md', path: 'README.md', type: 'file' },
+  { name: '.gitignore', path: '.gitignore', type: 'file' },
+  { name: 'LICENSE', path: 'LICENSE', type: 'file' },
+  { name: 'CHANGELOG', path: 'CHANGELOG', type: 'file' },
 ];
-const LOCAL_EXP = ['src', 'src/camera', 'src/css', 'src/editor', 'src/windfoil'];
+const LOCAL_EXP = ['src', 'src/camera', 'src/css', 'src/editor', 'src/windfoil', 'public', 'scripts', 'docs', 'assets', 'models', 'data', 'native', 'releases', 'infra', 'timelines', 'office'];
 
 const DIST_TREE: TreeNode[] = [
   { name: 'dist', path: 'dist', type: 'folder', children: [
     { name: 'assets', path: 'dist/assets', type: 'folder', children: [
       { name: 'index.4f2c.js', path: 'dist/assets/index.4f2c.js', type: 'file' },
+      { name: 'vendor.8b3a.js', path: 'dist/assets/vendor.8b3a.js', type: 'file' },
       { name: 'style.9a11.css', path: 'dist/assets/style.9a11.css', type: 'file' },
+      { name: 'theme.2d4e.css', path: 'dist/assets/theme.2d4e.css', type: 'file' },
+      { name: 'hero.webp', path: 'dist/assets/hero.webp', type: 'file' },
+      { name: 'logo.svg', path: 'dist/assets/logo.svg', type: 'file' },
+      { name: 'Lato-Regular.woff2', path: 'dist/assets/Lato-Regular.woff2', type: 'file' },
     ]},
     { name: 'index.html', path: 'dist/index.html', type: 'file' },
     { name: 'windfoil.wasm', path: 'dist/windfoil.wasm', type: 'file' },
     { name: 'manifest.json', path: 'dist/manifest.json', type: 'file' },
+    { name: 'sitemap.xml', path: 'dist/sitemap.xml', type: 'file' },
+    { name: 'robots.txt', path: 'dist/robots.txt', type: 'file' },
   ]},
 ];
 const DIST_EXP = ['dist', 'dist/assets'];
@@ -146,25 +265,85 @@ const SERVER_TREE: TreeNode[] = [
       { name: 'src', path: 'projects/windfoil/src', type: 'folder', children: [
         { name: 'frame.ts', path: 'projects/windfoil/src/frame.ts', type: 'file' },
         { name: 'state.ts', path: 'projects/windfoil/src/state.ts', type: 'file' },
+        { name: 'server.py', path: 'projects/windfoil/src/server.py', type: 'file' },
+        { name: 'worker.rs', path: 'projects/windfoil/src/worker.rs', type: 'file' },
       ]},
+      { name: 'migrations', path: 'projects/windfoil/migrations', type: 'folder', children: [
+        { name: '001_init.sql', path: 'projects/windfoil/migrations/001_init.sql', type: 'file' },
+        { name: '002_users.sql', path: 'projects/windfoil/migrations/002_users.sql', type: 'file' },
+      ]},
+      { name: 'Dockerfile', path: 'projects/windfoil/Dockerfile', type: 'file' },
       { name: 'package.json', path: 'projects/windfoil/package.json', type: 'file' },
       { name: 'README.md', path: 'projects/windfoil/README.md', type: 'file' },
+      { name: '.env', path: 'projects/windfoil/.env', type: 'file' },
+      { name: 'Makefile', path: 'projects/windfoil/Makefile', type: 'file' },
+    ]},
+    { name: 'analytics', path: 'projects/analytics', type: 'folder', children: [
+      { name: 'pipeline.py', path: 'projects/analytics/pipeline.py', type: 'file' },
+      { name: 'model.gguf', path: 'projects/analytics/model.gguf', type: 'file' },
+      { name: 'mmproj-vision.gguf', path: 'projects/analytics/mmproj-vision.gguf', type: 'file' },
+      { name: 'config.toml', path: 'projects/analytics/config.toml', type: 'file' },
+      { name: 'data.csv', path: 'projects/analytics/data.csv', type: 'file' },
     ]},
   ]},
 ];
-const SERVER_EXP = ['projects', 'projects/windfoil', 'projects/windfoil/src'];
+const SERVER_EXP = ['projects', 'projects/windfoil', 'projects/windfoil/src', 'projects/windfoil/migrations', 'projects/analytics'];
 
 const NATIVE_TREE: TreeNode[] = [
   { name: 'Documents', path: 'Documents', type: 'folder', children: [
     { name: 'notes.md', path: 'Documents/notes.md', type: 'file' },
     { name: 'todo.txt', path: 'Documents/todo.txt', type: 'file' },
+    { name: 'resume.pdf', path: 'Documents/resume.pdf', type: 'file' },
+    { name: 'report.docx', path: 'Documents/report.docx', type: 'file' },
+    { name: 'budget.xlsx', path: 'Documents/budget.xlsx', type: 'file' },
+    { name: 'thesis.tex', path: 'Documents/thesis.tex', type: 'file' },
+    { name: 'refs.bib', path: 'Documents/refs.bib', type: 'file' },
   ]},
   { name: 'Downloads', path: 'Downloads', type: 'folder', children: [
     { name: 'spec.pdf', path: 'Downloads/spec.pdf', type: 'file' },
     { name: 'photo.jpg', path: 'Downloads/photo.jpg', type: 'file' },
+    { name: 'wallpaper.png', path: 'Downloads/wallpaper.png', type: 'file' },
+    { name: 'archive.zip', path: 'Downloads/archive.zip', type: 'file' },
+    { name: 'video.mp4', path: 'Downloads/video.mp4', type: 'file' },
+    { name: 'song.mp3', path: 'Downloads/song.mp3', type: 'file' },
+    { name: 'model.glb', path: 'Downloads/model.glb', type: 'file' },
+    { name: 'weights.gguf', path: 'Downloads/weights.gguf', type: 'file' },
+    { name: 'data.csv', path: 'Downloads/data.csv', type: 'file' },
+  ]},
+  { name: 'Pictures', path: 'Pictures', type: 'folder', children: [
+    { name: 'vacation.jpg', path: 'Pictures/vacation.jpg', type: 'file' },
+    { name: 'screenshot.png', path: 'Pictures/screenshot.png', type: 'file' },
+    { name: 'panorama.webp', path: 'Pictures/panorama.webp', type: 'file' },
+    { name: 'logo.svg', path: 'Pictures/logo.svg', type: 'file' },
+    { name: 'animation.gif', path: 'Pictures/animation.gif', type: 'file' },
+    { name: 'raw-photo.tiff', path: 'Pictures/raw-photo.tiff', type: 'file' },
+  ]},
+  { name: 'Music', path: 'Music', type: 'folder', children: [
+    { name: 'track01.flac', path: 'Music/track01.flac', type: 'file' },
+    { name: 'track02.mp3', path: 'Music/track02.mp3', type: 'file' },
+    { name: 'podcast.m4a', path: 'Music/podcast.m4a', type: 'file' },
+    { name: 'ambient.ogg', path: 'Music/ambient.ogg', type: 'file' },
+    { name: 'sample.wav', path: 'Music/sample.wav', type: 'file' },
+  ]},
+  { name: 'Videos', path: 'Videos', type: 'folder', children: [
+    { name: 'presentation.mp4', path: 'Videos/presentation.mp4', type: 'file' },
+    { name: 'screencast.webm', path: 'Videos/screencast.webm', type: 'file' },
+    { name: 'clip.mkv', path: 'Videos/clip.mkv', type: 'file' },
+    { name: 'recording.mov', path: 'Videos/recording.mov', type: 'file' },
+  ]},
+  { name: 'Projects', path: 'Projects', type: 'folder', children: [
+    { name: 'app.py', path: 'Projects/app.py', type: 'file' },
+    { name: 'server.go', path: 'Projects/server.go', type: 'file' },
+    { name: 'lib.rs', path: 'Projects/lib.rs', type: 'file' },
+    { name: 'index.js', path: 'Projects/index.js', type: 'file' },
+    { name: 'style.scss', path: 'Projects/style.scss', type: 'file' },
+    { name: 'schema.sql', path: 'Projects/schema.sql', type: 'file' },
+    { name: 'Dockerfile', path: 'Projects/Dockerfile', type: 'file' },
+    { name: 'deploy.sh', path: 'Projects/deploy.sh', type: 'file' },
+    { name: 'config.yaml', path: 'Projects/config.yaml', type: 'file' },
   ]},
 ];
-const NATIVE_EXP = ['Documents', 'Downloads'];
+const NATIVE_EXP = ['Documents', 'Downloads', 'Pictures', 'Music', 'Videos', 'Projects'];
 
 const SOURCES: { label: string; roots: TreeNode[]; expanded: string[] }[] = [
   { label: 'DIST', roots: DIST_TREE, expanded: DIST_EXP },
@@ -974,19 +1153,39 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
   function onWheel(e: WheelEvent) {
     e.preventDefault();
     fitted = false;
-    // Wheeling during a right press is a zoom gesture, not a menu request.
     if (rightDown) rightWheeled = true;
-    // In 3D the orbit library owns the wheel: native dolly-to-cursor zoom.
-    if (cam3d) return;
-    const { editorX, editorH, sw } = layout();
-    if (sw > 1 && mx >= AB_W && mx < AB_W + sw && my >= SB_TREE_Y) {
-      fileTree.scrollBy(e.deltaY * 0.5);
+
+    const { editorX, editorH, sw, termH } = layout();
+
+    // Right mouse + wheel → always zoom (never scroll). In 3D the library
+    // handles it; in 2D there's no zoom so just consume.
+    if (rightDown) {
+      if (!cam3d) return;
       return;
     }
-    const ed = tabs[activeTab].editor;
-    ed.y0 -= e.deltaY * 0.5;
-    const maxScroll = Math.max(0, ed.contentHeight() - editorH);
-    ed.y0 = Math.min(TAB_BAR_H, Math.max(TAB_BAR_H - maxScroll, ed.y0));
+
+    // Determine if the cursor is over a scrollable panel.
+    const overTree = sw > 1 && sidebarT > 0.9 && mx >= AB_W && mx < AB_W + sw && my >= SB_TREE_Y && my < cssH() - STATUS_H;
+    const overEditor = mx >= editorX && my >= TAB_BAR_H && my < TAB_BAR_H + editorH;
+
+    if (overTree || overEditor) {
+      // Consume the event so the orbit library doesn't also zoom.
+      e.stopImmediatePropagation();
+      if (overTree) {
+        fileTree.scrollBy(e.deltaY * 0.5);
+      } else {
+        const ed = tabs[activeTab].editor;
+        ed.y0 -= e.deltaY * 0.5;
+        const maxScroll = Math.max(0, ed.contentHeight() - editorH);
+        ed.y0 = Math.min(TAB_BAR_H, Math.max(TAB_BAR_H - maxScroll, ed.y0));
+      }
+      return;
+    }
+
+    // Not over scrollable content → zoom. In 3D the library's own wheel
+    // handler (dolly-to-cursor) fires because we didn't stop propagation.
+    // In 2D there's no zoom — just consume.
+    if (!cam3d) return;
   }
 
   function onKeyDown(e: KeyboardEvent) {
@@ -1129,7 +1328,7 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
   rCanvas.addEventListener('pointermove', onPointerMove);
   rCanvas.addEventListener('pointerdown', onPointerDown);
   rCanvas.addEventListener('pointerup', onPointerUp);
-  rCanvas.addEventListener('wheel', onWheel, { passive: false });
+  rCanvas.addEventListener('wheel', onWheel, { passive: false, capture: true });
   rCanvas.addEventListener('contextmenu', onContextMenu);
   addEventListener('keydown', onKeyDown);
 
@@ -1148,7 +1347,7 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
     rCanvas.removeEventListener('pointermove', onPointerMove);
     rCanvas.removeEventListener('pointerdown', onPointerDown);
     rCanvas.removeEventListener('pointerup', onPointerUp);
-    rCanvas.removeEventListener('wheel', onWheel);
+    rCanvas.removeEventListener('wheel', onWheel, { capture: true });
     rCanvas.removeEventListener('contextmenu', onContextMenu);
     removeEventListener('keydown', onKeyDown);
     toolbarDestroy();

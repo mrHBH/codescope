@@ -25,6 +25,7 @@ import { editorAtlasChars } from '../editor/editor';
 import { loadMathFonts, mathExtraFonts } from '../windgraph/math/fonts';
 import { HTML_SRC } from './content/pages';
 import { ICONS, ILLUSTRATIONS } from './content/art';
+import { FILE_TYPE_ICONS } from '../editor/fileIcons';
 
 export interface RefDoc {
   container: HTMLElement;
@@ -131,6 +132,7 @@ export async function createEngine(): Promise<Engine> {
   for (const ch of '·—–×÷') allChars.add(ch);
   const shapes: Record<string, { quads: number[]; bbox: number[] }> = {};
   for (const name in ICONS) shapes['icon:' + name] = svgPathToQuads(ICONS[name]);
+  for (const name in FILE_TYPE_ICONS) shapes['icon:' + name] = svgPathToQuads(FILE_TYPE_ICONS[name]);
   for (const name in ILLUSTRATIONS) shapes['art:' + name] = svgPathToQuads(ILLUSTRATIONS[name]);
   const mathFonts = await loadMathFonts();
   const atlas = buildGlyphAtlas(font, [...allChars].join(' '), shapes, mathExtraFonts(mathFonts));
