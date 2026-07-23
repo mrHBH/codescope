@@ -9,6 +9,8 @@ import { SceneRuntime } from './runtime/runtime';
 import { CinematicHud } from './runtime/cinematicHud';
 import { SAMPLE_DOC } from './scenes/sampleScene';
 import { EXPLAINER_DOC } from './scenes/explainerScene';
+import { LEARNING_DOC, DESCENT_CENTER } from './scenes/learningScene';
+import { LossSurface3D } from './scenes/lossSurface3d';
 import type { SceneDoc } from './ir/types';
 import { createTimelineHud } from '../playground/timelineHud';
 import { createPostFx } from '../windfoil/postfx';
@@ -17,7 +19,11 @@ import { Terminal } from '../editor/terminal';
 import { handleSceneCommand } from './repl';
 import type { FontFace } from '../windfoil/font';
 
-interface Opts { chrome?: boolean; cinematic?: boolean; }
+interface Opts {
+  chrome?: boolean; cinematic?: boolean;
+  /** Extra app wiring after the runtime is attached (e.g. a true-3D mesh graph). */
+  onApp?: (s: AppState, runtime: SceneRuntime) => void;
+}
 
 function bootScene(engine: Engine, onBack: () => void, doc: SceneDoc, opts: Opts = {}): () => void {
   const s = createBaseApp(engine, false);
@@ -25,6 +31,7 @@ function bootScene(engine: Engine, onBack: () => void, doc: SceneDoc, opts: Opts
   runtime.showChrome = !!opts.chrome;
   runtime.cinematic = !!opts.cinematic;
   s.interactive = runtime;
+  opts.onApp?.(s, runtime);
 
   // Frame the first chapter
   const chs = runtime.chapterWindows();
@@ -236,6 +243,22 @@ export function bootAuthoring(engine: Engine, onBack: () => void): () => void {
 
 export function bootExplainerV2(engine: Engine, onBack: () => void): () => void {
   return bootScene(engine, onBack, EXPLAINER_DOC, { chrome: false, cinematic: true });
+}
+
+export function bootLearning(engine: Engine, onBack: () => void): () => void {
+  return bootScene(engine, onBack, LEARNING_DOC, {
+    chrome: false, cinematic: true,
+    onApp: (s) => {
+      // True-3D loss landscape for the `descent` chapter: a real triangle mesh
+      // drawn by the mesh pipeline through the shared depth buffer, so it rises
+      // off the ground and self-occludes while the camera orbits it.
+      const surface = new LossSurface3D();
+      surface.cx = DESCENT_CENTER[0];
+      surface.cy = DESCENT_CENTER[1];
+      s.graph3d = surface;
+      s.meshRenderer = engine.meshRenderer;
+    },
+  });
 }
 
 import { PAGE_DEMO_DOC } from './scenes/pagesScene';

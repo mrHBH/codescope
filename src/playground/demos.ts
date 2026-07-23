@@ -11,7 +11,7 @@ import { goToPage } from '../camera/camera';
 import { MathDemo } from './boards/mathDemo';
 import { bootPlayground } from './playground';
 import { bootExplainer } from './explainer';
-import { bootAuthoring, bootExplainerV2, bootPages } from '../authoring/demo';
+import { bootAuthoring, bootExplainerV2, bootPages, bootLearning } from '../authoring/demo';
 import { IslandGallery } from '../authoring/islands/gallery';
 // Island registrations (side-effect import — ensures builtins register)
 import '../authoring/islands';
@@ -53,6 +53,11 @@ function bootIslands(engine: Engine, onBack: () => void): () => void {
 }
 
 export const DEMOS: Demo[] = [
+  {
+    id: 'learning', name: 'How a machine learns',
+    blurb: 'Gradient descent from scratch — analytic math, a true-3D loss landscape you orbit, and bespoke procedural islands on one infinite canvas.',
+    boot: bootLearning,
+  },
   {
     id: 'pages', name: 'Pages / Layout',
     blurb: 'Infinite canvas of Taffy-laid-out cards — resize pages and slots live.',

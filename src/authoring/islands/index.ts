@@ -15,3 +15,7 @@ import './builtin/coverageSweep';
 import './builtin/windingRay';
 import './builtin/bandProbe';
 import './builtin/gpuPipeline';
+import './builtin/lossContour';
+import './builtin/gdCurve';
+import './builtin/network';
+import './builtin/lineFit';
