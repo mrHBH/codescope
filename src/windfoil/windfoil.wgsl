@@ -3,25 +3,25 @@
 // the pixel's footprint in closed form (F = ∫∫_box w dA / area) and folds it to coverage.
 
 struct Uniforms {
-  res : vec2<f32>,        // render-target size in pixels
-  style : vec2<f32>,      // (gamma, sharp) coverage transform; (1, 1) = exact
-  camScale : vec2<f32>,   // camera scale — drives the AA-skirt pad (was cam.xy)
-  camCenter : vec2<f32>,  // camera center (subtracted from world pos for precision)
-  viewProj : mat4x4<f32>, // world-relative (x, y, 0, 1) → clip space
+  res : vec2f,        // render-target size in pixels
+  style : vec2f,      // (gamma, sharp) coverage transform; (1, 1) = exact
+  camScale : vec2f,   // camera scale — drives the AA-skirt pad (was cam.xy)
+  camCenter : vec2f,  // camera center (subtracted from world pos for precision)
+  viewProj : mat4x4f, // world-relative (x, y, 0, 1) → clip space
 };
 
 struct Instance {
-  place : vec4<f32>, // originX, originY (device px), unitsToPx, fillRule (0 = nonzero, 1 = even-odd)
-  bbox  : vec4<f32>, // ink box loX, loY, hiX, hiY (glyph units, Y-down)
-  color : vec4<f32>, // straight-alpha RGBA
-  band  : vec4<f32>, // rowBase, bandCount, bandH, invH
+  place : vec4f, // originX, originY (device px), unitsToPx, fillRule (0 = nonzero, 1 = even-odd, 2 = solid rect)
+  bbox  : vec4f, // ink box loX, loY, hiX, hiY (glyph units, Y-down)
+  color : vec4f, // straight-alpha RGBA
+  band  : vec4f, // rowBase, bandCount, bandH, invH
 };
 
 // Bands with count > SORT_MIN are x-sorted on the CPU so the gather can break at the first piece fully left
-// of the box. MUST equal BAND_SORT_MIN in bands.js.
+// of the box. MUST equal BAND_SORT_MIN in bands.ts.
 const SORT_MIN : u32 = 4u;
 
-// Row-table layout — MUST match bands.js's rowOut.push(start, count, densityBits, xMinBits, xMaxBits).
+// Row-table layout — MUST match bands.ts's rowOut.push(start, count, densityBits, xMinBits, xMaxBits).
 const ROW_STRIDE : u32 = 5u;
 const ROW_DENSITY : u32 = 2u;
 const ROW_XMIN : u32 = 3u;
@@ -29,24 +29,29 @@ const ROW_XMAX : u32 = 4u;
 
 // Below GUARD_PX device pixels (whole glyph, both axes — illegible sizes) coverage comes from the banded ink
 // profile (profile_face) instead of the exact gather. Threshold rationale + the quality/perf trade of raising
-// it: bench/README.md, bench/ACCEL-NOTES.md.
-const MINIFICATION_GUARD = true;
+// it: bench/README.md, bench/ACCEL-NOTES.md. Pipeline-overridable (specialized at pipeline creation, so the
+// disabled branch still compiles out): the validation suite's exact mode sets it to false via the pipeline
+// `constants` map so the ink-profile approximation never stands in for the integral it is measuring.
+override MINIFICATION_GUARD : bool = true;
 const GUARD_PX = 3.7;
 
+override EXACT_MODE : bool = false; // offline: point-sample the true fill rule, no fold (ALGORITHM.md §4)
+override EXACT_GRID : u32 = 8u;     // sub-samples per axis in exact mode
+
 // Kernel support plus 0.125px derivative slack; adjust support per axis for other kernels.
-const KERNEL_SUPPORT_PX = vec2<f32>(0.5);
-const KERNEL_SKIRT_PX = KERNEL_SUPPORT_PX + vec2<f32>(0.125);
+const KERNEL_SUPPORT_PX = vec2f(0.5);
+const KERNEL_SKIRT_PX = KERNEL_SUPPORT_PX + vec2f(0.125);
 
 @group(0) @binding(0) var<uniform> U : Uniforms;
 @group(0) @binding(1) var<storage, read> instances : array<Instance>;
 // Curve atlas: three consecutive vec2 per xy-monotone piece (endpoints + control).
-@group(0) @binding(2) var<storage, read> curves : array<vec2<f32>>;
-// Row-band table: ROW_STRIDE u32s per band (see the ROW_* constants and bands.js).
+@group(0) @binding(2) var<storage, read> curves : array<vec2f>;
+// Row-band table: ROW_STRIDE u32s per band (see the ROW_* constants and bands.ts).
 @group(0) @binding(3) var<storage, read> rows : array<u32>;
 
 struct VsOut {
-  @builtin(position) pos : vec4<f32>,
-  @location(0) rc : vec2<f32>,                       // glyph-space position of this fragment (Y-down)
+  @builtin(position) pos : vec4f,
+  @location(0) rc : vec2f,                       // glyph-space position of this fragment (Y-down)
   @location(1) @interpolate(flat) inst : u32,
 };
 
@@ -54,67 +59,46 @@ struct VsOut {
 fn vs(@builtin(vertex_index) vi : u32, @builtin(instance_index) ii : u32) -> VsOut {
   let I = instances[ii];
   let unitsToPx = I.place.z;
-  // Kernel-derived AA skirt (0.625px) so the coverage skirt is never clipped, per axis.
-  let pad = KERNEL_SKIRT_PX / (unitsToPx * max(abs(U.camScale), vec2<f32>(1e-6)));
-  let lo = I.bbox.xy - pad;
-  let hi = I.bbox.zw + pad;
-  // Unit-quad corners for a triangle-strip; vi ∈ {0..3}.
-  let uv = vec2<f32>(f32(vi & 1u), f32(vi >> 1u));
-  let em = mix(lo, hi, uv);
+  let pad = KERNEL_SKIRT_PX / (unitsToPx * max(abs(U.camScale), vec2f(1e-6)));
+  let uv = vec2f(f32(vi & 1u), f32(vi >> 1u));
+  let em = mix(I.bbox.xy - pad, I.bbox.zw + pad, uv);
   let worldPx = I.place.xy + em * unitsToPx;
-  // Subtract camera center BEFORE the matrix multiply so the matrix terms stay
-  // small — avoids catastrophic cancellation at extreme zoom (infinite zoom).
-  // For the 3D orbit path camCenter = (0, 0) so this is a no-op.
   let relPos = worldPx - U.camCenter;
-  var o : VsOut;
-  o.pos = U.viewProj * vec4<f32>(relPos.x, relPos.y, 0.0, 1.0);
-  o.rc = em;
-  o.inst = ii;
-  return o;
+  return VsOut(U.viewProj * vec4f(relPos.x, relPos.y, 0.0, 1.0), em, ii);
 }
 
 // Period-2 triangle wave 1 − |1 − (t mod 2)|: folds signed winding to even-odd coverage, range [0, 1].
 fn tri_wave(t : f32) -> f32 {
-  let m = t - 2.0 * floor(t * 0.5);
-  return 1.0 - abs(1.0 - m);
+  return 1.0 - abs(1.0 - (t - 2.0 * floor(t * 0.5)));
 }
 
 // Opt-in perceptual styling (--gamma / --sharp); (1, 1) leaves the exact coverage bit-for-bit untouched.
 fn style_coverage(cov : f32, gamma : f32, sharp : f32) -> f32 {
   if (gamma == 1.0 && sharp == 1.0) { return cov; }
   let g = pow(cov, gamma);
-  var s : f32;
-  if (g < 0.5) {
-    s = 0.5 * pow(2.0 * g, sharp);
-  } else {
-    s = 1.0 - 0.5 * pow(2.0 * (1.0 - g), sharp);
-  }
-  return clamp(s, 0.0, 1.0);
+  let lo = g < 0.5;
+  let p = 0.5 * pow(select(2.0 * (1.0 - g), 2.0 * g, lo), sharp);
+  return clamp(select(1.0 - p, p, lo), 0.0, 1.0);
 }
 
 // Straight-alpha color × coverage → premultiplied RGBA (the pipeline blends premultiplied-over).
-fn shade(color : vec4<f32>, cov : f32) -> vec4<f32> {
+fn shade(color : vec4f, cov : f32) -> vec4f {
   let a = color.a * cov;
-  return vec4<f32>(color.rgb * a, a);
+  return vec4f(color.rgb * a, a);
 }
 
-// Shared fragment tail: fold the pixel-averaged winding number by fill rule, style, shade.
+// Fold the pixel-averaged winding number by fill rule, then style.
 fn fold_cov(f : f32, fillRule : f32) -> f32 {
-  var cov : f32;
-  if (fillRule > 0.5) {
-    cov = tri_wave(f);                // even-odd
-  } else {
-    cov = min(abs(f), 1.0);           // nonzero (saturating)
-  }
+  let cov = select(min(abs(f), 1.0), tri_wave(f), fillRule > 0.5); // nonzero (saturating) | even-odd
   return style_coverage(cov, U.style.x, U.style.y);
 }
 
-fn fold_shade(f : f32, fillRule : f32, color : vec4<f32>) -> vec4<f32> {
+// Shared fragment tail: fold + shade.
+fn fold_shade(f : f32, fillRule : f32, color : vec4f) -> vec4f {
   return shade(color, fold_cov(f, fillRule));
 }
 
-// Solve the monotone quadratic component A2·t² + A1·t + A0 = v on [0,1], saturating to the endpoints
-// (a0 = value at t = 0, e1 = value at t = 1).
+// Solve A2·t² + A1·t + A0 = v for t∈[0,1], saturating at a0=q(0) and e1=q(1).
 fn mono_root(a2 : f32, a1 : f32, a0 : f32, e1 : f32, v : f32, rising : bool) -> f32 {
   if (rising) {
     if (a0 >= v) { return 0.0; }
@@ -135,13 +119,11 @@ fn mono_root(a2 : f32, a1 : f32, a0 : f32, e1 : f32, v : f32, rising : bool) -> 
   let num = select(c, qq, use_r1);
   let den = select(qq, a2, use_r1);
   let valid = den != 0.0;
-  let t = select(0.0, num / select(1.0, den, valid), valid);
-  return clamp(t, 0.0, 1.0);
+  return clamp(select(0.0, num / select(1.0, den, valid), valid), 0.0, 1.0);
 }
 
-// The INSIDE zone's exact integral of (x(t)+hx)·y′(t) over [ta,tb]: midpoint rule on a symmetric interval,
-// exact for this cubic integrand. `x0` is the piece's constant x coefficient.
-fn integrate_inside(a2 : vec2<f32>, a1 : vec2<f32>, x0 : f32, ta : f32, tb : f32, hx : f32) -> f32 {
+// Exact INSIDE integral: expand cubic (x(t)+hx)·y′(t) about the interval midpoint; x0 is x(t)'s constant.
+fn integrate_inside(a2 : vec2f, a1 : vec2f, x0 : f32, ta : f32, tb : f32, hx : f32) -> f32 {
   if (tb <= ta) { return 0.0; }
   let tm = 0.5 * (ta + tb);
   let d = 0.5 * (tb - ta);
@@ -150,39 +132,56 @@ fn integrate_inside(a2 : vec2<f32>, a1 : vec2<f32>, x0 : f32, ta : f32, tb : f32
   return 2.0 * d * x_mid * dmid.y + (2.0 * d * d * d / 3.0) * (a2.x * dmid.y + 2.0 * a2.y * dmid.x);
 }
 
-// One xy-monotone piece's contribution over the y-window [lo, hi]: integrate clamp(x(t), −hx, hx) + hx by
-// splitting the crossing interval into LEFT (0) / INSIDE (exact) / RIGHT (full width) zones (ALGORITHM.md §3).
-fn integrate_piece(q1 : vec2<f32>, q2 : vec2<f32>, q3 : vec2<f32>, lo : f32, hi : f32, hx : f32) -> f32 {
+// Integrate clamp(x(t), −hx, hx)+hx over the y-window through LEFT (0), INSIDE (exact), and RIGHT
+// (full-width) zones (ALGORITHM.md §3). The four clip roots are solved as one branchless vec4 batch with
+// mono_root's saturation semantics.
+fn integrate_piece(q1 : vec2f, q2 : vec2f, q3 : vec2f, lo : f32, hi : f32, hx : f32) -> f32 {
   let a2 = q1 - 2.0 * q2 + q3;
   let a1 = 2.0 * (q2 - q1);
   let y_rising = q3.y >= q1.y;
-  let t_lo = mono_root(a2.y, a1.y, q1.y, q3.y, select(hi, lo, y_rising), y_rising);
-  let t_hi = mono_root(a2.y, a1.y, q1.y, q3.y, select(lo, hi, y_rising), y_rising);
-  if (t_hi <= t_lo) { return 0.0; }
   let x_rising = q3.x >= q1.x;
-  let t_left = clamp(mono_root(a2.x, a1.x, q1.x, q3.x, -hx, x_rising), t_lo, t_hi);
-  let t_right = clamp(mono_root(a2.x, a1.x, q1.x, q3.x, hx, x_rising), t_lo, t_hi);
+  let A2 = a2.yyxx;
+  let A1 = a1.yyxx;
+  let V  = vec4f(select(vec2f(hi, lo), vec2f(lo, hi), y_rising), -hx, hx);
+  let R  = vec2<bool>(y_rising, x_rising).xxyy;
+  let SG = select(vec4f(-1.0), vec4f(1.0), R);
+
+  let C = q1.yyxx - V;
+  let sat0 = (C * SG) >= vec4f(0.0);
+  let sat1 = ((q3.yyxx - V) * SG) <= vec4f(0.0);
+  let disc = max(A1 * A1 - 4.0 * A2 * C, vec4f(0.0));
+  let sq = sqrt(disc);
+  let qq = -0.5 * (A1 + select(-sq, sq, A1 >= vec4f(0.0)));
+  let use_r1 = (A1 < vec4f(0.0)) == R;
+  let num = select(C, qq, use_r1);
+  let den = select(qq, A2, use_r1);
+  let valid = den != vec4f(0.0);
+  let t_raw = clamp(
+    select(vec4f(0.0), num / select(vec4f(1.0), den, valid), valid),
+    vec4f(0.0), vec4f(1.0),
+  );
+  let T = select(select(t_raw, vec4f(1.0), sat1), vec4f(0.0), sat0);
+
+  if (T.y <= T.x) { return 0.0; }
+  let tc = clamp(T.zw, T.xx, T.yy);
   // Zones in sweep order: x rising ⇒ LEFT · INSIDE · RIGHT; mirrored if not.
-  let t1 = select(t_right, t_left, x_rising);
-  let t2 = max(select(t_left, t_right, x_rising), t1);
+  let t1 = select(tc.y, tc.x, x_rising);
+  let t2 = max(select(tc.x, tc.y, x_rising), t1);
   var acc = integrate_inside(a2, a1, q1.x, t1, t2, hx);
-  let ra = select(t_lo, t2, x_rising);
-  let rb = select(t1, t_hi, x_rising);
-  if (rb > ra) {
-    let tm = 0.5 * (ra + rb);
-    acc += (rb - ra) * (2.0 * a2.y * tm + a1.y) * (2.0 * hx);   // RIGHT zone: full width × Δy
-  }
+  let rab = select(vec2f(T.x, t1), vec2f(t2, T.y), x_rising);
+  let d = max(rab.y - rab.x, 0.0);
+  let tm = 0.5 * (rab.x + rab.y);
+  acc += d * (2.0 * a2.y * tm + a1.y) * (2.0 * hx);   // RIGHT zone: full width × Δy
   return acc;
 }
 
-// A piece's y-span clipped to the window, as a difference of clamped ENDPOINTS so it telescopes over piece
-// chains (shared endpoints cancel exactly). Signed: clamp(y3) − clamp(y1).
+// Signed clipped y-span; endpoint clamps make adjacent pieces telescope exactly.
 fn clipped_dy(y1 : f32, y3 : f32, wlo : f32, whi : f32) -> f32 {
   return clamp(y3, wlo, whi) - clamp(y1, wlo, whi);
 }
 
 // Accumulate one row band's pieces over the rc-relative y-window [wlo, whi].
-fn integrate_band(start : u32, count : u32, rc : vec2<f32>, wlo : f32, whi : f32, sx : f32) -> f32 {
+fn integrate_band(start : u32, count : u32, rc : vec2f, wlo : f32, whi : f32, sx : f32) -> f32 {
   var acc : f32 = 0.0;
   let hx = sx * 0.5;
   let sorted = count > SORT_MIN;
@@ -207,8 +206,8 @@ fn integrate_band(start : u32, count : u32, rc : vec2<f32>, wlo : f32, whi : f32
       acc += sx * clipped_dy(q1.y, q3.y, wlo, whi);
       continue;
     }
-    // f32-degenerate piece (hull within a few coordinate-ULPs, e.g. flattened content at deep zoom): the
-    // t-solves would divide noise; use the midpoint-clamp form, exact to ~span² and telescoping.
+    // For a hull within a few coordinate ULPs, avoid noisy t-solves; midpoint-clamp is exact to ~span²
+    // and telescopes.
     if (x_hull_max - x_hull_min + (py_hi - py_lo) <= coord_ulp * 16.0) {
       let xm = clamp((q1.x + q3.x) * 0.5, -hx, hx) + hx;
       acc += xm * clipped_dy(q1.y, q3.y, wlo, whi);
@@ -220,15 +219,14 @@ fn integrate_band(start : u32, count : u32, rc : vec2<f32>, wlo : f32, whi : f32
   return acc;
 }
 
-// Band index for a y-offset from the band origin: floor(dy·invH) clamped — the same mapping bands.js files with.
+// Band index for a y-offset from the band origin: floor(dy·invH) clamped — the same mapping bands.ts files with.
 fn band_index(dy : f32, invH : f32, R : u32) -> u32 {
   return u32(clamp(floor(dy * invH), 0.0, f32(R) - 1.0));
 }
 
 // Band ri's y-range relative to `base`. R ≤ 64, so f32(ri) + 1.0 is exact.
-fn band_edges(base : f32, ri : u32, bandH : f32) -> vec2<f32> {
-  let r = f32(ri);
-  return vec2<f32>(base) + vec2<f32>(r, r + 1.0) * bandH;
+fn band_edges(base : f32, ri : u32, bandH : f32) -> vec2f {
+  return base + vec2f(f32(ri), f32(ri) + 1.0) * bandH;
 }
 
 // Length of the overlap of intervals [a0, a1] and [b0, b1] (0 when disjoint).
@@ -239,19 +237,16 @@ fn overlap1d(a0 : f32, a1 : f32, b0 : f32, b1 : f32) -> f32 {
 // One glyph's winding integral over the pixel box (rc ± s/2), gathered through the row bands its y-slab
 // touches. Windows are kept rc-RELATIVE for deep-zoom stability, and tile exactly across bands so duplicated
 // pieces never double-count (ALGORITHM.md §6).
-fn integrate_face(band : vec4<f32>, y0 : f32, rc : vec2<f32>, s : vec2<f32>) -> f32 {
+fn integrate_face(band : vec4f, y0 : f32, rc : vec2f, s : vec2f) -> f32 {
   let rowBase = u32(band.x);
   let R = u32(band.y);
   let bandH = band.z;
   let invH = band.w;
   let sy2 = s.y * 0.5;
   let dy0 = y0 - rc.y;          // band origin relative to the pixel center
-  var ri0 : u32 = 0u;
-  var ri1 : u32 = 0u;
-  if (R > 1u) {
-    ri0 = band_index(-dy0 - sy2, invH, R);
-    ri1 = band_index(-dy0 + sy2, invH, R);
-  }
+  // R == 1 stores invH = 0, so band_index degenerates to 0 on its own.
+  let ri0 = band_index(-dy0 - sy2, invH, R);
+  let ri1 = band_index(-dy0 + sy2, invH, R);
   var f_int : f32 = 0.0;
   for (var ri = ri0; ri <= ri1; ri = ri + 1u) {
     var w_lo = -sy2;
@@ -268,10 +263,9 @@ fn integrate_face(band : vec4<f32>, y0 : f32, rc : vec2<f32>, s : vec2<f32>) -> 
   return f_int;
 }
 
-// The minification guard's twin of integrate_face: the same ∫∫_box w dA, approximated from the precomputed
-// banded ink profile — each band's strip integral × the pixel's y-share of the strip × its x-share of the
-// band's ink hull. A few table taps, no curve reads.
-fn profile_face(band : vec4<f32>, bbox : vec4<f32>, rc : vec2<f32>, s : vec2<f32>) -> f32 {
+// Approximate minification twin of integrate_face: integrate each band's precomputed winding density over
+// its overlap with the pixel. A few table taps, no curve reads.
+fn profile_face(band : vec4f, bbox : vec4f, rc : vec2f, s : vec2f) -> f32 {
   let pixLo = rc - s * 0.5;
   let pixHi = rc + s * 0.5;
   if (overlap1d(pixLo.x, pixHi.x, bbox.x, bbox.z) <= 0.0) { return 0.0; }
@@ -280,27 +274,64 @@ fn profile_face(band : vec4<f32>, bbox : vec4<f32>, rc : vec2<f32>, s : vec2<f32
   let bandH = band.z;
   let invH = band.w;
   let y0 = bbox.y;
-  var ri0 : u32 = 0u;
-  var ri1 : u32 = 0u;
-  if (R > 1u) {
-    ri0 = band_index(pixLo.y - y0, invH, R);
-    ri1 = band_index(pixHi.y - y0, invH, R);
-  }
+  let ri0 = band_index(pixLo.y - y0, invH, R);
+  let ri1 = band_index(pixHi.y - y0, invH, R);
   var ink : f32 = 0.0;
   for (var ri = ri0; ri <= ri1; ri = ri + 1u) {
     let rIdx = (rowBase + ri) * ROW_STRIDE;
     let e = band_edges(y0, ri, bandH);
     let oy = overlap1d(pixLo.y, pixHi.y, e.x, e.y);
-    let hull0 = bitcast<f32>(rows[rIdx + ROW_XMIN]);
-    let hull1 = bitcast<f32>(rows[rIdx + ROW_XMAX]);
-    let ox = overlap1d(pixLo.x, pixHi.x, hull0, hull1);
+    let ox = overlap1d(pixLo.x, pixHi.x, bitcast<f32>(rows[rIdx + ROW_XMIN]), bitcast<f32>(rows[rIdx + ROW_XMAX]));
     ink += bitcast<f32>(rows[rIdx + ROW_DENSITY]) * oy * ox;
   }
   return ink;
 }
 
+// Signed winding W and crossing count K of a +x ray from the rc-relative point `pr` (EXACT_MODE only).
+fn winding_at(band : vec4f, y0 : f32, rc : vec2f, pr : vec2f) -> vec2i {
+  let ri = band_index(pr.y + rc.y - y0, band.w, u32(band.y));
+  let rIdx = (u32(band.x) + ri) * ROW_STRIDE;
+  let start = rows[rIdx];
+  let count = rows[rIdx + 1u];
+  var W : i32 = 0;
+  var K : i32 = 0;
+  for (var i : u32 = 0u; i < count; i = i + 1u) {
+    let base = (start + i) * 3u;
+    let q1 = curves[base] - rc;
+    let q3 = curves[base + 2u] - rc;
+    let rising = q3.y > q1.y;
+    // half-open: joins count once, extrema not at all
+    if (pr.y < min(q1.y, q3.y) || pr.y >= max(q1.y, q3.y)) { continue; }
+    let q2 = curves[base + 1u] - rc;
+    let a2 = q1 - 2.0 * q2 + q3;
+    let a1 = 2.0 * (q2 - q1);
+    let t = mono_root(a2.y, a1.y, q1.y, q3.y, pr.y, rising);
+    let x = (a2.x * t + a1.x) * t + q1.x;
+    let hit = x > pr.x;
+    K = K + select(0, 1, hit);
+    W = W + select(0, select(-1, 1, rising), hit);
+  }
+  return vec2i(W, K);
+}
+
+// Fraction of an EXACT_GRID² grid over the pixel footprint whose true winding satisfies the fill rule.
+fn exact_coverage(band : vec4f, y0 : f32, fillRule : f32, rc : vec2f, s : vec2f) -> f32 {
+  let inv = 1.0 / f32(EXACT_GRID);
+  let evenodd = fillRule > 0.5;
+  var inside : u32 = 0u;
+  for (var j : u32 = 0u; j < EXACT_GRID; j = j + 1u) {
+    for (var i : u32 = 0u; i < EXACT_GRID; i = i + 1u) {
+      let off = (vec2f(f32(i), f32(j)) + 0.5) * inv - 0.5;
+      let wk = winding_at(band, y0, rc, off * s);
+      let hit = select(wk.x != 0, (wk.y & 1) == 1, evenodd);
+      inside = inside + select(0u, 1u, hit);
+    }
+  }
+  return f32(inside) / f32(EXACT_GRID * EXACT_GRID);
+}
+
 @fragment
-fn fs(in : VsOut) -> @location(0) vec4<f32> {
+fn fs(in : VsOut) -> @location(0) vec4f {
   let I = instances[in.inst];
   let rc = in.rc;
   // The pixel's footprint in glyph space. Under an axis-aligned camera this is a
@@ -309,7 +340,7 @@ fn fs(in : VsOut) -> @location(0) vec4<f32> {
   let jx = dpdx(rc);
   let jy = dpdy(rc);
   // Axis-aligned bounding box of that footprint (== fwidth) — the isotropic path.
-  let s = max(abs(jx) + abs(jy), vec2<f32>(1e-9));
+  let s = max(abs(jx) + abs(jy), vec2f(1e-9));
 
   // FAST PATH: solid axis-aligned rectangle (fillRule 2). Coverage is just the
   // box overlap of the pixel footprint with the ink bbox, per axis — no band
@@ -321,6 +352,11 @@ fn fs(in : VsOut) -> @location(0) vec4<f32> {
     let ox = clamp(min(rc.x + s.x * 0.5, hi.x) - max(rc.x - s.x * 0.5, lo.x), 0.0, s.x);
     let oy = clamp(min(rc.y + s.y * 0.5, hi.y) - max(rc.y - s.y * 0.5, lo.y), 0.0, s.y);
     return shade(I.color, (ox * oy) / (s.x * s.y));
+  }
+
+  if (EXACT_MODE) {
+    let cov = exact_coverage(I.band, I.bbox.y, I.place.w, rc, s);
+    return shade(I.color, style_coverage(cov, U.style.x, U.style.y));
   }
 
   if (MINIFICATION_GUARD && all(s * GUARD_PX >= I.bbox.zw - I.bbox.xy)) {
@@ -339,11 +375,11 @@ fn fs(in : VsOut) -> @location(0) vec4<f32> {
   let minor = max(min(lx, ly), 1e-9);
   let n = clamp(floor(major / minor), 1.0, 4.0);
   let ni = i32(n);
-  var axis : vec2<f32>;
-  var sSub : vec2<f32>;
+  var axis : vec2f;
+  var sSub : vec2f;
   if (lx >= ly) { axis = jx; sSub = abs(jx) / n + abs(jy); }
   else          { axis = jy; sSub = abs(jy) / n + abs(jx); }
-  sSub = max(sSub, vec2<f32>(1e-9));
+  sSub = max(sSub, vec2f(1e-9));
   let invArea = 1.0 / (sSub.x * sSub.y);
   var cov : f32 = 0.0;
   for (var k : i32 = 0; k < ni; k = k + 1) {

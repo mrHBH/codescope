@@ -23,7 +23,9 @@ let camera: THREE.PerspectiveCamera;
 let controls: CameraControls;
 let ready = false;
 const _m = new Float32Array(16);
-const _vp = new Float32Array(16); // last view-projection, for picking
+const _vp = new Float32Array(16); // last view-projection
+const _ro = new THREE.Vector3();
+const _rd = new THREE.Vector3();
 
 export function initOrbit(dom: HTMLElement) {
   camera = new THREE.PerspectiveCamera(50, 1, 1, 1e7);
@@ -37,7 +39,7 @@ export function initOrbit(dom: HTMLElement) {
   // Ground mode: never tilt below the floor. polar 0 = top-down (matches 2D).
   controls.minPolarAngle = 0;
   controls.maxPolarAngle = Math.PI / 2;
-  controls.minDistance = 20;
+  controls.minDistance = 0.0005;
   controls.maxDistance = 6e5;
   controls.enabled = false;
   ready = true;
@@ -70,18 +72,21 @@ export function orbitViewProj(Cw: number, Ch: number): Mat4 {
   return vp;
 }
 
-// Unproject a screen point (device px) to doc-local (x, y) on the ground plane,
-// by intersecting the pointer ray with the document's z = 0 plane. Uses the last
-// frame's view-projection (one frame stale is fine for hover/click).
+// Unproject a screen point (device px) to doc-local (x, y) on the ground plane.
+// Casts a ray from the camera through the pixel (built from fov + camera basis)
+// and intersects the grounded document plane (world y = 0). Deliberately avoids
+// inverting the view-projection: with the IDE's extreme near/far that matrix is
+// ill-conditioned and a float32 inverse loses precision, mis-aiming every pick.
 export function screenToDocLocal(sx: number, sy: number, Cw: number, Ch: number): { x: number; y: number } {
-  const inv = invert(_vp);
+  camera.updateMatrixWorld();
+  _ro.setFromMatrixPosition(camera.matrixWorld);
+  const t = Math.tan((camera.fov * DEG2RAD) / 2);
   const ndcX = (sx / Cw) * 2 - 1;
-  const ndcY = 1 - (sy / Ch) * 2; // WebGPU clip-space y is up; screen y is down
-  const p0 = transformPoint(inv, ndcX, ndcY, 0); // near plane (z = 0)
-  const p1 = transformPoint(inv, ndcX, ndcY, 1); // far plane  (z = 1)
-  const dz = p1[2] - p0[2];
-  const t = Math.abs(dz) < 1e-9 ? 0 : -p0[2] / dz;
-  return { x: p0[0] + t * (p1[0] - p0[0]), y: p0[1] + t * (p1[1] - p0[1]) };
+  const ndcY = 1 - (sy / Ch) * 2; // screen y is down; clip-space y is up
+  _rd.set(ndcX * t * (Cw / Ch), ndcY * t, -1).transformDirection(camera.matrixWorld);
+  if (Math.abs(_rd.y) < 1e-12) return { x: _ro.x, y: _ro.z };
+  const hit = -_ro.y / _rd.y;
+  return { x: _ro.x + _rd.x * hit, y: _ro.z + _rd.z * hit };
 }
 
 // Advance damping; returns true while still animating.
@@ -153,3 +158,30 @@ export function orbitTargetLocal(): { x: number; y: number } {
 }
 
 export function disableOrbit() { if (ready) controls.enabled = false; }
+
+export function setOrbitWheelDolly(enabled: boolean) {
+  if (ready) controls.mouseButtons.wheel = enabled ? CameraControls.ACTION.DOLLY : CameraControls.ACTION.NONE;
+}
+
+export function orbitDolly(delta: number) {
+  if (ready) controls.dolly(delta, false);
+}
+
+// Override the perspective near plane (e.g. the IDE drops it to render extreme
+// close-ups; the playground restores a larger near for depth precision on its
+// true-3D meshes). orbitViewProj re-uploads the projection every frame.
+export function setOrbitNear(near: number) {
+  if (!ready) return;
+  camera.near = near;
+  camera.updateProjectionMatrix();
+}
+
+// Logarithmic, zoom-level-aware wheel dolly: each wheel delta scales the current
+// distance by a constant ratio (distance *= e^(deltaY·k)), so a notch zooms by the
+// same *factor* whether you're close or far — constant sensitivity in log-space.
+// dollyTo(..., true) clamps to [minDistance, maxDistance] and eases smoothly.
+const WHEEL_DOLLY_K = 0.005;
+export function orbitDollyByWheel(deltaY: number) {
+  if (!ready) return;
+  controls.dollyTo(controls.distance * Math.exp(deltaY * WHEEL_DOLLY_K), true);
+}

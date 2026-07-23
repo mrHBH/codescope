@@ -44,6 +44,7 @@ export class Terminal {
   commandHandler: TerminalCommandHandler | null = null;
   font: FontFace | null = null;
   focused = true;
+  showTitleBar = true;
 
   // World-space geometry
   x0 = 0; y0 = 0;
@@ -311,17 +312,19 @@ export class Terminal {
 
     // Panel + title bar
     addRect(this.x0, this.y0, this.x0 + W, this.y0 + H, th.bg, crv, rws, inst);
-    const barH = lh + 8;
-    addRect(this.x0, this.y0, this.x0 + W, this.y0 + barH, th.barBg, crv, rws, inst);
-    // Three "traffic light" dots (drawn as small squares — zero rounded corners).
-    const dot = this.fontSize * 0.34, dy = this.y0 + barH / 2 - dot / 2;
-    addRect(this.x0 + 14, dy, this.x0 + 14 + dot, dy + dot, th.red, crv, rws, inst);
-    addRect(this.x0 + 14 + dot * 2, dy, this.x0 + 14 + dot * 3, dy + dot, th.yellow, crv, rws, inst);
-    addRect(this.x0 + 14 + dot * 4, dy, this.x0 + 14 + dot * 5, dy + dot, th.green, crv, rws, inst);
-    const title = 'wsh — windfoil shell';
-    this.emit(inst, atlas, s, title, th.dim, this.x0 + W / 2 - this.lineWidth([{ text: title, color: th.dim }]) / 2, this.y0 + barH / 2 + this.fontSize * 0.35);
-    // Title-bar bottom hairline.
-    addRect(this.x0, this.y0 + barH - 1, this.x0 + W, this.y0 + barH, [th.caret[0], th.caret[1], th.caret[2], 0.18], crv, rws, inst);
+    const barH = this.showTitleBar ? lh + 8 : 0;
+    if (this.showTitleBar) {
+      addRect(this.x0, this.y0, this.x0 + W, this.y0 + barH, th.barBg, crv, rws, inst);
+      // Three "traffic light" dots (drawn as small squares — zero rounded corners).
+      const dot = this.fontSize * 0.34, dy = this.y0 + barH / 2 - dot / 2;
+      addRect(this.x0 + 14, dy, this.x0 + 14 + dot, dy + dot, th.red, crv, rws, inst);
+      addRect(this.x0 + 14 + dot * 2, dy, this.x0 + 14 + dot * 3, dy + dot, th.yellow, crv, rws, inst);
+      addRect(this.x0 + 14 + dot * 4, dy, this.x0 + 14 + dot * 5, dy + dot, th.green, crv, rws, inst);
+      const title = 'wsh — windfoil shell';
+      this.emit(inst, atlas, s, title, th.dim, this.x0 + W / 2 - this.lineWidth([{ text: title, color: th.dim }]) / 2, this.y0 + barH / 2 + this.fontSize * 0.35);
+      // Title-bar bottom hairline.
+      addRect(this.x0, this.y0 + barH - 1, this.x0 + W, this.y0 + barH, [th.caret[0], th.caret[1], th.caret[2], 0.18], crv, rws, inst);
+    }
 
     // Reserve a dock for the active widget (drawn with GPU rects). It sits just
     // above the prompt line, like live tool output above your shell prompt.

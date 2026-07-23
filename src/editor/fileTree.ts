@@ -106,13 +106,15 @@ const SAMPLE_TREE: TreeNode[] = [
 export class FileTree {
   font: FontFace | null = null;
   focused = true;
+  showTitleBar = true;
 
   // World-space geometry
   x0 = 0; y0 = 0;
   width = 300;
   height = 560;
   fontSize = 14;
-  get lineHeight() { return this.fontSize * 1.7; }
+  lineHeightMul = 1.7;
+  get lineHeight() { return this.fontSize * this.lineHeightMul; }
   indent = 16;
   pad = 16;
   private readonly iconUnits = 24;
@@ -132,18 +134,79 @@ export class FileTree {
   private flatRows: FlatRow[] = [];
   private dirty = true;
 
+  // Optional substring filter (live search). When non-empty, the tree shows only
+  // matching files + the folders that contain them, fully expanded.
+  filter = '';
+  private filterMatch: Set<string> | null = null;
+  private defaultExpanded: string[] = [];
+
   constructor() {
     this.roots = SAMPLE_TREE;
-    this.expanded.add('src');
-    this.expanded.add('src/camera');
-    this.expanded.add('src/content');
-    this.expanded.add('src/content/pages');
-    this.expanded.add('src/css');
-    this.expanded.add('src/editor');
-    this.expanded.add('src/layout');
-    this.expanded.add('src/ui');
-    this.expanded.add('src/windfoil');
-    for (const p of this.expanded) this.chevAnim.set(p, 1);
+    this.defaultExpanded = ['src', 'src/camera', 'src/content', 'src/content/pages', 'src/css', 'src/editor', 'src/layout', 'src/ui', 'src/windfoil'];
+    for (const p of this.defaultExpanded) { this.expanded.add(p); this.chevAnim.set(p, 1); }
+  }
+
+  // Swap the tree (used by the IDE's source tabs), resetting expand state.
+  setRoots(roots: TreeNode[], expanded: string[]) {
+    this.roots = roots;
+    this.defaultExpanded = expanded.slice();
+    this.expanded = new Set(expanded);
+    this.chevAnim.clear();
+    this.chevDisp.clear();
+    for (const p of expanded) this.chevAnim.set(p, 1);
+    this.filter = '';
+    this.filterMatch = null;
+    this.scrollY = 0;
+    this.dirty = true;
+  }
+
+  setFilter(q: string) {
+    if (q === this.filter) return;
+    this.filter = q;
+    this.rebuildFilterMatch();
+    this.scrollY = 0;
+    this.dirty = true;
+  }
+
+  private rebuildFilterMatch() {
+    const q = this.filter.trim().toLowerCase();
+    if (!q) { this.filterMatch = null; return; }
+    const set = new Set<string>();
+    const visit = (nodes: TreeNode[]): boolean => {
+      let any = false;
+      for (const n of nodes) {
+        if (n.type === 'file') {
+          if (n.name.toLowerCase().includes(q)) { set.add(n.path); any = true; }
+        } else if (visit(n.children || [])) { set.add(n.path); any = true; }
+      }
+      return any;
+    };
+    visit(this.roots);
+    this.filterMatch = set;
+  }
+
+  private allFolderPaths(nodes: TreeNode[] = this.roots, out: string[] = []): string[] {
+    for (const n of nodes) if (n.type === 'folder') { out.push(n.path); this.allFolderPaths(n.children || [], out); }
+    return out;
+  }
+
+  expandAll() {
+    for (const p of this.allFolderPaths()) { this.expanded.add(p); this.chevAnim.set(p, 1); }
+    this.dirty = true;
+  }
+
+  collapseAll() {
+    for (const p of this.allFolderPaths()) { this.expanded.delete(p); this.chevAnim.set(p, 0); }
+    this.dirty = true;
+  }
+
+  refresh() {
+    this.expanded = new Set(this.defaultExpanded);
+    this.chevAnim.clear();
+    this.chevDisp.clear();
+    for (const p of this.defaultExpanded) this.chevAnim.set(p, 1);
+    this.scrollY = 0;
+    this.dirty = true;
   }
 
   private get scale() { return this.font ? this.fontSize / (this.font as any).unitsPerEm : this.fontSize / 2048; }
@@ -183,16 +246,21 @@ export class FileTree {
 
   private flatten(): FlatRow[] {
     const rows: FlatRow[] = [];
+    const fm = this.filterMatch;
     const walk = (nodes: TreeNode[], depth: number, ancestorHasNext: boolean[], ancestorPaths: string[]) => {
       for (let i = 0; i < nodes.length; i++) {
         const node = nodes[i];
         const isLast = i === nodes.length - 1;
+        if (fm && !fm.has(node.path)) continue;
         rows.push({ node, depth, isLast, ancestorHasNext: ancestorHasNext.slice(), ancestorPaths: ancestorPaths.slice() });
         // Keep a folder's children in the flattened list while it is expanded OR
         // still animating closed, so the collapse can accordion out before the
-        // rows are dropped.
-        const revealed = this.expanded.has(node.path) || (this.chevDisp.get(node.path) ?? 0) > 0.0015;
+        // rows are dropped. While filtering, matching folders are forced open.
+        const revealed = fm
+          ? node.type === 'folder'
+          : (this.expanded.has(node.path) || (this.chevDisp.get(node.path) ?? 0) > 0.0015);
         if (node.type === 'folder' && revealed) {
+          if (fm) { this.chevDisp.set(node.path, 1); this.chevAnim.set(node.path, 1); }
           walk(node.children || [], depth + 1, ancestorHasNext.concat(!isLast), ancestorPaths.concat(node.path));
         }
       }
@@ -238,11 +306,11 @@ export class FileTree {
   private get chevSize() { return this.fontSize * 1.0; }
   // Tree guide-line (rail) center for a given depth.
   private guideXFor(depth: number): number {
-    return this.x0 + this.pad + 6 + depth * this.indent;
+    return this.x0 + this.pad + 2 + depth * this.indent;
   }
   // Icon-column left edge for a given depth. Sits one indent + a pad past the
   // rail so the chevron (on the child guide line) has room before the icon.
-  private iconXFor(depth: number): number { return this.guideXFor(depth) + this.indent + 12; }
+  private iconXFor(depth: number): number { return this.guideXFor(depth) + this.indent + 6; }
   // Chevron center for a given depth — sits directly on top of the guide line it
   // controls (its children's rail, one indent deeper).
   private chevCxFor(depth: number): number { return this.guideXFor(depth) + this.indent; }
@@ -260,7 +328,7 @@ export class FileTree {
     if (row.depth <= 0) return null;
     const cx = this.chevCxFor(row.depth);
     if (wx >= cx - this.chevSize / 2 - 4 && wx <= cx + this.chevSize / 2 + 4) return null;
-    const lineXbase = this.x0 + this.pad + 6;
+    const lineXbase = this.x0 + this.pad + 2;
     const tol = 2.2;
     for (let d = 0; d < row.depth; d++) {
       if (!row.ancestorHasNext[d]) continue;
@@ -278,14 +346,18 @@ export class FileTree {
     if (ext === 'ts' || ext === 'tsx' || ext === 'js' || ext === 'jsx' || ext === 'wgsl') {
       return { name: 'icon:code', color: [0.39, 0.67, 0.96, 1] };
     }
+    if (ext === 'jpg' || ext === 'jpeg' || ext === 'png' || ext === 'gif' || ext === 'svg') {
+      return { name: 'icon:file', color: [1.0, 0.694, 0.231, 1] };
+    }
+    if (ext === 'pdf') return { name: 'icon:file', color: [0.561, 0.671, 0.071, 1] };
     if (ext === 'html') return { name: 'icon:file', color: [0.90, 0.56, 0.36, 1] };
     if (ext === 'css') return { name: 'icon:file', color: [0.56, 0.70, 0.96, 1] };
-    if (ext === 'json') return { name: 'icon:file', color: [0.90, 0.80, 0.45, 1] };
+    if (ext === 'json' || ext === 'wasm') return { name: 'icon:file', color: [0.90, 0.80, 0.45, 1] };
     if (ext === 'md') return { name: 'icon:file', color: [0.62, 0.78, 0.70, 1] };
     return { name: 'icon:file', color: [0.62, 0.66, 0.76, 1] };
   }
 
-  private get bodyTop() { return this.y0 + this.pad + this.barH; }
+  private get bodyTop() { return this.y0 + (this.showTitleBar ? this.pad + this.barH : this.pad * 0.5); }
 
   // ── Render ──────────────────────────────────────────────────────────────────
   render(font: FontFace, atlas: any, inst: number[], crv: number[], rws: number[],
@@ -342,23 +414,25 @@ export class FileTree {
 
     // Panel + title bar
     addRect(this.x0, this.y0, this.x0 + this.width, this.y0 + totalH, th.bg, crv, rws, inst);
-    const barH = this.barH;
-    addRect(this.x0, this.y0, this.x0 + this.width, this.y0 + barH, th.barBg, crv, rws, inst);
-
-    // Traffic-light dots
-    const dot = this.fontSize * 0.45, dy = this.y0 + barH / 2 - dot / 2;
-    addRect(this.x0 + 12, dy, this.x0 + 12 + dot, dy + dot, [0.85, 0.33, 0.31, 1], crv, rws, inst);
-    addRect(this.x0 + 12 + dot * 2, dy, this.x0 + 12 + dot * 3, dy + dot, [0.94, 0.68, 0.30, 1], crv, rws, inst);
-    addRect(this.x0 + 12 + dot * 4, dy, this.x0 + 12 + dot * 5, dy + dot, [0.42, 0.80, 0.44, 1], crv, rws, inst);
-
-    // Title
-    const title = 'workspace';
-    const titleW = this.textWidth(title);
     const s = this.scale;
-    this.emitText(inst, atlas, s, title, th.barFg, this.x0 + this.width / 2 - titleW / 2, this.y0 + barH / 2 + this.fontSize * 0.35);
+    const barH = this.showTitleBar ? this.barH : 0;
+    if (this.showTitleBar) {
+      addRect(this.x0, this.y0, this.x0 + this.width, this.y0 + barH, th.barBg, crv, rws, inst);
 
-    // Hairline under title bar
-    addRect(this.x0, this.y0 + barH - 1, this.x0 + this.width, this.y0 + barH, [th.line[0], th.line[1], th.line[2], 0.18], crv, rws, inst);
+      // Traffic-light dots
+      const dot = this.fontSize * 0.45, dy = this.y0 + barH / 2 - dot / 2;
+      addRect(this.x0 + 12, dy, this.x0 + 12 + dot, dy + dot, [0.85, 0.33, 0.31, 1], crv, rws, inst);
+      addRect(this.x0 + 12 + dot * 2, dy, this.x0 + 12 + dot * 3, dy + dot, [0.94, 0.68, 0.30, 1], crv, rws, inst);
+      addRect(this.x0 + 12 + dot * 4, dy, this.x0 + 12 + dot * 5, dy + dot, [0.42, 0.80, 0.44, 1], crv, rws, inst);
+
+      // Title
+      const title = 'workspace';
+      const titleW = this.textWidth(title);
+      this.emitText(inst, atlas, s, title, th.barFg, this.x0 + this.width / 2 - titleW / 2, this.y0 + barH / 2 + this.fontSize * 0.35);
+
+      // Hairline under title bar
+      addRect(this.x0, this.y0 + barH - 1, this.x0 + this.width, this.y0 + barH, [th.line[0], th.line[1], th.line[2], 0.18], crv, rws, inst);
+    }
 
     // Visible rows
     const treeLineColor: number[] = [th.line[0], th.line[1], th.line[2], 0.35];
@@ -379,12 +453,12 @@ export class FileTree {
       // Alpha-scale every mark on this row by its reveal so it fades with height.
       const fade = (c: number[]): number[] => [c[0], c[1], c[2], c[3] * rev];
 
-      const lineXbase = this.x0 + this.pad + 6;
+      const lineXbase = this.x0 + this.pad + 2;
       const guideX = lineXbase + depth * indent;       // tree line center for this depth
       const iconSize = this.fontSize * 1.05;
       // Chevron sits on the child guide line (guideX + indent); the icon follows
       // a pad further right.
-      const iconX = guideX + indent + 12;
+      const iconX = guideX + indent + 6;
       const textX = iconX + iconSize + 4;
       const iconY = top + h / 2;
       const baseline = iconY + this.fontSize * 0.4;

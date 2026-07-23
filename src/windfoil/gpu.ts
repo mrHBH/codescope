@@ -16,13 +16,14 @@ export async function requestDevice(): Promise<GPUDevice> {
 export interface GlyphRendererOptions {
   code: string;
   format: GPUTextureFormat;
+  constants?: Record<string, number>;
 }
 
 export function createGlyphRenderer(
   device: GPUDevice,
   opts: GlyphRendererOptions,
 ) {
-  const { code, format } = opts;
+  const { code, format, constants } = opts;
   const module = device.createShaderModule({ code });
 
   const pipeline = device.createRenderPipeline({
@@ -31,6 +32,7 @@ export function createGlyphRenderer(
     fragment: {
       module,
       entryPoint: 'fs',
+      constants,
       targets: [{
         format,
         blend: {

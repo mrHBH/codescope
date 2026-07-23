@@ -46,6 +46,9 @@ export const ICONS: Record<string, string | string[]> = {
   // `chevron` so the expand/collapse cross-fade reads as a smooth rotation and
   // the glyph keeps the same weight in both states.
   chevronRight: 'M8 18 L14 12 L8 6 L11 6 L17 12 L11 18 Z',
+  chevronUp: 'M6 15 L12 9 L18 15 L16.5 16.5 L12 12 L7.5 16.5 Z',
+  search: 'M10 4a6 6 0 1 0 3.6 10.8l4.1 4.1 1.4-1.4-4.1-4.1A6 6 0 0 0 10 4zm0 2a4 4 0 1 1 0 8 4 4 0 0 1 0-8z',
+  refresh: 'M12 5V2L7.5 6 12 10V7a5 5 0 1 1-5 5H5a7 7 0 1 0 7-7z',
 };
 
 // Larger, multi-shape illustrations. Authored on the same 24×24 grid; the layout

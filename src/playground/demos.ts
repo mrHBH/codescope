@@ -12,6 +12,7 @@ import { MathDemo } from './boards/mathDemo';
 import { bootPlayground } from './playground';
 import { bootExplainer } from './explainer';
 import { bootAuthoring, bootExplainerV2, bootPages, bootLearning } from '../authoring/demo';
+import { bootIDE } from '../ide/ide';
 import { IslandGallery } from '../authoring/islands/gallery';
 // Island registrations (side-effect import — ensures builtins register)
 import '../authoring/islands';
@@ -53,6 +54,11 @@ function bootIslands(engine: Engine, onBack: () => void): () => void {
 }
 
 export const DEMOS: Demo[] = [
+  {
+    id: 'ide', name: 'IDE',
+    blurb: 'An analytic IDE — file explorer, tabbed editor, integrated terminal — every pixel drawn by the coverage integral.',
+    boot: bootIDE,
+  },
   {
     id: 'learning', name: 'How a machine learns',
     blurb: 'Gradient descent from scratch — analytic math, a true-3D loss landscape you orbit, and bespoke procedural islands on one infinite canvas.',
