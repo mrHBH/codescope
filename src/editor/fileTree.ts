@@ -117,6 +117,9 @@ export class FileTree {
   get lineHeight() { return this.fontSize * this.lineHeightMul; }
   indent = 16;
   pad = 16;
+  // Gap between the chevron column and the icon column (chevrons sit on the
+  // child guide line; the file/folder icon starts this far past it).
+  iconGap = 6;
   private readonly iconUnits = 24;
 
   // State
@@ -283,6 +286,83 @@ export class FileTree {
     this.selected = path;
   }
 
+  // ── Tree mutation (context-menu actions) ───────────────────────────────────
+  // Small structural edits used by the IDE's right-click menus. Each mutator
+  // keeps the expand-state maps, selection, and the flattened-row cache
+  // consistent so the next render is correct with no extra bookkeeping.
+
+  isExpanded(path: string): boolean { return this.expanded.has(path); }
+
+  // The children array holding `path`'s node (the roots list when top-level).
+  private siblingsOf(path: string): TreeNode[] | null {
+    const slash = path.lastIndexOf('/');
+    if (slash < 0) return this.roots;
+    const parent = this.findNode(path.slice(0, slash));
+    return parent && parent.type === 'folder' ? (parent.children ??= []) : null;
+  }
+
+  // Insert `node` into the folder at `parentPath` (or at the roots when null).
+  // Siblings are kept sorted folders-first, then alphabetically. The parent (and
+  // a new folder itself) auto-expand so the entry is immediately visible.
+  addChild(parentPath: string | null, node: TreeNode): boolean {
+    const list = parentPath === null ? this.roots : this.findNode(parentPath)?.children ?? null;
+    if (!list) return false;
+    list.push(node);
+    list.sort((x, y) => x.type === y.type ? x.name.localeCompare(y.name) : x.type === 'folder' ? -1 : 1);
+    if (node.type === 'folder') { this.expanded.add(node.path); this.chevAnim.set(node.path, 1); }
+    if (parentPath) { this.expanded.add(parentPath); this.chevAnim.set(parentPath, 1); }
+    this.dirty = true;
+    return true;
+  }
+
+  // Remove the node at `path` (and its whole subtree when it is a folder),
+  // purging every per-path animation/expand entry the subtree owned.
+  removeNode(path: string): boolean {
+    const list = this.siblingsOf(path);
+    if (!list) return false;
+    const i = list.findIndex((n) => n.path === path);
+    if (i < 0) return false;
+    const purge = (n: TreeNode) => {
+      this.expanded.delete(n.path);
+      this.chevAnim.delete(n.path);
+      this.chevDisp.delete(n.path);
+      for (const c of n.children || []) purge(c);
+    };
+    purge(list[i]);
+    list.splice(i, 1);
+    if (this.selected === path || this.selected?.startsWith(path + '/')) this.selected = null;
+    if (this.hovered === path || this.hovered?.startsWith(path + '/')) this.hovered = null;
+    this.dirty = true;
+    return true;
+  }
+
+  // Rename the node at `path`, recomputing its path (and every descendant's) so
+  // expand state, chevrons, and selection keep tracking the moved subtree.
+  renameNode(path: string, newName: string): boolean {
+    const node = this.findNode(path);
+    const name = newName.trim();
+    if (!node || !name || name === node.name) return false;
+    node.name = name;
+    const parentPath = path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '';
+    const rePath = (n: TreeNode, base: string) => {
+      const old = n.path;
+      n.path = base ? base + '/' + n.name : n.name;
+      if (old !== n.path) {
+        if (this.expanded.has(old)) { this.expanded.delete(old); this.expanded.add(n.path); }
+        const av = this.chevAnim.get(old);
+        if (av !== undefined) { this.chevAnim.delete(old); this.chevAnim.set(n.path, av); }
+        const dv = this.chevDisp.get(old);
+        if (dv !== undefined) { this.chevDisp.delete(old); this.chevDisp.set(n.path, dv); }
+      }
+      for (const c of n.children || []) rePath(c, n.path);
+    };
+    rePath(node, parentPath);
+    if (this.selected === path) this.selected = node.path;
+    if (this.hovered === path) this.hovered = node.path;
+    this.dirty = true;
+    return true;
+  }
+
   private findNode(path: string): TreeNode | null {
     const walk = (nodes: TreeNode[]): TreeNode | null => {
       for (const n of nodes) {
@@ -310,7 +390,7 @@ export class FileTree {
   }
   // Icon-column left edge for a given depth. Sits one indent + a pad past the
   // rail so the chevron (on the child guide line) has room before the icon.
-  private iconXFor(depth: number): number { return this.guideXFor(depth) + this.indent + 6; }
+  private iconXFor(depth: number): number { return this.guideXFor(depth) + this.indent + this.iconGap; }
   // Chevron center for a given depth — sits directly on top of the guide line it
   // controls (its children's rail, one indent deeper).
   private chevCxFor(depth: number): number { return this.guideXFor(depth) + this.indent; }
@@ -436,7 +516,6 @@ export class FileTree {
 
     // Visible rows
     const treeLineColor: number[] = [th.line[0], th.line[1], th.line[2], 0.35];
-    const accent = th.accent || th.dim;
     const hoverPulse = 0.65 + 0.35 * Math.sin(now / 220);
     const hoveredRow = this.hovered ? this.flatRows.find((r) => r.node.path === this.hovered) : null;
     const selectedRow = this.selected ? this.flatRows.find((r) => r.node.path === this.selected) : null;
@@ -456,9 +535,9 @@ export class FileTree {
       const lineXbase = this.x0 + this.pad + 2;
       const guideX = lineXbase + depth * indent;       // tree line center for this depth
       const iconSize = this.fontSize * 1.05;
-      // Chevron sits on the child guide line (guideX + indent); the icon follows
-      // a pad further right.
-      const iconX = guideX + indent + 6;
+      // Chevron sits on the child guide line (guideX + indent); the icon
+      // follows iconGap further right.
+      const iconX = guideX + indent + this.iconGap;
       const textX = iconX + iconSize + 4;
       const iconY = top + h / 2;
       const baseline = iconY + this.fontSize * 0.4;
@@ -471,7 +550,7 @@ export class FileTree {
       const isSelected = row.node.path === this.selected;
       const onActivePath = !!activeRow &&
         (row.node.path === activeRow.node.path || activeRow.node.path.startsWith(row.node.path + '/'));
-      const pathAccent = (a: number): number[] => [accent[0], accent[1], accent[2], a];
+      const pathAccent = (a: number): number[] => [th.gold[0], th.gold[1], th.gold[2], a];
       const pathA = isHovered || isSelected ? 0.98 : 0.82;
       // Persistent selection strip (hover is conveyed by the line accent below).
       if (isSelected) addRect(this.x0, top, this.x0 + this.width, top + h, fade(th.selected), crv, rws, inst);
@@ -513,7 +592,7 @@ export class FileTree {
         const pop = 1 + 0.18 * Math.sin(Math.PI * Math.max(0, Math.min(1, folderT)));
         const sIcon = (iconSize / this.iconUnits) * pop;
         const ca = (isSelected ? 1 : (isHovered || onActivePath) ? 0.7 + 0.3 * hoverPulse : 1) * rev;
-        const cc = (isHovered || isSelected || onActivePath) ? accent : th.dim;
+        const cc = (isHovered || isSelected || onActivePath) ? th.gold : th.dim;
         const chDown = atlas.table['icon:chevron'];
         const chRight = atlas.table['icon:chevronRight'];
         // Center the ink at (chevCx, iconY) so the twisty reads as its own column.

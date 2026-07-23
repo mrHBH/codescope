@@ -7,6 +7,8 @@ import { FileTree, type FileTreeTheme, type TreeNode } from '../editor/fileTree'
 import { DEPTH_FORMAT } from '../windfoil/mesh3d';
 import { createToolbar } from '../playground/toolbar';
 import { enterOrbit, orbitViewProj, orbitScale, setOrbitEnabled, updateOrbit, screenToDocLocal, setOrbitWheelDolly, setOrbitNear, orbitDollyByWheel } from '../camera/orbit';
+import { ContextMenu } from '../ui/contextMenu';
+import { tabMenu, folderMenu, fileMenu, editorMenu, terminalMenu, type IdeMenuActions } from './menus';
 import { ideTheme as T } from './theme';
 
 const AB_W = 50;
@@ -24,6 +26,74 @@ const SB_TOOL_H = 30;
 const SB_TREE_Y = 141;
 
 const smoothstep = (t: number) => { const c = t < 0 ? 0 : t > 1 ? 1 : t; return c * c * c * (c * (c * 6 - 15) + 10); };
+
+// ── Editor menu helpers ──────────────────────────────────────────────────────
+// Pure implementations behind the editor context menu's "Format Document" and
+// "Toggle Line Comment" actions. Module-level (no IDE closures) so they stay
+// trivially testable and reusable.
+
+// Net {} () [] depth change of a line, ignoring brackets inside strings, line
+// comments, and (tracked across lines via `inBlock`) block comments.
+function bracketDelta(line: string, inBlock: boolean): { delta: number; inBlock: boolean } {
+  let delta = 0;
+  let inStr: string | null = null;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i], n = line[i + 1];
+    if (inBlock) { if (c === '*' && n === '/') { inBlock = false; i++; } continue; }
+    if (inStr) { if (c === '\\') i++; else if (c === inStr) inStr = null; continue; }
+    if (c === '/' && n === '/') break;
+    if (c === '/' && n === '*') { inBlock = true; i++; continue; }
+    if (c === '"' || c === "'" || c === '`') { inStr = c; continue; }
+    if (c === '{' || c === '(' || c === '[') delta++;
+    else if (c === '}' || c === ')' || c === ']') delta--;
+  }
+  return { delta, inBlock };
+}
+
+// Re-indent the whole document: two spaces per open-bracket depth, lines that
+// open with a closer dedent one level first. Applied as ONE undoable replace.
+function formatDocument(ed: CodeEditor) {
+  const src = ed.doc.toString();
+  const out: string[] = [];
+  let depth = 0, inBlock = false;
+  for (const raw of src.split('\n')) {
+    const body = raw.trim();
+    if (body) {
+      const closer = body[0] === '}' || body[0] === ')' || body[0] === ']' ? 1 : 0;
+      out.push('  '.repeat(Math.max(0, depth - closer)) + body);
+    } else out.push('');
+    const r = bracketDelta(body, inBlock);
+    depth = Math.max(0, depth + r.delta);
+    inBlock = r.inBlock;
+  }
+  const text = out.join('\n');
+  if (text === src) return;
+  ed.doc.replace({ start: { line: 0, col: 0 }, end: ed.doc.end() }, text, ed.cursor);
+  ed.cursor = ed.doc.clampPos(ed.cursor);
+  ed.anchor = null;
+  ed.hl.invalidateFrom(0);
+}
+
+// Toggle `// ` on the cursor line, or every line a selection spans.
+function toggleComment(ed: CodeEditor) {
+  const r = ed.selectionRange();
+  const l0 = r ? r.start.line : ed.cursor.line;
+  const l1 = r ? r.end.line : ed.cursor.line;
+  const lines: string[] = [];
+  for (let i = l0; i <= l1; i++) lines.push(ed.doc.lineText(i));
+  const allCommented = lines.every((t) => t.trim() === '' || t.trim().startsWith('//'));
+  const out = lines.map((t) => {
+    if (t.trim() === '') return t;
+    if (allCommented) {
+      const i = t.indexOf('//');
+      return t.slice(0, i) + t.slice(i + 2).replace(/^ /, '');
+    }
+    const indent = (t.match(/^[ \t]*/) || [''])[0];
+    return indent + '// ' + t.slice(indent.length);
+  });
+  ed.doc.replace({ start: { line: l0, col: 0 }, end: { line: l1, col: ed.doc.lineLen(l1) } }, out.join('\n'), ed.cursor);
+  ed.hl.invalidateFrom(l0);
+}
 
 const LOCAL_TREE: TreeNode[] = [
   { name: 'src', path: 'src', type: 'folder', children: [
@@ -176,8 +246,9 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
   const fileTree = new FileTree();
   fileTree.fontSize = 18;
   fileTree.lineHeightMul = 1.6;
-  fileTree.indent = 24;
-  fileTree.pad = 18;
+  fileTree.indent = 18;
+  fileTree.pad = 4;
+  fileTree.iconGap = 12;
   fileTree.showTitleBar = false;
   fileTree.setRoots(SOURCES[1].roots, SOURCES[1].expanded);
 
@@ -185,6 +256,8 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
   terminal.fontSize = 14;
   terminal.showTitleBar = false;
   terminal.open();
+
+  const menu = new ContextMenu();
 
   let sidebarOpen = true;
   let sidebarT = 1;
@@ -205,8 +278,99 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
 
   let focus: 'editor' | 'terminal' = 'editor';
 
+  // Shared tab/file helpers — used by both left-click handling and the
+  // context-menu actions so behaviour stays in one place.
+  function closeTabAt(i: number) {
+    if (tabs.length <= 1) return;
+    tabs[i].editor.focused = false;
+    tabs.splice(i, 1);
+    if (activeTab > i) activeTab--;
+    else if (activeTab >= tabs.length) activeTab = tabs.length - 1;
+    focus = 'editor';
+    tabs[activeTab].editor.focused = true;
+  }
+
+  function openFileNode(node: TreeNode) {
+    const existing = tabs.findIndex(t => t.name === node.name);
+    if (existing >= 0) activeTab = existing;
+    else {
+      const ed = new CodeEditor('// ' + node.path + '\n');
+      ed.fontSize = 15;
+      tabs.push({ name: node.name, editor: ed });
+      activeTab = tabs.length - 1;
+    }
+    focus = 'editor';
+    tabs[activeTab].editor.focused = true;
+  }
+
+  // Implementation of every context-menu capability (see menus.ts). Resolves
+  // the active tab lazily so actions stay valid as tabs open/close.
+  const actions: IdeMenuActions = {
+    closeTab: (i) => closeTabAt(i),
+    closeOtherTabs: (keep) => {
+      for (let i = tabs.length - 1; i >= 0; i--) if (i !== keep) tabs.splice(i, 1);
+      activeTab = 0;
+      focus = 'editor';
+      tabs[0].editor.focused = true;
+    },
+    closeTabsToRight: (i) => {
+      while (tabs.length > i + 1) tabs.pop();
+      if (activeTab > i) activeTab = i;
+      tabs[activeTab].editor.focused = true;
+    },
+    openFile: (node) => openFileNode(node),
+    toggleFolder: (path) => fileTree.toggleFolder(path),
+    newFileIn: (folder) => {
+      const name = prompt('New file name:');
+      if (!name?.trim()) return;
+      fileTree.addChild(folder.path, { name: name.trim(), path: folder.path + '/' + name.trim(), type: 'file' });
+    },
+    newFolderIn: (folder) => {
+      const name = prompt('New folder name:');
+      if (!name?.trim()) return;
+      fileTree.addChild(folder.path, { name: name.trim(), path: folder.path + '/' + name.trim(), type: 'folder', children: [] });
+    },
+    renameNode: (node) => {
+      const name = prompt('Rename:', node.name);
+      if (name) fileTree.renameNode(node.path, name);
+    },
+    deleteNode: (node) => fileTree.removeNode(node.path),
+    copyPath: (path) => { navigator.clipboard?.writeText(path).catch(() => {}); },
+    canUndo: () => tabs[activeTab].editor.doc.canUndo(),
+    canRedo: () => tabs[activeTab].editor.doc.canRedo(),
+    hasSelection: () => tabs[activeTab].editor.hasSelection(),
+    undo: () => tabs[activeTab].editor.undo(),
+    redo: () => tabs[activeTab].editor.redo(),
+    cut: () => {
+      const ed = tabs[activeTab].editor;
+      const t = ed.selectedText();
+      if (!t) return;
+      navigator.clipboard?.writeText(t).catch(() => {});
+      ed.insertText('');
+    },
+    copy: () => {
+      const t = tabs[activeTab].editor.selectedText();
+      if (t) navigator.clipboard?.writeText(t).catch(() => {});
+    },
+    paste: () => {
+      const ed = tabs[activeTab].editor;
+      navigator.clipboard?.readText().then((t) => { if (t) ed.insertText(t.replace(/\r\n/g, '\n')); }).catch(() => {});
+    },
+    formatDocument: () => formatDocument(tabs[activeTab].editor),
+    toggleComment: () => toggleComment(tabs[activeTab].editor),
+    selectAll: () => tabs[activeTab].editor.selectAll(),
+    clearTerminal: () => terminal.clear(),
+    closeTerminal: () => {
+      termOpen = false; termDir = -1;
+      focus = 'editor';
+      tabs[activeTab].editor.focused = true;
+      terminal.focused = false;
+    },
+  };
+
   let mx = 0, my = 0;
   let rightDown = false;
+  let rightMoved = false, rightSX = 0, rightSY = 0;
   let d3 = { x: 0, y: 0, t: 0, moved: false, active: false };
   let hoverExplorer = false;
   let hoverTerminal = false;
@@ -563,6 +727,7 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
   }
 
   function onPointerMove(e: PointerEvent) {
+    if (rightDown && (Math.abs(e.clientX - rightSX) > 6 || Math.abs(e.clientY - rightSY) > 6)) rightMoved = true;
     [mx, my] = toWorld(e);
     if (cam3d) {
       if (d3.active && (Math.abs(e.clientX - d3.x) > 5 || Math.abs(e.clientY - d3.y) > 5)) d3.moved = true;
@@ -600,7 +765,7 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
   function blurSearch() { searchFocused = false; focus = 'editor'; tabs[activeTab].editor.focused = true; }
 
   function onPointerDown(e: PointerEvent) {
-    if (e.button === 2) { rightDown = true; return; }
+    if (e.button === 2) { rightDown = true; rightMoved = false; rightSX = e.clientX; rightSY = e.clientY; menu.hide(); return; }
     if (e.button !== 0) return;
     [mx, my] = toWorld(e);
     if (cam3d) {
@@ -665,18 +830,7 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
           fileTree.toggleFolder(row.node.path);
         } else {
           fileTree.select(row.node.path);
-          if (row.node.type === 'file') {
-            const existing = tabs.findIndex(t => t.name === row.node.name);
-            if (existing >= 0) activeTab = existing;
-            else {
-              const ed = new CodeEditor('// ' + row.node.path + '\n');
-              ed.fontSize = 15;
-              tabs.push({ name: row.node.name, editor: ed });
-              activeTab = tabs.length - 1;
-            }
-            focus = 'editor';
-            tabs[activeTab].editor.focused = true;
-          }
+          if (row.node.type === 'file') openFileNode(row.node);
         }
       }
       return;
@@ -707,10 +861,7 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
         if (mx >= txx && mx <= txx + tw2) {
           const closeX = txx + tw2 - 14;
           if (Math.abs(mx - closeX) < 8 && Math.abs(my - TAB_BAR_H / 2) < 8 && tabs.length > 1) {
-            tabs[i].editor.focused = false;
-            tabs.splice(i, 1);
-            if (activeTab >= tabs.length) activeTab = tabs.length - 1;
-            tabs[activeTab].editor.focused = true;
+            closeTabAt(i);
           } else {
             tabs[activeTab].editor.focused = false;
             activeTab = i;
@@ -805,7 +956,72 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
   setOrbitWheelDolly(false);
   setOrbitNear(1e-3);
 
-  const onContextMenu = (e: Event) => e.preventDefault();
+  // ── Context menu routing ───────────────────────────────────────────────────
+  // Right-click (or the keyboard menu key) opens the menu for the surface under
+  // the pointer. Hit-test order mirrors handlePick: tab bar → sidebar tree →
+  // terminal → editor. In 3D the screen point is projected onto the document
+  // plane first, exactly like the left-click path. A right-DRAG (orbit/pan) is
+  // suppressed via rightMoved so releasing an orbit never pops a menu.
+  // New surfaces: add a builder in menus.ts, then a branch here.
+  function onContextMenu(e: MouseEvent) {
+    e.preventDefault();
+    if (rightMoved) return;
+    let [wx, wy] = toWorld(e);
+    if (cam3d) {
+      const p = screenToDocLocal(wx * dpr, wy * dpr, tCanvas.width, tCanvas.height);
+      wx = p.x; wy = p.y;
+    }
+    const { h, editorX, sw, termH } = layout();
+
+    // Editor tab strip (right-click also activates the targeted tab).
+    if (wy < TAB_BAR_H && wx >= editorX) {
+      let txx = editorX + 4, idx = -1;
+      for (let i = 0; i < tabs.length; i++) {
+        const tw2 = textW(tabs[i].name, 12) + 28;
+        if (wx >= txx && wx <= txx + tw2) { idx = i; break; }
+        txx += tw2;
+      }
+      if (idx >= 0) {
+        tabs[activeTab].editor.focused = false;
+        activeTab = idx;
+        tabs[activeTab].editor.focused = true;
+        focus = 'editor';
+        menu.show(e.clientX, e.clientY, tabMenu(actions, idx, tabs.length));
+      }
+      return;
+    }
+
+    // File tree rows — folders and files get distinct menus.
+    if (sw > 1 && sidebarT > 0.9 && wx >= AB_W && wx < AB_W + sw && wy >= SB_TREE_Y && wy < h - STATUS_H) {
+      const row = fileTree.rowAtY(wy);
+      if (row) {
+        fileTree.select(row.node.path);
+        menu.show(e.clientX, e.clientY, row.node.type === 'folder'
+          ? folderMenu(actions, row.node, fileTree.isExpanded(row.node.path))
+          : fileMenu(actions, row.node));
+      }
+      return;
+    }
+
+    // Terminal panel (header + body).
+    if (termH > 1) {
+      const ty2 = h - STATUS_H - termH - TERM_HEADER_H;
+      if (wx >= editorX && wy >= ty2 && wy < h - STATUS_H) {
+        focus = 'terminal';
+        terminal.focused = true;
+        tabs[activeTab].editor.focused = false;
+        menu.show(e.clientX, e.clientY, terminalMenu(actions));
+        return;
+      }
+    }
+
+    // Code editor body.
+    if (wx >= editorX && wy >= TAB_BAR_H && wy < h - STATUS_H) {
+      focus = 'editor';
+      tabs[activeTab].editor.focused = true;
+      menu.show(e.clientX, e.clientY, editorMenu(actions));
+    }
+  }
 
   let alive = true;
   function frame(now: number) {

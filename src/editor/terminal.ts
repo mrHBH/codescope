@@ -95,6 +95,8 @@ export class Terminal {
   // ── Public buffer API ──────────────────────────────────────────────────────
   setCommandHandler(handler: TerminalCommandHandler | null) { this.commandHandler = handler; }
   writeLine(text: string, color: number[] = T.text) { this.plain(text, color); }
+  // Wipe scrollback + any live widget (the `clear` command and context menu).
+  clear() { this.lines = []; this.widget = null; }
   writePairs(parts: { text: string; color?: number[] }[]) { this.push(parts.map((p) => ({ text: p.text, color: p.color ?? T.text }))); }
   runCommand(raw: string) { this.run(raw); }
   private push(line: Line) { this.lines.push(line); if (this.lines.length > 500) this.lines.shift(); }
@@ -185,7 +187,7 @@ export class Terminal {
         this.widget = { kind: 'clock', start: this.now };
         break;
       case 'clear':
-        this.lines = [];
+        this.clear();
         break;
       default:
         this.push([{ text: name, color: T.red }, { text: ': command not found', color: T.dim }]);
