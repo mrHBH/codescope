@@ -276,6 +276,49 @@ export class Terminal {
   }
   interrupt() { this.widget = null; if (!this.busy) { this.input = ''; this.cursorCol = 0; } }
 
+  // Fully encapsulated keyboard handler. Returns true if the key was consumed.
+  // Callers check for Ctrl+` (close terminal) before calling this if they want
+  // IDE-level terminal toggle behaviour.
+  handleKey(e: KeyboardEvent): boolean {
+    const meta = e.ctrlKey || e.metaKey;
+    const k = e.key;
+
+    if (meta && k.toLowerCase() === 'c') { this.interrupt(); e.preventDefault(); return true; }
+    if (meta && k.toLowerCase() === 'v') {
+      if (navigator.clipboard) navigator.clipboard.readText().then((t) => { for (const ch of t.replace(/\s+/g, ' ')) this.insert(ch); }).catch(() => {});
+      e.preventDefault(); return true;
+    }
+
+    const word = e.ctrlKey || e.altKey;
+    if (word) {
+      switch (k) {
+        case 'Backspace': this.deleteWordLeft(); e.preventDefault(); return true;
+        case 'Delete': this.deleteWordRight(); e.preventDefault(); return true;
+        case 'ArrowLeft': this.moveWordLeft(); e.preventDefault(); return true;
+        case 'ArrowRight': this.moveWordRight(); e.preventDefault(); return true;
+      }
+    }
+
+    switch (k) {
+      case 'Enter': this.enter(); break;
+      case 'Backspace': this.backspace(); break;
+      case 'Delete': this.del(); break;
+      case 'ArrowLeft': this.left(); break;
+      case 'ArrowRight': this.right(); break;
+      case 'ArrowUp': this.historyPrev(); break;
+      case 'ArrowDown': this.historyNext(); break;
+      case 'Home': this.home(); break;
+      case 'End': this.end(); break;
+      case 'Tab': return false;
+      case 'Escape': return false;
+      default:
+        if (k.length === 1 && !meta && !e.altKey) this.insert(k);
+        else return false;
+    }
+    e.preventDefault();
+    return true;
+  }
+
   // ── Per-frame update (typewriter + boot completion) ────────────────────────
   private update(now: number, dt: number) {
     this.now = now;

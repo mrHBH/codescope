@@ -121,6 +121,11 @@ export class FileTree {
   // Gap between the chevron column and the icon column (chevrons sit on the
   // child guide line; the file/folder icon starts this far past it).
   iconGap = 6;
+  // Extra margin (world px) pushed INWARD from each edge of the visible body
+  // before the fade zone starts — items hit full transparency this many px
+  // before they reach the panel boundary. Callers set this to match chrome
+  // padding (e.g. a separator line above the tree). Default is 0.
+  clipPad = 0;
   private readonly iconUnits = 24;
 
   // State
@@ -509,16 +514,38 @@ export class FileTree {
     const selectedRow = this.selected ? this.flatRows.find((r) => r.node.path === this.selected) : null;
     const activeRow = hoveredRow || selectedRow;
 
+    // Fade distance at each edge — rows that are within this many pixels of
+    // crossing the boundary smoothly fade out instead of popping in/out.
+    const fadeDist = lh * 0.7;
+    const smooth01 = (t: number) => t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t);
+
     for (let i = 0; i < nRows; i++) {
       const row = this.flatRows[i];
       const rev = rowRev[i];
       if (rev < 0.02) continue;                 // fully collapsed away
       const top = rowTop[i];
       const h = lh * rev;
-      if (top + h < bodyTop || top > bodyTop + this.bodyH) continue;
       const depth = row.depth;
-      // Alpha-scale every mark on this row by its reveal so it fades with height.
-      const fade = (c: number[]): number[] => [c[0], c[1], c[2], c[3] * rev];
+
+      // Edge-fade boundaries. clipPad shifts both inward (items fully fade before
+      // they reach the panel boundary so they don't bleed past chrome like
+      // separators or status bars).
+      const topEdge = bodyTop + this.clipPad;
+      const botEdge = bodyTop + this.bodyH - this.clipPad;
+      // Only skip rows fully outside the expanded cull zone (view edge + fade zone).
+      if (top + h < topEdge - fadeDist || top > botEdge + fadeDist) continue;
+
+      // Fade factor: the row starts fading as soon as its TOP enters the fade
+      // zone at each edge (not its bottom — that would let the row's top bleed
+      // past the boundary while its bottom is still inside).
+      const topDist = top - topEdge;           // negative when row top is above the edge
+      const botDist = botEdge - (top + h);     // negative when row bottom is below the edge
+      const clipR = smooth01(Math.min(1, Math.max(0, 1 + topDist / fadeDist))) *
+                    smooth01(Math.min(1, Math.max(0, 1 + botDist / fadeDist)));
+      const effR = rev * clipR;
+
+      // Alpha-scale every mark on this row by its reveal + edge fade.
+      const fade = (c: number[]): number[] => [c[0], c[1], c[2], c[3] * effR];
 
       const lineXbase = this.x0 + this.pad + 2;
       const guideX = lineXbase + depth * indent;       // tree line center for this depth
@@ -579,7 +606,7 @@ export class FileTree {
         // Subtle scale "pop" peaks mid-transition for a livelier feel.
         const pop = 1 + 0.18 * Math.sin(Math.PI * Math.max(0, Math.min(1, folderT)));
         const sIcon = (iconSize / this.iconUnits) * pop;
-        const ca = (isSelected ? 1 : (isHovered || onActivePath) ? 0.7 + 0.3 * hoverPulse : 1) * rev;
+        const ca = (isSelected ? 1 : (isHovered || onActivePath) ? 0.7 + 0.3 * hoverPulse : 1) * effR;
         const cc = (isHovered || isSelected || onActivePath) ? th.gold : th.dim;
         const chDown = atlas.table['icon:chevron'];
         const chRight = atlas.table['icon:chevronRight'];
@@ -602,12 +629,12 @@ export class FileTree {
         // Cross-fade closed ↔ open folder in sync with the chevron rotation.
         const closed = atlas.table['icon:folder'];
         const open = atlas.table['icon:folderOpen'];
-        const ca = (isSelected ? 1 : (isHovered || onActivePath) ? 0.85 + 0.15 * hoverPulse : 1) * rev;
+        const ca = (isSelected ? 1 : (isHovered || onActivePath) ? 0.85 + 0.15 * hoverPulse : 1) * effR;
         this.pushCentered(inst, closed, iconCx, iconCy, sIcon, th.gold, ca * (1 - folderT));
         this.pushCentered(inst, open, iconCx, iconCy, sIcon, th.gold, ca * folderT);
       } else {
         const gl = atlas.table[fileIcon.name];
-        if (gl) this.pushCentered(inst, gl, iconCx, iconCy, sIcon, fileIcon.color, rev);
+        if (gl) this.pushCentered(inst, gl, iconCx, iconCy, sIcon, fileIcon.color, effR);
       }
 
       // Name text

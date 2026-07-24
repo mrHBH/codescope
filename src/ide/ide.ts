@@ -28,74 +28,6 @@ const SB_TREE_Y = 141;
 
 const smoothstep = (t: number) => { const c = t < 0 ? 0 : t > 1 ? 1 : t; return c * c * c * (c * (c * 6 - 15) + 10); };
 
-// ── Editor menu helpers ──────────────────────────────────────────────────────
-// Pure implementations behind the editor context menu's "Format Document" and
-// "Toggle Line Comment" actions. Module-level (no IDE closures) so they stay
-// trivially testable and reusable.
-
-// Net {} () [] depth change of a line, ignoring brackets inside strings, line
-// comments, and (tracked across lines via `inBlock`) block comments.
-function bracketDelta(line: string, inBlock: boolean): { delta: number; inBlock: boolean } {
-  let delta = 0;
-  let inStr: string | null = null;
-  for (let i = 0; i < line.length; i++) {
-    const c = line[i], n = line[i + 1];
-    if (inBlock) { if (c === '*' && n === '/') { inBlock = false; i++; } continue; }
-    if (inStr) { if (c === '\\') i++; else if (c === inStr) inStr = null; continue; }
-    if (c === '/' && n === '/') break;
-    if (c === '/' && n === '*') { inBlock = true; i++; continue; }
-    if (c === '"' || c === "'" || c === '`') { inStr = c; continue; }
-    if (c === '{' || c === '(' || c === '[') delta++;
-    else if (c === '}' || c === ')' || c === ']') delta--;
-  }
-  return { delta, inBlock };
-}
-
-// Re-indent the whole document: two spaces per open-bracket depth, lines that
-// open with a closer dedent one level first. Applied as ONE undoable replace.
-function formatDocument(ed: CodeEditor) {
-  const src = ed.doc.toString();
-  const out: string[] = [];
-  let depth = 0, inBlock = false;
-  for (const raw of src.split('\n')) {
-    const body = raw.trim();
-    if (body) {
-      const closer = body[0] === '}' || body[0] === ')' || body[0] === ']' ? 1 : 0;
-      out.push('  '.repeat(Math.max(0, depth - closer)) + body);
-    } else out.push('');
-    const r = bracketDelta(body, inBlock);
-    depth = Math.max(0, depth + r.delta);
-    inBlock = r.inBlock;
-  }
-  const text = out.join('\n');
-  if (text === src) return;
-  ed.doc.replace({ start: { line: 0, col: 0 }, end: ed.doc.end() }, text, ed.cursor);
-  ed.cursor = ed.doc.clampPos(ed.cursor);
-  ed.anchor = null;
-  ed.hl.invalidateFrom(0);
-}
-
-// Toggle `// ` on the cursor line, or every line a selection spans.
-function toggleComment(ed: CodeEditor) {
-  const r = ed.selectionRange();
-  const l0 = r ? r.start.line : ed.cursor.line;
-  const l1 = r ? r.end.line : ed.cursor.line;
-  const lines: string[] = [];
-  for (let i = l0; i <= l1; i++) lines.push(ed.doc.lineText(i));
-  const allCommented = lines.every((t) => t.trim() === '' || t.trim().startsWith('//'));
-  const out = lines.map((t) => {
-    if (t.trim() === '') return t;
-    if (allCommented) {
-      const i = t.indexOf('//');
-      return t.slice(0, i) + t.slice(i + 2).replace(/^ /, '');
-    }
-    const indent = (t.match(/^[ \t]*/) || [''])[0];
-    return indent + '// ' + t.slice(indent.length);
-  });
-  ed.doc.replace({ start: { line: l0, col: 0 }, end: { line: l1, col: ed.doc.lineLen(l1) } }, out.join('\n'), ed.cursor);
-  ed.hl.invalidateFrom(l0);
-}
-
 const LOCAL_TREE: TreeNode[] = [
   { name: 'src', path: 'src', type: 'folder', children: [
     { name: 'camera', path: 'src/camera', type: 'folder', children: [
@@ -430,6 +362,7 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
   fileTree.pad = 4;
   fileTree.iconGap = 12;
   fileTree.showTitleBar = false;
+  fileTree.clipPad = 4;
   fileTree.setRoots(SOURCES[1].roots, SOURCES[1].expanded);
 
   const terminal = new Terminal();
@@ -539,8 +472,8 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
       const ed = tabs[activeTab].editor;
       navigator.clipboard?.readText().then((t) => { if (t) ed.insertText(t.replace(/\r\n/g, '\n')); }).catch(() => {});
     },
-    formatDocument: () => formatDocument(tabs[activeTab].editor),
-    toggleComment: () => toggleComment(tabs[activeTab].editor),
+    formatDocument: () => tabs[activeTab].editor.formatDocument(),
+    toggleComment: () => tabs[activeTab].editor.toggleComment(),
     selectAll: () => tabs[activeTab].editor.selectAll(),
     clearTerminal: () => terminal.clear(),
     closeTerminal: () => {
@@ -1197,15 +1130,15 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
       return;
     }
     if (focus === 'terminal') {
-      const t = terminal;
-      if (e.key === 'Enter') { e.preventDefault(); t.runCommand(t.input); t.input = ''; (t as any).cursorCol = 0; }
-      else if (e.key === 'Backspace') { e.preventDefault(); if (t.input.length > 0) { const cc = (t as any).cursorCol as number; t.input = t.input.slice(0, Math.max(0, cc - 1)) + t.input.slice(cc); (t as any).cursorCol = Math.max(0, cc - 1); } }
-      else if (e.key === 'ArrowUp') { e.preventDefault(); (t as any).histIdx = Math.max(0, ((t as any).histIdx ?? 0) - 1); const h = (t as any).history as string[]; if (h.length) { t.input = h[(t as any).histIdx] ?? ''; (t as any).cursorCol = t.input.length; } }
-      else if (e.key === 'ArrowDown') { e.preventDefault(); const h = (t as any).history as string[]; (t as any).histIdx = Math.min(h.length, ((t as any).histIdx ?? 0) + 1); t.input = (t as any).histIdx < h.length ? h[(t as any).histIdx] : ''; (t as any).cursorCol = t.input.length; }
-      else if (e.key === 'c' && e.ctrlKey) { e.preventDefault(); t.input = ''; (t as any).cursorCol = 0; t.writeLine('^C', [0.88, 0.40, 0.38, 1]); }
-      else if (e.key === '`' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); termOpen = false; termDir = -1; focus = 'editor'; tabs[activeTab].editor.focused = true; t.focused = false; }
-      else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey) { e.preventDefault(); const cc = (t as any).cursorCol as number; t.input = t.input.slice(0, cc) + e.key + t.input.slice(cc); (t as any).cursorCol = cc + 1; }
-      return;
+      if ((e.ctrlKey || e.metaKey) && e.key === '`') {
+        e.preventDefault();
+        termOpen = false; termDir = -1;
+        focus = 'editor';
+        tabs[activeTab].editor.focused = true;
+        terminal.focused = false;
+        return;
+      }
+      if (terminal.handleKey(e)) return;
     }
     const ed = tabs[activeTab].editor;
     const ctrl = e.ctrlKey || e.metaKey;

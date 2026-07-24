@@ -344,6 +344,69 @@ export class CodeEditor {
     }
   }
 
+  // Net {} () [] depth change of a line, ignoring brackets inside strings, line
+  // comments, and (tracked across lines via `inBlock`) block comments.
+  private static bracketDelta(line: string, inBlock: boolean): { delta: number; inBlock: boolean } {
+    let delta = 0;
+    let inStr: string | null = null;
+    for (let i = 0; i < line.length; i++) {
+      const c = line[i], n = line[i + 1];
+      if (inBlock) { if (c === '*' && n === '/') { inBlock = false; i++; } continue; }
+      if (inStr) { if (c === '\\') i++; else if (c === inStr) inStr = null; continue; }
+      if (c === '/' && n === '/') break;
+      if (c === '/' && n === '*') { inBlock = true; i++; continue; }
+      if (c === '"' || c === "'" || c === '`') { inStr = c; continue; }
+      if (c === '{' || c === '(' || c === '[') delta++;
+      else if (c === '}' || c === ')' || c === ']') delta--;
+    }
+    return { delta, inBlock };
+  }
+
+  // Re-indent the whole document: two spaces per open-bracket depth, lines that
+  // open with a closer dedent one level first. Applied as ONE undoable replace.
+  formatDocument() {
+    const src = this.doc.toString();
+    const out: string[] = [];
+    let depth = 0, inBlock = false;
+    for (const raw of src.split('\n')) {
+      const body = raw.trim();
+      if (body) {
+        const closer = body[0] === '}' || body[0] === ')' || body[0] === ']' ? 1 : 0;
+        out.push('  '.repeat(Math.max(0, depth - closer)) + body);
+      } else out.push('');
+      const r = CodeEditor.bracketDelta(body, inBlock);
+      depth = Math.max(0, depth + r.delta);
+      inBlock = r.inBlock;
+    }
+    const text = out.join('\n');
+    if (text === src) return;
+    this.doc.replace({ start: { line: 0, col: 0 }, end: this.doc.end() }, text, this.cursor);
+    this.cursor = this.doc.clampPos(this.cursor);
+    this.anchor = null;
+    this.hl.invalidateFrom(0);
+  }
+
+  // Toggle `// ` on the cursor line, or every line a selection spans.
+  toggleComment() {
+    const r = this.selectionRange();
+    const l0 = r ? r.start.line : this.cursor.line;
+    const l1 = r ? r.end.line : this.cursor.line;
+    const lines: string[] = [];
+    for (let i = l0; i <= l1; i++) lines.push(this.doc.lineText(i));
+    const allCommented = lines.every((t) => t.trim() === '' || t.trim().startsWith('//'));
+    const out = lines.map((t) => {
+      if (t.trim() === '') return t;
+      if (allCommented) {
+        const i = t.indexOf('//');
+        return t.slice(0, i) + t.slice(i + 2).replace(/^ /, '');
+      }
+      const indent = (t.match(/^[ \t]*/) || [''])[0];
+      return indent + '// ' + t.slice(indent.length);
+    });
+    this.doc.replace({ start: { line: l0, col: 0 }, end: { line: l1, col: this.doc.lineLen(l1) } }, out.join('\n'), this.cursor);
+    this.hl.invalidateFrom(l0);
+  }
+
   // Tabular digit run (line numbers): fixed digit-width cells so numbers align.
   private emitDigits(inst: number[], text: string, color: number[], atlas: any, x: number, baseline: number, s: number) {
     for (let i = 0; i < text.length; i++) {
