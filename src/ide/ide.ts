@@ -570,6 +570,14 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
   const toolInst: number[] = [];
   const toolCrv: number[] = [];
   const toolRws: number[] = [];
+  let toolFA = new Float32Array(4096);
+  let toolCrvFA = new Float32Array(4096);
+  let toolRwsUA = new Uint32Array(1024);
+  const toolVP = new Float32Array(16);
+  const vp2d = new Float32Array(16);
+  const uCamScale: number[] = [1, 1];
+  const uCamCenter: number[] = [0, 0];
+  const uHudScale: number[] = [1, 1];
   let crvFA = new Float32Array(65536);
   let rwsUA = new Uint32Array(16384);
 
@@ -928,7 +936,8 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
         for (let j = 2; j < 16; j++) instFA[i + j] = inst[i + j];
       }
       const sxm = (2 * dpr) / Cw, sym = (2 * dpr) / Ch;
-      vp = new Float32Array([sxm, 0, 0, 0, 0, -sym, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]);
+      vp2d[0] = sxm; vp2d[5] = -sym; vp2d[10] = 0; vp2d[15] = 1;
+      vp = vp2d;
       cs = dpr;
     }
     if (crv.length > crvFA.length) crvFA = new Float32Array(crv.length * 2);
@@ -942,17 +951,21 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
       colorAttachments: [{ view: gpuCtx.getCurrentTexture().createView(), clearValue: { r: T.editorBg[0], g: T.editorBg[1], b: T.editorBg[2], a: 1 }, loadOp: 'clear', storeOp: 'store' }],
       depthStencilAttachment: { view: dv, depthClearValue: 1, depthLoadOp: 'clear', depthStoreOp: 'store' },
     });
-    renderer.setUniforms({ width: Cw, height: Ch, camScale: [cs, cs], camCenter: [0, 0], viewProj: vp });
+    uCamScale[0] = cs; uCamScale[1] = cs;
+    renderer.setUniforms({ width: Cw, height: Ch, camScale: uCamScale, camCenter: uCamCenter, viewProj: vp });
     renderer.draw(pass, crvFA.subarray(0, crv.length), rwsUA.subarray(0, rws.length), instFA.subarray(0, inst.length), inst.length / 16);
 
     // Toolbar overlay — EXACT CinematicHud pattern (backing-store px + screen-ortho matrix)
     if (toolInst.length > 0) {
-      const tIFA = new Float32Array(toolInst);
-      const tCFA = new Float32Array(toolCrv);
-      const tRUA = new Uint32Array(toolRws);
-      const so = new Float32Array([2 / Cw, 0, 0, 0, 0, -2 / Ch, 0, 0, 0, 0, 0, 0, -1, 1, 0, 1]);
-      hudRenderer.setUniforms({ width: Cw, height: Ch, camScale: [1, 1], camCenter: [0, 0], viewProj: so });
-      hudRenderer.draw(pass, tCFA, tRUA, tIFA, toolInst.length / 16);
+      if (toolInst.length > toolFA.length) toolFA = new Float32Array(toolInst.length * 2);
+      toolFA.set(toolInst);
+      if (toolCrv.length > toolCrvFA.length) toolCrvFA = new Float32Array(toolCrv.length * 2);
+      toolCrvFA.set(toolCrv);
+      if (toolRws.length > toolRwsUA.length) toolRwsUA = new Uint32Array(toolRws.length * 2);
+      toolRwsUA.set(toolRws);
+      toolVP[0] = 2 / Cw; toolVP[5] = -2 / Ch; toolVP[10] = 0; toolVP[12] = -1; toolVP[13] = 1; toolVP[15] = 1;
+      hudRenderer.setUniforms({ width: Cw, height: Ch, camScale: uHudScale, camCenter: uCamCenter, viewProj: toolVP });
+      hudRenderer.draw(pass, toolCrvFA.subarray(0, toolCrv.length), toolRwsUA.subarray(0, toolRws.length), toolFA.subarray(0, toolInst.length), toolInst.length / 16);
     }
 
     pass.end();

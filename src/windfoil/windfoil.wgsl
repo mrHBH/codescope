@@ -35,6 +35,16 @@ const ROW_XMAX : u32 = 4u;
 override MINIFICATION_GUARD : bool = true;
 const GUARD_PX = 3.7;
 
+// Deep-zoom counterpart of the minification guard. Once the glyph spans more
+// than MAG_GUARD_PX device pixels on BOTH axes, most fragments are interior
+// (coverage 0 or 1) and the full area integral is overkill. A single-point
+// winding test (one ray-cast through one band — no integrate_piece, no area
+// polynomial) replaces it, trading the 1 px AA skirt for a large ALU +
+// storage-bandwidth saving. At 64+ px/axis the lost AA is < 1.6 % of the
+// glyph and invisible. Overridable so the validation suite can disable it.
+override MAGNIFICATION_GUARD : bool = true;
+const MAG_GUARD_PX = 64.0;
+
 override EXACT_MODE : bool = false; // offline: point-sample the true fill rule, no fold (ALGORITHM.md §4)
 override EXACT_GRID : u32 = 8u;     // sub-samples per axis in exact mode
 
@@ -361,6 +371,15 @@ fn fs(in : VsOut) -> @location(0) vec4f {
 
   if (MINIFICATION_GUARD && all(s * GUARD_PX >= I.bbox.zw - I.bbox.xy)) {
     return fold_shade(profile_face(I.band, I.bbox, rc, s) / (s.x * s.y), I.place.w, I.color);
+  }
+
+  if (MAGNIFICATION_GUARD && all((I.bbox.zw - I.bbox.xy) / s > vec2f(MAG_GUARD_PX))) {
+    if (any(rc < I.bbox.xy) || any(rc > I.bbox.zw)) {
+      return shade(I.color, 0.0);
+    }
+    let w = winding_at(I.band, I.bbox.y, rc, vec2f(0.0));
+    let inside = select(w.x != 0, (w.y & 1) == 1, I.place.w > 0.5);
+    return shade(I.color, select(0.0, 1.0, inside));
   }
 
   // Anisotropic supersampling. When the footprint is elongated (grazing angle in

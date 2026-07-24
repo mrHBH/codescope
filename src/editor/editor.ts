@@ -42,6 +42,7 @@ export class CodeEditor {
   // Per-line cumulative x-offset cache (rel. to textLeft), invalidated by version.
   private offsetCache = new Map<number, number[]>();
   private offsetVersion = -1;
+  private _bloomCol: number[] = [0, 0, 0, 0];
 
   constructor(text: string) { this.doc = new TextDocument(text); }
 
@@ -318,21 +319,32 @@ export class CodeEditor {
 
       // Syntax-colored glyphs, positioned by real advance (off[] is per-char x).
       const tokens = this.hl.tokensFor(this.doc.lines, i);
-      const emitSlice = (from: number, to: number, color: number[]) => {
-        for (let c = from; c < to; c++) {
+      let cursorCol = 0;
+      for (const tk of tokens) {
+        if (tk.start > cursorCol) {
+          for (let c = cursorCol; c < tk.start; c++) {
+            const ch = text[c];
+            if (ch === ' ' || ch === '\t') continue;
+            const gl = atlas.table[ch];
+            if (gl) inst.push(this.textLeft + off[c], baseline, s, 0, gl.bbox[0], gl.bbox[1], gl.bbox[2], gl.bbox[3], th.text[0], th.text[1], th.text[2], th.text[3], gl.rowBase, gl.bandCount, gl.bandH, gl.invH);
+          }
+        }
+        for (let c = tk.start; c < tk.end; c++) {
           const ch = text[c];
           if (ch === ' ' || ch === '\t') continue;
           const gl = atlas.table[ch];
-          if (gl) inst.push(this.textLeft + off[c], baseline, s, 0, gl.bbox[0], gl.bbox[1], gl.bbox[2], gl.bbox[3], color[0], color[1], color[2], color[3], gl.rowBase, gl.bandCount, gl.bandH, gl.invH);
+          if (gl) inst.push(this.textLeft + off[c], baseline, s, 0, gl.bbox[0], gl.bbox[1], gl.bbox[2], gl.bbox[3], tk.color[0], tk.color[1], tk.color[2], tk.color[3], gl.rowBase, gl.bandCount, gl.bandH, gl.invH);
         }
-      };
-      let cursorCol = 0;
-      for (const tk of tokens) {
-        if (tk.start > cursorCol) emitSlice(cursorCol, tk.start, th.text);
-        emitSlice(tk.start, tk.end, tk.color);
         cursorCol = tk.end;
       }
-      if (cursorCol < text.length) emitSlice(cursorCol, text.length, th.text);
+      if (cursorCol < text.length) {
+        for (let c = cursorCol; c < text.length; c++) {
+          const ch = text[c];
+          if (ch === ' ' || ch === '\t') continue;
+          const gl = atlas.table[ch];
+          if (gl) inst.push(this.textLeft + off[c], baseline, s, 0, gl.bbox[0], gl.bbox[1], gl.bbox[2], gl.bbox[3], th.text[0], th.text[1], th.text[2], th.text[3], gl.rowBase, gl.bandCount, gl.bandH, gl.invH);
+        }
+      }
 
       // Caret — full line height, thickness scales with font size (min the
       // passed-in screen-space width so it stays visible when zoomed out).
@@ -340,9 +352,10 @@ export class CodeEditor {
       if (this.focused && i === this.cursor.line && (now % 1060) < 530) {
         const cx = this.colToX(i, this.cursor.col);
         const cw = Math.max(caretW, this.fontSize * 0.12);
-        const bloom = (w: number, a: number) => addRect(cx - w, top, cx + w, top + lh, [th.caret[0], th.caret[1], th.caret[2], a], crv, rws, inst);
-        bloom(cw * 4, 0.05);
-        bloom(cw * 2, 0.10);
+        const bc = this._bloomCol;
+        bc[0] = th.caret[0]; bc[1] = th.caret[1]; bc[2] = th.caret[2];
+        bc[3] = 0.05; addRect(cx - cw * 4, top, cx + cw * 4, top + lh, bc, crv, rws, inst);
+        bc[3] = 0.10; addRect(cx - cw * 2, top, cx + cw * 2, top + lh, bc, crv, rws, inst);
         addRect(cx, top, cx + cw, top + lh, th.caret, crv, rws, inst);
       }
     }

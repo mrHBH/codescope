@@ -71,6 +71,12 @@ export class Terminal {
   private caretX = -1;
   private caretBlinkPhase = 0;
 
+  private _promptLine: Line | null = null;
+  private _body: Line[] = [];
+  private _promptInput: Line = [];
+  private _caretCol: number[] = [0, 0, 0, 0];
+  private _hairlineCol: number[] = [0, 0, 0, 0];
+
   constructor() { /* boot is deferred until first open() */ }
 
   // Kick off the boot sequence the first time the terminal is shown.
@@ -103,8 +109,11 @@ export class Terminal {
   private plain(text: string, color: number[]) { this.push([{ text, color }]); }
 
   private prompt(): Line {
-    return [{ text: 'guest@windfoil', color: T.green }, { text: ':', color: T.dim },
-            { text: '~', color: T.cyan }, { text: '$ ', color: T.dim }];
+    if (!this._promptLine) {
+      this._promptLine = [{ text: 'guest@windfoil', color: T.green }, { text: ':', color: T.dim },
+              { text: '~', color: T.cyan }, { text: '$ ', color: T.dim }];
+    }
+    return this._promptLine;
   }
 
   // Enqueue a line to be typed out gradually (boot / command output flavor).
@@ -366,9 +375,13 @@ export class Terminal {
       addRect(this.x0 + 14 + dot * 2, dy, this.x0 + 14 + dot * 3, dy + dot, th.yellow, crv, rws, inst);
       addRect(this.x0 + 14 + dot * 4, dy, this.x0 + 14 + dot * 5, dy + dot, th.green, crv, rws, inst);
       const title = 'wsh — windfoil shell';
-      this.emit(inst, atlas, s, title, th.dim, this.x0 + W / 2 - this.lineWidth([{ text: title, color: th.dim }]) / 2, this.y0 + barH / 2 + this.fontSize * 0.35);
+      let titleW = 0;
+      for (const ch of title) titleW += this.advance(ch);
+      this.emit(inst, atlas, s, title, th.dim, this.x0 + W / 2 - titleW / 2, this.y0 + barH / 2 + this.fontSize * 0.35);
       // Title-bar bottom hairline.
-      addRect(this.x0, this.y0 + barH - 1, this.x0 + W, this.y0 + barH, [th.caret[0], th.caret[1], th.caret[2], 0.18], crv, rws, inst);
+      const hl = this._hairlineCol;
+      hl[0] = th.caret[0]; hl[1] = th.caret[1]; hl[2] = th.caret[2]; hl[3] = 0.18;
+      addRect(this.x0, this.y0 + barH - 1, this.x0 + W, this.y0 + barH, hl, crv, rws, inst);
     }
 
     // Reserve a dock for the active widget (drawn with GPU rects). It sits just
@@ -378,7 +391,8 @@ export class Terminal {
 
     // Scrollback + optional typewriter head. The prompt is tracked separately so
     // the dock can slot between scrollback and the prompt.
-    const body: Line[] = [];
+    const body = this._body;
+    body.length = 0;
     for (const l of this.lines) body.push(l);
     let showPrompt = false;
     if (this.typeQueue.length) {
@@ -394,16 +408,17 @@ export class Terminal {
     const totalRows = Math.max(1, Math.floor((panelBottom - startY) / lh));
     const promptRows = showPrompt ? 1 : 0;
     const visRows = Math.max(1, totalRows - dockRows - promptRows);
-    const shown = body.slice(Math.max(0, body.length - visRows));
+    const shownStart = Math.max(0, body.length - visRows);
     const left = this.x0 + this.pad;
 
     let row = 0;
-    const drawLine = (line: Line, r: number) => {
-      const baseline = startY + r * lh + this.fontSize * 0.95;
+    for (let si = shownStart; si < body.length; si++) {
+      const line = body[si];
+      const baseline = startY + row * lh + this.fontSize * 0.95;
       let cx = left;
       for (const span of line) for (const ch of span.text) cx += this.emitAt(inst, atlas, s, ch, span.color, cx, baseline);
-    };
-    for (const line of shown) drawLine(line, row++);
+      row++;
+    }
 
     // Widget dock (GPU-rect graphics, eased, sub-cell smooth) — between scrollback
     // and the prompt.
@@ -415,7 +430,17 @@ export class Terminal {
 
     // Prompt line last.
     const promptRow = row;
-    if (showPrompt) { drawLine([...this.prompt(), { text: this.input, color: th.text }], row++); }
+    if (showPrompt) {
+      const pl = this._promptInput;
+      const pr = this.prompt();
+      pl.length = 0;
+      for (const sp of pr) pl.push(sp);
+      pl.push({ text: this.input, color: th.text });
+      const baseline = startY + row * lh + this.fontSize * 0.95;
+      let cx = left;
+      for (const span of pl) for (const ch of span.text) cx += this.emitAt(inst, atlas, s, ch, span.color, cx, baseline);
+      row++;
+    }
 
     // Smooth thin caret on the prompt line (glides to target, soft blink).
     // Vertically centered on the glyph band (baseline sits at fontSize*0.95 below
@@ -436,13 +461,15 @@ export class Terminal {
       const top = baseline - this.fontSize * 0.82, bot = baseline + this.fontSize * 0.16;
       // Center the bar on the boundary so it doesn't crowd the next glyph.
       const cx = this.caretX - cwid / 2;
-      addRect(cx, top, cx + cwid, bot, [th.caret[0], th.caret[1], th.caret[2], alpha], crv, rws, inst);
+      const cc = this._caretCol;
+      cc[0] = th.caret[0]; cc[1] = th.caret[1]; cc[2] = th.caret[2]; cc[3] = alpha;
+      addRect(cx, top, cx + cwid, bot, cc, crv, rws, inst);
     }
 
     // Widget dock (GPU-rect graphics, eased, sub-cell smooth) — directly below
     // the last text row.
     if (dockRows > 0) {
-      const dockTop = startY + shown.length * lh;
+      const dockTop = startY + (body.length - shownStart) * lh;
       this.renderWidget(inst, atlas, crv, rws, s, now, dt, th,
         left, dockTop, W - this.pad * 2, dockH);
     }

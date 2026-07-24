@@ -2,6 +2,7 @@ import { pushMonotonePieces } from './geometry';
 import { glyphQuads, FontFace } from './font';
 
 const TARGET_PER_BAND = 10;
+const SHAPE_TARGET_PER_BAND = 5;
 const MAX_BANDS = 64;
 export const BAND_SORT_MIN = 4;
 
@@ -176,7 +177,7 @@ export function buildGlyphAtlas(font: FontFace, text: string, shapes?: Record<st
       for (let i = 0; i < sh.quads.length; i += 6) pushMonotonePieces(sh.quads.slice(i, i + 6), pieces);
       monotoneTotal += pieces.length / 6;
       const [, y0, , y1] = sh.bbox;
-      const header = bandPieces(pieces, y0, y1, curves, rows);
+      const header = bandPieces(pieces, y0, y1, curves, rows, SHAPE_TARGET_PER_BAND);
       table[name] = { ...header, advance: sh.bbox[2] - sh.bbox[0], bbox: sh.bbox };
     }
   }

@@ -143,6 +143,12 @@ export class FileTree {
   private flatRows: FlatRow[] = [];
   private dirty = true;
 
+  private _rowTop: number[] = [];
+  private _rowRev: number[] = [];
+  private _fadeCol: number[] = [0, 0, 0, 0];
+  private _accentCol: number[] = [0, 0, 0, 0];
+  private _treeLineCol: number[] = [0, 0, 0, 0];
+
   // Optional substring filter (live search). When non-empty, the tree shows only
   // matching files + the folders that contain them, fully expanded.
   filter = '';
@@ -471,8 +477,9 @@ export class FileTree {
     // folder's open value, so a row shrinks to nothing (and fades) as any of its
     // ancestors closes. Smoothstepped for a gentle accordion.
     const nRows = this.flatRows.length;
-    const rowTop = new Array<number>(nRows);
-    const rowRev = new Array<number>(nRows);
+    if (this._rowTop.length < nRows) { this._rowTop.length = nRows; this._rowRev.length = nRows; }
+    const rowTop = this._rowTop;
+    const rowRev = this._rowRev;
     let accY = listTop;
     for (let i = 0; i < nRows; i++) {
       const r = this.flatRows[i];
@@ -508,7 +515,8 @@ export class FileTree {
     }
 
     // Visible rows
-    const treeLineColor: number[] = [th.line[0], th.line[1], th.line[2], 0.35];
+    const treeLineColor = this._treeLineCol;
+    treeLineColor[0] = th.line[0]; treeLineColor[1] = th.line[1]; treeLineColor[2] = th.line[2]; treeLineColor[3] = 0.35;
     const hoverPulse = 0.65 + 0.35 * Math.sin(now / 220);
     const hoveredRow = this.hovered ? this.flatRows.find((r) => r.node.path === this.hovered) : null;
     const selectedRow = this.selected ? this.flatRows.find((r) => r.node.path === this.selected) : null;
@@ -545,7 +553,8 @@ export class FileTree {
       const effR = rev * clipR;
 
       // Alpha-scale every mark on this row by its reveal + edge fade.
-      const fade = (c: number[]): number[] => [c[0], c[1], c[2], c[3] * effR];
+      const fc = this._fadeCol;
+      const fade = (c: number[]): number[] => { fc[0] = c[0]; fc[1] = c[1]; fc[2] = c[2]; fc[3] = c[3] * effR; return fc; };
 
       const lineXbase = this.x0 + this.pad + 2;
       const guideX = lineXbase + depth * indent;       // tree line center for this depth
@@ -565,7 +574,8 @@ export class FileTree {
       const isSelected = row.node.path === this.selected;
       const onActivePath = !!activeRow &&
         (row.node.path === activeRow.node.path || activeRow.node.path.startsWith(row.node.path + '/'));
-      const pathAccent = (a: number): number[] => [th.gold[0], th.gold[1], th.gold[2], a];
+      const ac = this._accentCol;
+      const pathAccent = (a: number): number[] => { ac[0] = th.gold[0]; ac[1] = th.gold[1]; ac[2] = th.gold[2]; ac[3] = a; return ac; };
       const pathA = isHovered || isSelected ? 0.98 : 0.82;
       // Persistent selection strip (hover is conveyed by the line accent below).
       if (isSelected) addRect(this.x0, top, this.x0 + this.width, top + h, fade(th.selected), crv, rws, inst);

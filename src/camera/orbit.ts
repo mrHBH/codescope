@@ -23,6 +23,8 @@ let camera: THREE.PerspectiveCamera;
 let controls: CameraControls;
 let ready = false;
 const _m = new Float32Array(16);
+const _proj = new Float32Array(16);
+const _tmp = new Float32Array(16);
 const _vp = new Float32Array(16); // last view-projection
 const _ro = new THREE.Vector3();
 const _rd = new THREE.Vector3();
@@ -70,11 +72,11 @@ export function orbitViewProj(Cw: number, Ch: number): Mat4 {
   camera.aspect = Cw / Ch;
   camera.updateProjectionMatrix();
   camera.updateMatrixWorld();
-  const proj = new Float32Array(fromTHREE(camera.projectionMatrix));
+  _proj.set(fromTHREE(camera.projectionMatrix));
   const view = fromTHREE(camera.matrixWorldInverse);
-  const vp = mul(mul(proj, view), GROUND_MODEL);
-  _vp.set(vp);
-  return vp;
+  mul(_proj, view, _tmp);
+  mul(_tmp, GROUND_MODEL, _vp);
+  return _vp;
 }
 
 // Unproject a screen point (device px) to doc-local (x, y) on the ground plane.
