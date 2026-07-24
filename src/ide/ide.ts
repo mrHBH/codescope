@@ -26,6 +26,15 @@ const SB_TOOL_Y = 99;
 const SB_TOOL_H = 30;
 const SB_TREE_Y = 141;
 
+// Tab bar constants — shared between render / hit-test / click.
+const TAB_PAD_L = 12;
+const TAB_CLOSE_SZ = 12;
+const TAB_CLOSE_GAP = 8;
+const TAB_PAD_R = 10;
+function tabWidth(name: string, canClose: boolean, textW: (t: string, s: number) => number): number {
+  return textW(name, 12) + TAB_PAD_L + (canClose ? TAB_CLOSE_GAP + TAB_CLOSE_SZ : 0) + TAB_PAD_R;
+}
+
 const smoothstep = (t: number) => { const c = t < 0 ? 0 : t > 1 ? 1 : t; return c * c * c * (c * (c * 6 - 15) + 10); };
 
 const LOCAL_TREE: TreeNode[] = [
@@ -394,10 +403,35 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
 
   let focus: 'editor' | 'terminal' = 'editor';
 
+  // ── Tab animations ───────────────────────────────────────────────────────
+  let tabFrom = -1;           // old activeTab during cross-fade (-1 = idle)
+  let tabTransT = 0;          // 0→1 progression per-frame
+  const TAB_TRANS_MS = 160;
+
+  interface AccentAnim { fromX: number; fromW: number; toX: number; toW: number; start: number; }
+  let accentAnim: AccentAnim | null = null;
+  const ACCENT_MS = 220;
+
+  // Which tab's close button the pointer is currently over.
+  let hoverCloseTab = -1;
+  // Tab positions (x + width) filled each frame by the tab renderer, consumed
+  // by the accent line animation when activeTab changes.
+  const tabPositions: { x: number; w: number }[] = [];
+
+  function switchToTab(i: number) {
+    if (i === activeTab) return;
+    tabFrom = activeTab;
+    tabTransT = 0;
+    tabs[activeTab].editor.focused = false;
+    activeTab = i;
+    tabs[i].editor.focused = true;
+  }
+
   // Shared tab/file helpers — used by both left-click handling and the
   // context-menu actions so behaviour stays in one place.
   function closeTabAt(i: number) {
     if (tabs.length <= 1) return;
+    tabFrom = -1;                // skip cross-fade on close
     tabs[i].editor.focused = false;
     tabs.splice(i, 1);
     if (activeTab > i) activeTab--;
@@ -408,11 +442,12 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
 
   function openFileNode(node: TreeNode) {
     const existing = tabs.findIndex(t => t.name === node.name);
-    if (existing >= 0) activeTab = existing;
+    if (existing >= 0) { switchToTab(existing); }
     else {
       const ed = new CodeEditor('// ' + node.path + '\n');
       ed.fontSize = 15;
       tabs.push({ name: node.name, editor: ed });
+      tabFrom = -1;  // no cross-fade for newly opened tabs
       activeTab = tabs.length - 1;
     }
     focus = 'editor';
@@ -424,12 +459,14 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
   const actions: IdeMenuActions = {
     closeTab: (i) => closeTabAt(i),
     closeOtherTabs: (keep) => {
+      tabFrom = -1;
       for (let i = tabs.length - 1; i >= 0; i--) if (i !== keep) tabs.splice(i, 1);
       activeTab = 0;
       focus = 'editor';
       tabs[0].editor.focused = true;
     },
     closeTabsToRight: (i) => {
+      tabFrom = -1;
       while (tabs.length > i + 1) tabs.pop();
       if (activeTab > i) activeTab = i;
       tabs[activeTab].editor.focused = true;
@@ -633,7 +670,26 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
     [termT, termDir] = stepAnim(termT, termDir, dt);
     if (cam3d) updateOrbit(dt);
 
+    // Advance tab cross-fade and accent animations.
+    if (tabFrom >= 0) {
+      tabTransT = Math.min(1, tabTransT + dt / TAB_TRANS_MS);
+      if (tabTransT >= 1) tabFrom = -1;   // done
+    }
+    // Accent line — start it here on the frame where the switch was triggered.
+    if (tabFrom >= 0 && !accentAnim && tabPositions.length > 0) {
+      const oldPos = tabPositions[tabFrom];
+      const newPos = tabPositions[activeTab];
+      if (oldPos && newPos && (oldPos.x !== newPos.x || oldPos.w !== newPos.w)) {
+        accentAnim = { fromX: oldPos.x, fromW: oldPos.w, toX: newPos.x, toW: newPos.w, start: now };
+      }
+    }
+    if (accentAnim) {
+      const t2 = Math.min(1, (now - accentAnim.start) / ACCENT_MS);
+      if (t2 >= 1) accentAnim = null;
+    }
+
     const { w, h, editorX, editorH, sw, termH } = layout();
+    tabPositions.length = 0;  // rebuilt each frame
 
     // The IDE layout adapts to the canvas every frame; while fitted, keep the
     // camera framing in sync too (immediate re-fit, no animation).
@@ -651,6 +707,7 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
     const tile = 34, ty = 8;
     const tileX = (AB_W - tile) / 2;
     const active = sidebarT > 0.5;
+    // Explorer icon tile
     if (active) {
       addRect(tileX - 3, ty - 3, tileX + tile + 3, ty + tile + 3, T.activeTileGlow, crv, rws, inst);
       addRect(tileX, ty, tileX + tile, ty + tile, T.activeTile, crv, rws, inst);
@@ -750,28 +807,62 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
     addRect(editorX, 0, w, TAB_BAR_H, T.tabBarBg, crv, rws, inst);
     let tx = editorX + 4;
     for (let i = 0; i < tabs.length; i++) {
-      const tw2 = textW(tabs[i].name, 12) + 28;
+      const tw2 = tabWidth(tabs[i].name, tabs.length > 1, textW);
+      tabPositions.push({ x: tx, w: tw2 });
       const isActive = i === activeTab;
       const hovered = i === hoverTab;
       if (isActive) {
         addRect(tx, 0, tx + tw2, TAB_BAR_H, T.tabActiveBg, crv, rws, inst);
-        addRect(tx, TAB_BAR_H - 2, tx + tw2, TAB_BAR_H, T.accent, crv, rws, inst);
       } else if (hovered) {
         addRect(tx, 0, tx + tw2, TAB_BAR_H, [1, 1, 1, 0.04], crv, rws, inst);
       }
-      emitText(tabs[i].name, tx + 12, (TAB_BAR_H - 12) / 2, 12, isActive ? T.tabActiveFg : T.tabFg);
+      emitText(tabs[i].name, tx + TAB_PAD_L, (TAB_BAR_H - 12) / 2, 12, isActive ? T.tabActiveFg : T.tabFg);
       if (tabs.length > 1) {
-        const cx = tx + tw2 - 14, cy = TAB_BAR_H / 2, cs = 4;
-        addRect(cx - cs, cy - 0.5, cx + cs, cy + 0.5, isActive ? T.tabActiveFg : T.tabFg, crv, rws, inst);
-        addRect(cx - 0.5, cy - cs, cx + 0.5, cy + cs, isActive ? T.tabActiveFg : T.tabFg, crv, rws, inst);
+        const cix = tx + tw2 - TAB_PAD_R - TAB_CLOSE_SZ;
+        const ciy = (TAB_BAR_H - TAB_CLOSE_SZ) / 2;
+        const closeHov = i === hoverCloseTab;
+        const closeCol = closeHov ? T.text : (isActive ? T.tabActiveFg : T.tabFg);
+        if (closeHov) {
+          // Subtle highlight behind hovered close icon
+          addRect(cix - 2, ciy - 2, cix + TAB_CLOSE_SZ + 2, ciy + TAB_CLOSE_SZ + 2, [1, 1, 1, 0.08], crv, rws, inst);
+        }
+        emitIcon('icon:cross', cix, ciy, TAB_CLOSE_SZ, TAB_CLOSE_SZ, closeCol);
       }
       tx += tw2;
+    }
+
+    // Animated accent line — slides between old and new tab position on switch,
+    // shrinking/growing with tab width. Pure GPU rect; CSS can't animate border
+    // position independently from layout.
+    {
+      let ax: number, aw: number;
+      if (accentAnim) {
+        const t2 = Math.min(1, (now - accentAnim.start) / ACCENT_MS);
+        const e = t2 < 1 ? 1 - Math.pow(1 - t2, 3) : 1;   // ease-out cubic
+        ax = accentAnim.fromX + (accentAnim.toX - accentAnim.fromX) * e;
+        aw = accentAnim.fromW + (accentAnim.toW - accentAnim.fromW) * e;
+      } else {
+        const pos = tabPositions[activeTab];
+        ax = pos ? pos.x : 0;
+        aw = pos ? pos.w : 0;
+      }
+      if (aw > 0) addRect(ax, TAB_BAR_H - 2, ax + aw, TAB_BAR_H, T.accent, crv, rws, inst);
     }
 
     // ── Editor ──
     const ed = tabs[activeTab].editor;
     ed.focused = focus === 'editor' && !searchFocused;
-    ed.render(font, atlas, inst, crv, rws, ed.y0, ed.y0 + editorH, now, editorTh, 2);
+    const crossFade = tabFrom >= 0 && tabTransT < 1;
+    if (crossFade) {
+      const oldStart = inst.length;
+      tabs[tabFrom].editor.render(font, atlas, inst, crv, rws, ed.y0, ed.y0 + editorH, now, editorTh, 2);
+      for (let k = oldStart; k < inst.length; k += 16) inst[k + 11] *= 1 - tabTransT;
+      const newStart = inst.length;
+      tabs[activeTab].editor.render(font, atlas, inst, crv, rws, ed.y0, ed.y0 + editorH, now, editorTh, 2);
+      for (let k = newStart; k < inst.length; k += 16) inst[k + 11] *= tabTransT;
+    } else {
+      ed.render(font, atlas, inst, crv, rws, ed.y0, ed.y0 + editorH, now, editorTh, 2);
+    }
 
     // ── Terminal panel ──
     if (termH > 1) {
@@ -902,11 +993,23 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
     else if (chrome && chrome.kind === 'action') hoverAction = chrome.i;
 
     const { editorX, editorH } = layout();
+    hoverCloseTab = -1;
     if (my < TAB_BAR_H && mx >= editorX) {
       let txx = editorX + 4;
       for (let i = 0; i < tabs.length; i++) {
-        const tw2 = textW(tabs[i].name, 12) + 28;
-        if (mx >= txx && mx <= txx + tw2) { hoverTab = i; break; }
+        const tw2 = tabWidth(tabs[i].name, tabs.length > 1, textW);
+        if (mx >= txx && mx <= txx + tw2) {
+          hoverTab = i;
+          // Check if pointer is over the close icon sub-area
+          if (tabs.length > 1) {
+            const cix = txx + tw2 - TAB_PAD_R - TAB_CLOSE_SZ;
+            const ciy = (TAB_BAR_H - TAB_CLOSE_SZ) / 2;
+            if (mx >= cix && mx <= cix + TAB_CLOSE_SZ && my >= ciy && my <= ciy + TAB_CLOSE_SZ) {
+              hoverCloseTab = i;
+            }
+          }
+          break;
+        }
         txx += tw2;
       }
     }
@@ -1047,15 +1150,13 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
     if (my < TAB_BAR_H && mx >= editorX) {
       let txx = editorX + 4;
       for (let i = 0; i < tabs.length; i++) {
-        const tw2 = textW(tabs[i].name, 12) + 28;
+        const tw2 = tabWidth(tabs[i].name, tabs.length > 1, textW);
         if (mx >= txx && mx <= txx + tw2) {
-          const closeX = txx + tw2 - 14;
-          if (Math.abs(mx - closeX) < 8 && Math.abs(my - TAB_BAR_H / 2) < 8 && tabs.length > 1) {
+          const closeCx = txx + tw2 - TAB_PAD_R - TAB_CLOSE_SZ / 2;
+          if (Math.abs(mx - closeCx) < TAB_CLOSE_SZ && tabs.length > 1) {
             closeTabAt(i);
           } else {
-            tabs[activeTab].editor.focused = false;
-            activeTab = i;
-            tabs[activeTab].editor.focused = true;
+            switchToTab(i);
             focus = 'editor';
           }
           return;
@@ -1189,14 +1290,12 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
     if (wy < TAB_BAR_H && wx >= editorX) {
       let txx = editorX + 4, idx = -1;
       for (let i = 0; i < tabs.length; i++) {
-        const tw2 = textW(tabs[i].name, 12) + 28;
+        const tw2 = tabWidth(tabs[i].name, tabs.length > 1, textW);
         if (wx >= txx && wx <= txx + tw2) { idx = i; break; }
         txx += tw2;
       }
       if (idx >= 0) {
-        tabs[activeTab].editor.focused = false;
-        activeTab = idx;
-        tabs[activeTab].editor.focused = true;
+        switchToTab(idx);
         focus = 'editor';
         gate.show(wx, wy, tabMenu(actions, idx, tabs.length));
       }

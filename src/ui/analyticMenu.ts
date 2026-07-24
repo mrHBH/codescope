@@ -123,6 +123,14 @@ export class AnalyticContextMenu {
     if (!this.font) this.font = font;
     const x0 = this.x, y0 = this.y, x1 = this.x + this.w, y1 = this.y + this.h;
 
+    // Layered soft shadow — concentric dark rects at decreasing alpha. Impossible
+    // in CSS without stacking-context hacks; here it's just addRect with alpha.
+    const shadow = (ox: number, oy: number, a: number) =>
+      addRect(x0 + ox, y0 + oy, x1 + ox, y1 + oy, [0, 0, 0, a], crv, rws, inst);
+    shadow(8, 6, 0.12);
+    shadow(5, 4, 0.10);
+    shadow(3, 2, 0.08);
+
     addRect(x0, y0, x1, y1, th.bg, crv, rws, inst);
     addRect(x0, y0, x1, y0 + 1, th.border, crv, rws, inst);
     addRect(x0, y1 - 1, x1, y1, th.border, crv, rws, inst);

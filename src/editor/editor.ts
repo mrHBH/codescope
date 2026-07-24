@@ -336,9 +336,13 @@ export class CodeEditor {
 
       // Caret — full line height, thickness scales with font size (min the
       // passed-in screen-space width so it stays visible when zoomed out).
+      // Soft bloom layers behind the caret (concentric wider rects at low alpha).
       if (this.focused && i === this.cursor.line && (now % 1060) < 530) {
         const cx = this.colToX(i, this.cursor.col);
         const cw = Math.max(caretW, this.fontSize * 0.12);
+        const bloom = (w: number, a: number) => addRect(cx - w, top, cx + w, top + lh, [th.caret[0], th.caret[1], th.caret[2], a], crv, rws, inst);
+        bloom(cw * 4, 0.05);
+        bloom(cw * 2, 0.10);
         addRect(cx, top, cx + cw, top + lh, th.caret, crv, rws, inst);
       }
     }
