@@ -5,7 +5,8 @@ import { CodeEditor, type EditorTheme } from '../editor/editor';
 import { Terminal, type TerminalTheme } from '../editor/terminal';
 import { FileTree, type FileTreeTheme, type TreeNode } from '../editor/fileTree';
 import { DEPTH_FORMAT } from '../windfoil/mesh3d';
-import { createToolbar } from '../playground/toolbar';
+import { createGlyphRenderer } from '../windfoil/gpu';
+import { AnalyticToolbar, type ToolbarButton } from '../ui/analyticToolbar';
 import { enterOrbit, orbitViewProj, orbitScale, setOrbitEnabled, updateOrbit, screenToDocLocal, setOrbitNear, setOrbitPanChord, orbitTruck, orbitZoomToRect } from '../camera/orbit';
 import { ANALYTIC_MENU_THEME } from '../ui/analyticMenu';
 import { MenuGate, MultiClickTracker, RightGesture, routeScroll, resolveCursor } from '../ui/inputRouter';
@@ -350,7 +351,9 @@ const terminalTh: TerminalTheme = {
 };
 
 export function bootIDE(engine: Engine, onBack: () => void): () => void {
-  const { device, font, atlas, renderer, tCanvas, gpuCtx, dpr, rCanvas } = engine;
+  const { device, font, atlas, renderer, tCanvas, gpuCtx, dpr, rCanvas, shaderCode } = engine;
+  // Separate HUD renderer — same pattern as explainer v2's CinematicHud
+  const hudRenderer = createGlyphRenderer(device, { code: shaderCode, format: 'rgba8unorm' });
   const fpsEl = engine.fpsEl;
   const prevFpsDisplay = fpsEl.style.display;
   fpsEl.style.display = 'none';
@@ -563,6 +566,10 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
   const crv: number[] = [];
   const rws: number[] = [];
   let instFA = new Float32Array(65536);
+  // Separate screen-space buffers for the toolbar overlay (CinematicHud pattern)
+  const toolInst: number[] = [];
+  const toolCrv: number[] = [];
+  const toolRws: number[] = [];
   let crvFA = new Float32Array(65536);
   let rwsUA = new Uint32Array(16384);
 
@@ -893,11 +900,19 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
     addRect(0, 1, 1, h - 1, T.separator, crv, rws, inst);
     addRect(w - 1, 1, w, h - 1, T.separator, crv, rws, inst);
 
+    // Toolbar overlay — backing-store coords + separate HUD renderer,
+    // identical to how CinematicHud works in the explainer v2.
+    toolInst.length = 0; toolCrv.length = 0; toolRws.length = 0;
+    const Cw = tCanvas.width, Ch = tCanvas.height;
+    toolbar.setScreen(Cw, Ch, 8 * dpr, 5 * dpr, 26 * dpr);
+    toolbar.render(toolInst, toolCrv, toolRws, now);
+
+    gate.setViewport(w, h);
+
     gate.setViewport(w, h);
     gate.menu.render(font, atlas, inst, crv, rws, ANALYTIC_MENU_THEME);
 
-    // ── Draw 
-    const Cw = tCanvas.width, Ch = tCanvas.height;
+    // ── Draw
     if (inst.length > instFA.length) instFA = new Float32Array(inst.length * 2);
     let vp: Float32Array;
     let cs: number;
@@ -929,6 +944,17 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
     });
     renderer.setUniforms({ width: Cw, height: Ch, camScale: [cs, cs], camCenter: [0, 0], viewProj: vp });
     renderer.draw(pass, crvFA.subarray(0, crv.length), rwsUA.subarray(0, rws.length), instFA.subarray(0, inst.length), inst.length / 16);
+
+    // Toolbar overlay — EXACT CinematicHud pattern (backing-store px + screen-ortho matrix)
+    if (toolInst.length > 0) {
+      const tIFA = new Float32Array(toolInst);
+      const tCFA = new Float32Array(toolCrv);
+      const tRUA = new Uint32Array(toolRws);
+      const so = new Float32Array([2 / Cw, 0, 0, 0, 0, -2 / Ch, 0, 0, 0, 0, 0, 0, -1, 1, 0, 1]);
+      hudRenderer.setUniforms({ width: Cw, height: Ch, camScale: [1, 1], camCenter: [0, 0], viewProj: so });
+      hudRenderer.draw(pass, tCFA, tRUA, tIFA, toolInst.length / 16);
+    }
+
     pass.end();
     device.queue.submit([enc.finish()]);
 
@@ -968,6 +994,7 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
   function onPointerMove(e: PointerEvent) {
     rg.move(e.clientX, e.clientY);
     [mx, my] = toWorld(e);
+    const scrMx = mx, scrMy = my;   // raw CSS pixels for toolbar hit-test
     if (cam3d) {
       if (d3.active && (Math.abs(e.clientX - d3.x) > 5 || Math.abs(e.clientY - d3.y) > 5)) d3.moved = true;
       const p = screenToDocLocal(mx * dpr, my * dpr, tCanvas.width, tCanvas.height);
@@ -1014,11 +1041,12 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
       }
     }
 
+    toolbar.updateHover(scrMx * dpr, scrMy * dpr);
     gate.updateHover(mx, my);
     const overChrome = hoverExplorer || hoverTerminal || hoverSearch || hoverSource >= 0 || hoverAction >= 0 || hoverTab >= 0;
     const overEditorBody = mx >= editorX && my >= TAB_BAR_H && my < TAB_BAR_H + editorH;
     rCanvas.style.cursor = resolveCursor({
-      menuCursor: gate.resolveCursor(),
+      menuCursor: gate.resolveCursor() ?? toolbar.cursor,
       overText: hoverSearch || overEditorBody,
       overChrome,
     });
@@ -1030,6 +1058,14 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
     if (e.button === 2) { rg.press(e.clientX, e.clientY); setOrbitPanChord(true); fitted = false; gate.dismiss(); return; }
     if (e.button === 1) { fitted = false; return; }
     if (e.button !== 0) return;
+
+    // Toolbar uses backing-store coords (CinematicHud pattern).
+    // Use raw screen CSS px from this event, not potentially-transformed mx/my.
+    {
+      const [sx, sy] = toWorld(e);
+      const tbHit = toolbar.hitTest(sx * dpr, sy * dpr);
+      if (tbHit) { tbHit.onClick(); return; }
+    }
 
     let [wx, wy] = toWorld(e);
     if (cam3d) { const p = screenToDocLocal(wx * dpr, wy * dpr, tCanvas.width, tCanvas.height); wx = p.x; wy = p.y; }
@@ -1361,13 +1397,14 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
   rCanvas.addEventListener('contextmenu', onContextMenu);
   addEventListener('keydown', onKeyDown);
 
-  const toolbarDestroy = createToolbar([
-    { icon: '🏠', title: 'Back to launcher', onClick: onBack },
-    { icon: '📊', title: 'Toggle debug stats', onClick: () => {
+  const toolbar = new AnalyticToolbar([
+    { id: 'back', icon: 'home', title: 'Back to launcher', onClick: onBack },
+    { id: 'debug', icon: 'stats', title: 'Toggle debug stats', onClick: () => {
       showDebug = !showDebug;
       fpsEl.style.display = showDebug ? '' : 'none';
     }},
   ]);
+  toolbar.setScreen(cssW(), cssH(), 8, 5, 26);
 
   return () => {
     alive = false;
@@ -1379,7 +1416,6 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
     rCanvas.removeEventListener('wheel', onWheel, { capture: true });
     rCanvas.removeEventListener('contextmenu', onContextMenu);
     removeEventListener('keydown', onKeyDown);
-    toolbarDestroy();
     fpsEl.style.display = prevFpsDisplay;
     depthTex?.destroy();
   };

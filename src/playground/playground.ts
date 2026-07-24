@@ -17,6 +17,7 @@ import { SAMPLE_CODE } from '../editor/sample';
 import { Terminal } from '../editor/terminal';
 import { FileTree } from '../editor/fileTree';
 import { createToolbar } from './toolbar';
+import { AnalyticToolbar } from '../ui/analyticToolbar';
 import { createDemo } from './cinematic';
 import { WindgraphDemo } from './boards/windgraphDemo';
 import { MorphDemo } from './boards/morphDemo';

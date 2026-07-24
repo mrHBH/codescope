@@ -43,8 +43,6 @@ export function createBaseApp(engine: Engine, useDoc: boolean): AppState {
 export function finishApp(s: AppState, onBack: () => void, extras: ToolbarButton[] = [], opts: { toolbar?: boolean } = {}): () => void {
   const onResize = () => setSize(s);
   addEventListener('resize', onResize);
-  // `toolbar:false` skips the DOM toolbar entirely (the DOM-free cinematic draws
-  // its own analytic controls instead).
   const toolbarDestroy = opts.toolbar === false
     ? () => {}
     : createToolbar([
