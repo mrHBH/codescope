@@ -49,6 +49,28 @@ export const ICONS: Record<string, string | string[]> = {
   chevronUp: 'M6 15 L12 9 L18 15 L16.5 16.5 L12 12 L7.5 16.5 Z',
   search: 'M10 4a6 6 0 1 0 3.6 10.8l4.1 4.1 1.4-1.4-4.1-4.1A6 6 0 0 0 10 4zm0 2a4 4 0 1 1 0 8 4 4 0 0 1 0-8z',
   refresh: 'M12 5V2L7.5 6 12 10V7a5 5 0 1 1-5 5H5a7 7 0 1 0 7-7z',
+
+  copy: 'M9 9h9v9H9zM7 7h9v2H9v7H7z',
+  cut: 'M6 5a3 3 0 1 1 0 6 3 3 0 0 1 0-6zm0 2a1 1 0 1 0 0 2 1 1 0 0 0 0-2zM6 13a3 3 0 1 1 0 6 3 3 0 0 1 0-6zm0 2a1 1 0 1 0 0 2 1 1 0 0 0 0-2zM9.5 8L20 15.5l-1 1.4L8.5 9.4zM9.5 16L20 8.5l1 1.4L10.5 17.4z',
+  paste: 'M8 4h8v3H8zM6 6h2v2h8V6h2a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1z',
+  selectAll: 'M4 4h16v16H4zM6 6v12h12V6zM9 12l2 2 4-4 1.4 1.4L11 17l-3.4-3.4z',
+  trash: 'M5 7h14l-1 13H6zM4 5h16v2H4zM9 3h6v2H9zM9.5 10h1v7h-1zM13.5 10h1v7h-1z',
+  closeOthers: 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zm0 2a7 7 0 1 1 0 14 7 7 0 0 1 0-14zM8.3 8.3l1.4-1.4 7.4 7.4-1.4 1.4zM15.7 8.3l-1.4-1.4-7.4 7.4 1.4 1.4z',
+  closeRight: 'M5 4h2v16H5zM10 8l4 4-4 4 1.4 1.4L16.8 12 11.4 6.6zM16 8l4 4-4 4 1.4 1.4L22.8 12 17.4 6.6z',
+  filePlus: 'M7 3h8v4h4v14H7zM15 3l4 4h-4zM11 11h1.2v6H11zM8.5 13.4h6v1.2h-6z',
+  folderPlus: 'M4 5h5l2 2h9v12H4zM11 10h1.2v6H11zM8.5 12.4h6v1.2h-6z',
+  format: 'M4 6h16v2H4zM8 11h12v2H8zM4 16h16v2H4z',
+  comment: 'M4 4h16v10H8l-4 4zM6 6h12v6H6z',
+  undo: 'M4 12l5-5v3h6a4 4 0 0 1 0 8H9v-2h6a2 2 0 0 0 0-4H9v3z',
+  redo: 'M20 12l-5-5v3H9a4 4 0 0 0 0 8h6v-2H9a2 2 0 0 1 0-4h6v3z',
+  pencil: 'M17 3l4 4L7.5 20.5 2 22l1.5-5.5z',
+  link: 'M8 16l-2 2a3.5 3.5 0 0 1-5-5l2-2a3.5 3.5 0 0 1 5 0l-1.4 1.4a1.5 1.5 0 0 0-2.2 0l-2 2a1.5 1.5 0 0 0 2.2 2.2l2-2zM16 8l2-2a3.5 3.5 0 0 1 5 5l-2 2a3.5 3.5 0 0 1-5 0l1.4-1.4a1.5 1.5 0 0 0 2.2 0l2-2a1.5 1.5 0 0 0-2.2-2.2l-2 2zM8.5 15.5l7-7 1.4 1.4-7 7z',
+  external: 'M4 10v10h10v-4h2v6H2V8h6v2zM14 2h8v8h-2V5.4l-7.3 7.3-1.4-1.4L18.6 4H14z',
+  terminalIcon: 'M3 4h18v16H3zM5 6v12h14V6zM7 10l3 2-3 2 1 1.4 4.4-3.4L8 8.6zM13 14h4v1.5h-4z',
+  eraser: 'M19.5 9.5l-8-8a1.5 1.5 0 0 0-2.1 0L2 9l8 8 9.5-7.5zM4 20h16v2H4z',
+  fit: 'M3 8V3h5v2H5v3zM16 3h5v5h-2V5h-3zM21 16v5h-5v-2h3v-3zM8 21H3v-5h2v3h3z',
+  reset: 'M12 4V1L8 5l4 4V6a6 6 0 1 1-6 6H4a8 8 0 1 0 8-8z',
+  theme: 'M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8zM11 2h2v3h-2zM11 19h2v3h-2zM3.5 3.5l1.4 1.4 2.1 2.1-1.4 1.4-2.1-2.1zM17 17l1.4 1.4 2.1 2.1-1.4 1.4-2.1-2.1zM2 11h3v2H2zM19 11h3v2h-3zM3.5 20.5l1.4-1.4 2.1-2.1 1.4 1.4-2.1 2.1zM17 7l1.4-1.4 2.1-2.1 1.4 1.4-2.1 2.1z',
 };
 
 // Larger, multi-shape illustrations. Authored on the same 24×24 grid; the layout

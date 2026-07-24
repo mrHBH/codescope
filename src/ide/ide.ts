@@ -7,7 +7,8 @@ import { FileTree, type FileTreeTheme, type TreeNode } from '../editor/fileTree'
 import { DEPTH_FORMAT } from '../windfoil/mesh3d';
 import { createToolbar } from '../playground/toolbar';
 import { enterOrbit, orbitViewProj, orbitScale, setOrbitEnabled, updateOrbit, screenToDocLocal, setOrbitNear, setOrbitPanChord, orbitTruck, orbitZoomToRect } from '../camera/orbit';
-import { ContextMenu } from '../ui/contextMenu';
+import { ANALYTIC_MENU_THEME } from '../ui/analyticMenu';
+import { MenuGate, MultiClickTracker, RightGesture, routeScroll, resolveCursor } from '../ui/inputRouter';
 import { tabMenu, folderMenu, fileMenu, editorMenu, terminalMenu, searchMenu, type IdeMenuActions } from './menus';
 import { ideTheme as T } from './theme';
 
@@ -436,7 +437,10 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
   terminal.showTitleBar = false;
   terminal.open();
 
-  const menu = new ContextMenu();
+  const gate = new MenuGate((t, s) => textW(t, s));
+  const menu = gate.menu;
+  const rg = new RightGesture();
+  const mct = new MultiClickTracker();
 
   let sidebarOpen = true;
   let sidebarT = 1;
@@ -566,9 +570,6 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
   };
 
   let mx = 0, my = 0;
-  let rightDown = false;
-  let rightMoved = false, rightWheeled = false, rightSX = 0, rightSY = 0;
-  let clickCount = 0, lastClickT = 0, lastClickX = 0, lastClickY = 0;
   let d3 = { x: 0, y: 0, t: 0, moved: false, active: false };
   let dragSel = false, dragPX = 0, dragPY = 0;
   // "Fitted" = the camera frames the whole IDE (true at boot via enterOrbit
@@ -868,7 +869,10 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
     addRect(0, 1, 1, h - 1, T.separator, crv, rws, inst);
     addRect(w - 1, 1, w, h - 1, T.separator, crv, rws, inst);
 
-    // ── Draw ─
+    gate.setViewport(w, h);
+    gate.menu.render(font, atlas, inst, crv, rws, ANALYTIC_MENU_THEME);
+
+    // ── Draw 
     const Cw = tCanvas.width, Ch = tCanvas.height;
     if (inst.length > instFA.length) instFA = new Float32Array(inst.length * 2);
     let vp: Float32Array;
@@ -938,14 +942,12 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
   }
 
   function onPointerMove(e: PointerEvent) {
-    if (rightDown && (Math.abs(e.clientX - rightSX) > 6 || Math.abs(e.clientY - rightSY) > 6)) rightMoved = true;
+    rg.move(e.clientX, e.clientY);
     [mx, my] = toWorld(e);
     if (cam3d) {
       if (d3.active && (Math.abs(e.clientX - d3.x) > 5 || Math.abs(e.clientY - d3.y) > 5)) d3.moved = true;
       const p = screenToDocLocal(mx * dpr, my * dpr, tCanvas.width, tCanvas.height);
       mx = p.x; my = p.y;
-      // Left-drag: extend the editor selection when the press started on the
-      // editor body, otherwise pan the camera.
       if (d3.active && d3.moved) {
         if (dragSel) tabs[activeTab].editor.placeCursor(mx, my, true);
         else { orbitTruck((e.clientX - dragPX) * dpr, (e.clientY - dragPY) * dpr, tCanvas.height); fitted = false; }
@@ -976,19 +978,26 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
       }
     }
 
-    // Cursor: text I-beam over the search box and editor body, pointer over
-    // chrome (icons, tabs, tree rows, toolbar), plain arrow everywhere else.
+    gate.updateHover(mx, my);
     const overChrome = hoverExplorer || hoverTerminal || hoverSearch || hoverSource >= 0 || hoverAction >= 0 || hoverTab >= 0;
     const overEditorBody = mx >= editorX && my >= TAB_BAR_H && my < TAB_BAR_H + editorH;
-    rCanvas.style.cursor = hoverSearch || overEditorBody ? 'text' : overChrome ? 'pointer' : '';
+    rCanvas.style.cursor = resolveCursor({
+      menuCursor: gate.resolveCursor(),
+      overText: hoverSearch || overEditorBody,
+      overChrome,
+    });
   }
 
   function blurSearch() { searchFocused = false; focus = 'editor'; tabs[activeTab].editor.focused = true; }
 
   function onPointerDown(e: PointerEvent) {
-    if (e.button === 2) { rightDown = true; rightMoved = false; rightWheeled = false; rightSX = e.clientX; rightSY = e.clientY; setOrbitPanChord(true); fitted = false; menu.hide(); return; }
+    if (e.button === 2) { rg.press(e.clientX, e.clientY); setOrbitPanChord(true); fitted = false; gate.dismiss(); return; }
     if (e.button === 1) { fitted = false; return; }
     if (e.button !== 0) return;
+
+    let [wx, wy] = toWorld(e);
+    if (cam3d) { const p = screenToDocLocal(wx * dpr, wy * dpr, tCanvas.width, tCanvas.height); wx = p.x; wy = p.y; }
+    if (gate.consumeClick(wx, wy)) return;
     [mx, my] = toWorld(e);
     if (cam3d) {
       d3 = { x: e.clientX, y: e.clientY, t: performance.now(), moved: false, active: true };
@@ -1021,11 +1030,9 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
     // here, mirroring yasmineOS's double-click → HybridUIComponent.zoom.
     const inEditor = mx >= editorX && my >= TAB_BAR_H && my < TAB_BAR_H + editorH;
     const overSearch = sw > 1 && sidebarT > 0.9 && mx >= AB_W + 10 && mx <= AB_W + sw - 10 && my >= SB_SEARCH_Y && my <= SB_SEARCH_Y + SB_SEARCH_H;
-    const now = performance.now();
-    clickCount = (now - lastClickT < 400 && Math.abs(mx - lastClickX) < 6 && Math.abs(my - lastClickY) < 6) ? clickCount + 1 : 1;
-    lastClickT = now; lastClickX = mx; lastClickY = my;
+    const clickCount = mct.track(mx, my);
     if (!inEditor && !overSearch && clickCount === 2) {
-      clickCount = 0;
+      mct.reset();
       orbitZoomToRect(0, 0, cssW(), cssH(), tCanvas.width, tCanvas.height);
       fitted = true; fitW = cssW(); fitH = cssH();
     }
@@ -1132,13 +1139,13 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
       if (shift) ed.placeCursor(mx, my, true);
       else if (clickCount === 2) ed.selectTokenAt(mx, my);
       else if (clickCount === 3) ed.selectLineAt(my);
-      else if (clickCount >= 4) { ed.selectAll(); clickCount = 0; }
+      else if (clickCount >= 4) { ed.selectAll(); mct.reset(); }
       else ed.placeCursor(mx, my, false);
     }
   }
 
   function onPointerUp(e: PointerEvent) {
-    if (e.button === 2) { rightDown = false; setOrbitPanChord(false); return; }
+    if (e.button === 2) { rg.release(); setOrbitPanChord(false); return; }
     if (e.button !== 0) return;
     dragSel = false;
     if (cam3d && d3.active) {
@@ -1153,25 +1160,18 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
   function onWheel(e: WheelEvent) {
     e.preventDefault();
     fitted = false;
-    if (rightDown) rightWheeled = true;
+    rg.wheel();
 
-    const { editorX, editorH, sw, termH } = layout();
+    const { editorX, editorH, sw } = layout();
 
-    // Right mouse + wheel → always zoom (never scroll). In 3D the library
-    // handles it; in 2D there's no zoom so just consume.
-    if (rightDown) {
-      if (!cam3d) return;
-      return;
-    }
-
-    // Determine if the cursor is over a scrollable panel.
     const overTree = sw > 1 && sidebarT > 0.9 && mx >= AB_W && mx < AB_W + sw && my >= SB_TREE_Y && my < cssH() - STATUS_H;
     const overEditor = mx >= editorX && my >= TAB_BAR_H && my < TAB_BAR_H + editorH;
+    const panel = overTree ? 'tree' : overEditor ? 'editor' : null;
+    const decision = routeScroll(rg.down, panel);
 
-    if (overTree || overEditor) {
-      // Consume the event so the orbit library doesn't also zoom.
+    if (decision.kind === 'scroll') {
       e.stopImmediatePropagation();
-      if (overTree) {
+      if (decision.panel === 'tree') {
         fileTree.scrollBy(e.deltaY * 0.5);
       } else {
         const ed = tabs[activeTab].editor;
@@ -1181,10 +1181,6 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
       }
       return;
     }
-
-    // Not over scrollable content → zoom. In 3D the library's own wheel
-    // handler (dolly-to-cursor) fires because we didn't stop propagation.
-    // In 2D there's no zoom — just consume.
     if (!cam3d) return;
   }
 
@@ -1247,7 +1243,8 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
   // New surfaces: add a builder in menus.ts, then a branch here.
   function onContextMenu(e: MouseEvent) {
     e.preventDefault();
-    if (rightMoved || rightWheeled) return;
+    if (rg.suppressMenu) return;
+    gate.setViewport(cssW(), cssH());
     let [wx, wy] = toWorld(e);
     if (cam3d) {
       const p = screenToDocLocal(wx * dpr, wy * dpr, tCanvas.width, tCanvas.height);
@@ -1268,7 +1265,7 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
         activeTab = idx;
         tabs[activeTab].editor.focused = true;
         focus = 'editor';
-        menu.show(e.clientX, e.clientY, tabMenu(actions, idx, tabs.length));
+        gate.show(wx, wy, tabMenu(actions, idx, tabs.length));
       }
       return;
     }
@@ -1280,7 +1277,7 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
         searchFocused = true;
         tabs[activeTab].editor.focused = false;
         searchCaretPhase = 0;
-        menu.show(e.clientX, e.clientY, searchMenu(actions));
+        gate.show(wx, wy, searchMenu(actions));
         return;
       }
     }
@@ -1290,7 +1287,7 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
       const row = fileTree.rowAtY(wy);
       if (row) {
         fileTree.select(row.node.path);
-        menu.show(e.clientX, e.clientY, row.node.type === 'folder'
+        gate.show(wx, wy, row.node.type === 'folder'
           ? folderMenu(actions, row.node, fileTree.isExpanded(row.node.path))
           : fileMenu(actions, row.node));
       }
@@ -1304,7 +1301,7 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
         focus = 'terminal';
         terminal.focused = true;
         tabs[activeTab].editor.focused = false;
-        menu.show(e.clientX, e.clientY, terminalMenu(actions));
+        gate.show(wx, wy, terminalMenu(actions));
         return;
       }
     }
@@ -1313,7 +1310,7 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
     if (wx >= editorX && wy >= TAB_BAR_H && wy < h - STATUS_H) {
       focus = 'editor';
       tabs[activeTab].editor.focused = true;
-      menu.show(e.clientX, e.clientY, editorMenu(actions));
+      gate.show(wx, wy, editorMenu(actions));
     }
   }
 

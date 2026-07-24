@@ -8,7 +8,8 @@ import { bufCoords, scrToWorld, scrToDoc, goToPage, fitDocument, cameraScale } f
 import { setOrbitEnabled, setOrbitPanChord, orbitTruck, orbitZoomToRect } from './orbit';
 import { hitTest, findEditableAncestor } from '../layout/walk';
 import { layoutEditable, placeCaretAtPoint, caretIndexAtPoint } from '../layout/editable';
-import { ContextMenu, type MenuItem } from '../ui/contextMenu';
+import { type AnalyticMenuItem } from '../ui/analyticMenu';
+import { MenuGate, RightGesture, routeScroll } from '../ui/inputRouter';
 import { handleEditorKey } from '../editor/editorInput';
 import { handleTerminalKey } from '../editor/terminalInput';
 import { handleClickInteraction, sliderOf, setSliderFromX } from '../ui/interactions';
@@ -64,7 +65,15 @@ export function attachInput(s: AppState): () => void {
   const ac = new AbortController();
   const { signal } = ac;
   const on = (t: EventTarget, type: string, h: (e: any) => void, opts?: AddEventListenerOptions) => t.addEventListener(type, h, { ...opts, signal });
-  const menu = new ContextMenu();
+  const gate = new MenuGate((t, sz) => {
+    const sc = sz / s.font.unitsPerEm;
+    let tw = 0;
+    for (const ch of t) tw += (s.atlas.table[ch]?.advance ?? 0) * sc;
+    return tw;
+  });
+  const menu = gate.menu;
+  s.analyticMenu = menu;
+  const rg = new RightGesture();
 
   // Slider drag state: the DOM slider being dragged + the last integer percent
   // we rebuilt at (so a drag rebuilds at most ~once per visible step).
@@ -78,27 +87,32 @@ export function attachInput(s: AppState): () => void {
   };
 
   // Build the menu items for the current context (editing vs. canvas).
-  function buildMenuItems(): MenuItem[] {
+  function buildMenuItems(): AnalyticMenuItem[] {
     const el = s.activeEdit;
     if (el) {
       return [
-        { id: 'cut', label: 'Cut', icon: 'cut', shortcut: 'Ctrl+X', enabled: () => hasSelection(el), action: () => cutSelection(el) },
-        { id: 'copy', label: 'Copy', icon: 'copy', shortcut: 'Ctrl+C', enabled: () => hasSelection(el), action: () => copySelection(el) },
-        { id: 'paste', label: 'Paste', icon: 'paste', shortcut: 'Ctrl+V', enabled: () => !!navigator.clipboard, action: () => pasteClipboard(el) },
+        { id: 'cut', label: 'Cut', icon: 'icon:cut', shortcut: 'Ctrl+X', enabled: () => hasSelection(el), action: () => cutSelection(el) },
+        { id: 'copy', label: 'Copy', icon: 'icon:copy', shortcut: 'Ctrl+C', enabled: () => hasSelection(el), action: () => copySelection(el) },
+        { id: 'paste', label: 'Paste', icon: 'icon:paste', shortcut: 'Ctrl+V', enabled: () => !!navigator.clipboard, action: () => pasteClipboard(el) },
         { id: 'sep1', separator: true },
-        { id: 'selectAll', label: 'Select All', icon: 'selectAll', shortcut: 'Ctrl+A', action: () => selectAll(el) },
+        { id: 'selectAll', label: 'Select All', icon: 'icon:selectAll', shortcut: 'Ctrl+A', action: () => selectAll(el) },
       ];
     }
     return [
-      { id: 'fit', label: 'Fit to Screen', icon: 'fit', action: () => fitDocument(s) },
-      { id: 'reset', label: 'Reset View', icon: 'reset', action: () => goToPage(s, 0) },
+      { id: 'fit', label: 'Fit to Screen', icon: 'icon:fit', action: () => fitDocument(s) },
+      { id: 'reset', label: 'Reset View', icon: 'icon:reset', action: () => goToPage(s, 0) },
       { id: 'sep1', separator: true },
-      { id: 'theme', label: 'Cycle Theme', icon: 'theme', action: () => s.cycleTheme?.() },
+      { id: 'theme', label: 'Cycle Theme', icon: 'icon:theme', action: () => s.cycleTheme?.() },
     ];
   }
 
   on(rCanvas, 'pointerdown', (e) => {
-    if (e.button !== 0) return; // only the primary (left) button drives editing/nav
+    if (e.button !== 0) return;
+    if (menu.open) {
+      const b = bufCoords(s, e.clientX, e.clientY);
+      const w = s.cam3d.active ? scrToDoc(s, b.x, b.y) : scrToWorld(s, b.x, b.y);
+      if (gate.consumeClick(w.x, w.y)) return;
+    }
     // 3D free camera: the camera-controls library owns pointer input on the
     // canvas, except draggable world-space board handles, which are ray-cast to
     // the grounded document plane and temporarily disable orbit controls.
@@ -219,9 +233,12 @@ export function attachInput(s: AppState): () => void {
   // less main-thread work per move, which is exactly what starves rAF (and tanks
   // FPS) when the mouse flies across the screen, even with input toggled off.
   function onPointerMove(e: PointerEvent) {
-    // Right-click zoom-vs-menu gesture tracking (2D only; rightDown is never set
-    // in 3D). Folded in from the old dedicated right-click move listener.
-    if (s.rightDown && (Math.abs(e.clientX - rightStart.x) > MOVE_TOL || Math.abs(e.clientY - rightStart.y) > MOVE_TOL)) rightMoved = true;
+    rg.move(e.clientX, e.clientY);
+    if (menu.open) {
+      const b = bufCoords(s, e.clientX, e.clientY);
+      const w = s.cam3d.active ? scrToDoc(s, b.x, b.y) : scrToWorld(s, b.x, b.y);
+      gate.updateHover(w.x, w.y);
+    }
     // 3D left-click-vs-truck gesture tracking (folded in from the old 3D-pick
     // move listener). Cheap guard; does nothing unless a 3D press is active.
     if (d3.active && (Math.abs(e.clientX - d3.x) > 5 || Math.abs(e.clientY - d3.y) > 5)) d3.moved = true;
@@ -332,7 +349,7 @@ export function attachInput(s: AppState): () => void {
     if (s.selecting && s.activeEdit && s.activeEdit.selAnchor === s.activeEdit.caret) s.activeEdit.selAnchor = -1;
     s.selecting = false;
     s.editorSelecting = false;
-    if (s.interactive) s.interactive.endDrag();
+    if (s.interactive && !(s.interactive as any).guiMode) s.interactive.endDrag();
     if (s.cam3d.active) setOrbitEnabled(true);
     sliding = null; slidingPct = -1;
     midDown = false;
@@ -343,35 +360,26 @@ export function attachInput(s: AppState): () => void {
 
   s.lastWheelT = 0;
   s.rightDown = false;
-  // Right-click gesture: a *short* press with no wheel motion opens the context
-  // menu on release; a *long* press or any wheel event during the press is the
-  // zoom gesture, which suppresses the menu.
-  let rightDownT = 0, rightWheeled = false, rightMoved = false;
-  let rightStart = { x: 0, y: 0 };
-  const LONG_PRESS_MS = 350, MOVE_TOL = 6;
   on(rCanvas, 'pointerdown', (e) => {
     if (e.button !== 2) return;
-    // In 3D, right-drag rotates (camera-controls); holding right also engages
-    // the pan/zoom chord (left-drag pans, middle-drag zooms) until release.
     if (s.cam3d.active) { setOrbitPanChord(true); return; }
-    // Tracked even with pointer input toggled off: right is a CAMERA modifier
-    // (pan/zoom chord); only the context menu below requires pointer input.
-    s.rightDown = true;
-    rightDownT = performance.now();
-    rightWheeled = false; rightMoved = false;
-    rightStart = { x: e.clientX, y: e.clientY };
-    menu.hide();
+    rg.press(e.clientX, e.clientY);
+    s.rightDown = rg.down;
+    gate.dismiss();
   });
   on(rCanvas, 'pointerup', (e) => {
     if (e.button !== 2) return;
     if (s.cam3d.active) { setOrbitPanChord(false); return; }
-    s.rightDown = false;
-    const shortPress = performance.now() - rightDownT < LONG_PRESS_MS;
-    if (shortPress && !rightWheeled && !rightMoved && s.pointerInput) {
-      menu.show(e.clientX, e.clientY, buildMenuItems());
+    const wasShort = rg.release();
+    s.rightDown = rg.down;
+    if (wasShort && s.pointerInput) {
+      const b = bufCoords(s, e.clientX, e.clientY);
+      const w = s.cam3d.active ? scrToDoc(s, b.x, b.y) : scrToWorld(s, b.x, b.y);
+      gate.setViewport(s.tCanvas.width / s.dpr, s.tCanvas.height / s.dpr);
+      gate.show(w.x, w.y, buildMenuItems());
     }
   });
-  on(rCanvas, 'pointercancel', (e) => { if (e.button === 2) { s.rightDown = false; setOrbitPanChord(false); } });
+  on(rCanvas, 'pointercancel', (e) => { if (e.button === 2) { rg.release(); s.rightDown = rg.down; setOrbitPanChord(false); } });
   on(rCanvas, 'contextmenu', (e) => e.preventDefault());
 
   // ── Double-click to fit ────────────────────────────────────────────────────
@@ -423,38 +431,37 @@ export function attachInput(s: AppState): () => void {
     e.preventDefault();
     if (!s.cameraInput) return;
     s.lastWheelT = performance.now();
-    if (s.rightDown) rightWheeled = true;
+    rg.wheel();
 
     const b = bufCoords(s, e.clientX, e.clientY);
     const w = s.cam3d.active ? scrToDoc(s, b.x, b.y) : scrToWorld(s, b.x, b.y);
 
-    // Over scrollable content + no right held → scroll, consume event so the
-    // orbit library doesn't also zoom in 3D.
-    if (!s.rightDown) {
-      let scrolled = false;
+    let panel: string | null = null;
+    if (!rg.down) {
       if (s.fileTree) {
         const ft = s.fileTree;
-        if (w.x >= ft.x0 && w.x <= ft.x0 + ft.width && w.y >= ft.y0 && w.y <= ft.y0 + ft.contentHeight) {
-          ft.scrollBy((e.deltaY / s.camZ) * 0.9);
-          scrolled = true;
-        }
+        if (w.x >= ft.x0 && w.x <= ft.x0 + ft.width && w.y >= ft.y0 && w.y <= ft.y0 + ft.contentHeight) panel = 'fileTree';
       }
-      if (!scrolled && s.editorMode && s.editor) {
+      if (!panel && s.editorMode && s.editor) {
         const ed = s.editor;
-        if (w.x >= ed.x0 && w.x <= ed.x0 + ed.contentWidth() && w.y >= ed.y0 && w.y <= ed.y0 + ed.contentHeight()) {
-          ed.y0 -= e.deltaY * 0.5;
-          const maxScroll = Math.max(0, ed.contentHeight() - (s.tCanvas.height / s.dpr - ed.y0));
-          ed.y0 = Math.max(ed.y0, -maxScroll);
-          scrolled = true;
-        }
+        if (w.x >= ed.x0 && w.x <= ed.x0 + ed.contentWidth() && w.y >= ed.y0 && w.y <= ed.y0 + ed.contentHeight()) panel = 'editor';
       }
-      if (scrolled) { e.stopImmediatePropagation(); return; }
+    }
+    const decision = routeScroll(rg.down, panel);
+    if (decision.kind === 'scroll') {
+      if (decision.panel === 'fileTree') s.fileTree!.scrollBy((e.deltaY / s.camZ) * 0.9);
+      else if (decision.panel === 'editor' && s.editor) {
+        s.editor.y0 -= e.deltaY * 0.5;
+        const maxScroll = Math.max(0, s.editor.contentHeight() - (s.tCanvas.height / s.dpr - s.editor.y0));
+        s.editor.y0 = Math.max(s.editor.y0, -maxScroll);
+      }
+      e.stopImmediatePropagation();
+      return;
     }
 
-    // Not over scrollable content (or right held) → zoom.
-    if (s.cam3d.active) return; // library handles dolly-to-cursor
+    if (s.cam3d.active) return;
     const Cw = s.tCanvas.width, Ch = s.tCanvas.height;
-    if (s.rightDown || e.ctrlKey) {
+    if (rg.down || e.ctrlKey) {
       const wx = (b.x - Cw / 2) / s.camZ + s.camX, wy = (b.y - Ch / 2) / s.camZ + s.camY;
       s.camZ *= Math.exp(-e.deltaY * .0022);
       if (s.camZ < s.minZoom) { s.camZ = s.minZoom; s.camX = s.PAGE_W / 2; s.camY = s.docH / 2; s.tgtX = s.camX; s.tgtY = s.camY; s.tgtZ = s.camZ; }

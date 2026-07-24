@@ -8,6 +8,7 @@ import type { StyledEl, PageRect, Seg } from './layout/types';
 import type { CodeEditor } from './editor/editor';
 import type { Terminal } from './editor/terminal';
 import type { FileTree } from './editor/fileTree';
+import type { AnalyticContextMenu } from './ui/analyticMenu';
 
 export interface ThemeCol {
   backdrop: number[]; pageBg: number[]; prog: number[]; pulse: number[];
@@ -122,6 +123,9 @@ export interface AppState {
   pressed: StyledEl | null;
   selecting: boolean;
 
+  // GPU-rendered context menu (shared between input.ts and frame.ts)
+  analyticMenu: AnalyticContextMenu | null;
+
   // code editor
   editor: CodeEditor | null;
   editorMode: boolean;
@@ -212,6 +216,7 @@ export function createAppState(partial: Partial<AppState>): AppState {
     baseCrv: [], baseRws: [], baseCrvLen: 0, baseRwsLen: 0,
     crvFA: new Float32Array(4096), rwsUA: new Uint32Array(1024), instFA: new Float32Array(16384),
     instJS: [], activeEdit: null, pressed: null, selecting: false,
+    analyticMenu: null,
     editor: null, editorMode: false, editorSelecting: false,
     terminal: null, terminalMode: false,
     fileTree: null, fileTreeMode: false,

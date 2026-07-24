@@ -16,6 +16,7 @@ import type { TerminalTheme } from './editor/terminal';
 import type { FileTreeTheme } from './editor/fileTree';
 import { DEPTH_FORMAT } from './windfoil/mesh3d';
 import { EmitCache } from './windfoil/emitCache';
+import { ANALYTIC_MENU_THEME } from './ui/analyticMenu';
 
 // Shared depth texture for the 3D mesh pass, recreated when the canvas resizes.
 let _depthTex: GPUTexture | null = null;
@@ -459,9 +460,14 @@ export function runFrame(s: AppState): () => void {
     }
     mark('bench');
 
+    if (s.analyticMenu?.open) s.analyticMenu.render(s.font, s.atlas, inst, crv, rws, ANALYTIC_MENU_THEME);
+
     // Deferred cursor write: mutating style.cursor every frame dirties style and
     // makes each incoming pointer event pay a synchronous style-recalc — a classic
     // mouse-move FPS killer. Only touch the DOM when the cursor actually changes.
+    if (s.analyticMenu?.open) {
+      cursor = s.analyticMenu.hovered >= 0 ? 'pointer' : 'default';
+    }
     if (cursor !== lastCursor) { lastCursor = cursor; s.rCanvas.style.cursor = cursor; }
 
     // Backdrop is a static CSS background on the canvas (set on theme change) —
