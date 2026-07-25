@@ -11,6 +11,7 @@
     "upstream:diff": "git diff --no-index ../windfoil/src/windfoil.wgsl src/windfoil/windfoil.wgsl"
   },
   "dependencies": {
+    "box3d.js": "^0.0.2",
     "camera-controls": "^3.1.2",
     "opentype.js": "^2.0.0",
     "png-tools": "^1.0.4",

@@ -59,7 +59,9 @@ const KERNEL_SKIRT_PX = KERNEL_SUPPORT_PX + vec2f(0.125);
 @group(0) @binding(2) var<storage, read> curves : array<vec2f>;
 // Row-band table: ROW_STRIDE u32s per band (see the ROW_* constants and bands.ts).
 @group(0) @binding(3) var<storage, read> rows : array<u32>;
-// Per-instance 3D FX transform: (rotX, rotY, z, scale). Zero = identity.
+// Per-instance 3D FX transform — two vec4s per instance:
+//   A = (rotX, rotY, z, scale) on the legacy Euler path; (tx, ty, z, scale) when B is active.
+//   B = (qx, qy, qz, qw) orientation quaternion; zero = inactive (legacy path).
 @group(0) @binding(4) var<storage, read> fxXforms : array<vec4f>;
 
 struct VsOut {
@@ -78,23 +80,33 @@ fn vs(@builtin(vertex_index) vi : u32, @builtin(instance_index) ii : u32) -> VsO
   var worldPx = I.place.xy + em * unitsToPx;
   var z : f32 = 0.0;
   if (U.fxActive > 0.5) {
-    let xf = fxXforms[ii];
-    if (abs(xf.x) + abs(xf.y) + abs(xf.z) > 1e-6) {
+    let xa = fxXforms[ii * 2u];
+    let xb = fxXforms[ii * 2u + 1u];
+    if (dot(xb, xb) > 0.5) {
+      // Quaternion path: A = (tx, ty, z, scale), B = unit orientation quaternion.
       let cx = (I.bbox.x + I.bbox.z) * 0.5 * unitsToPx;
       let cy = (I.bbox.y + I.bbox.w) * 0.5 * unitsToPx;
-      var lx = (worldPx.x - I.place.x - cx) * xf.w;
-      var ly = (worldPx.y - I.place.y - cy) * xf.w;
+      let v = vec3f((worldPx.x - I.place.x - cx) * xa.w, (worldPx.y - I.place.y - cy) * xa.w, 0.0);
+      let r = v + 2.0 * cross(xb.xyz, cross(xb.xyz, v) + xb.w * v);
+      worldPx = I.place.xy + vec2f(cx + r.x + xa.x, cy + r.y + xa.y);
+      z = r.z + xa.z;
+    } else if (abs(xa.x) + abs(xa.y) + abs(xa.z) > 1e-6) {
+      // Legacy Euler path: A = (rotX, rotY, z, scale).
+      let cx = (I.bbox.x + I.bbox.z) * 0.5 * unitsToPx;
+      let cy = (I.bbox.y + I.bbox.w) * 0.5 * unitsToPx;
+      var lx = (worldPx.x - I.place.x - cx) * xa.w;
+      var ly = (worldPx.y - I.place.y - cy) * xa.w;
       var lz : f32 = 0.0;
-      let cosX = cos(xf.x); let sinX = sin(xf.x);
+      let cosX = cos(xa.x); let sinX = sin(xa.x);
       let ry = ly * cosX - lz * sinX;
       let rz = ly * sinX + lz * cosX;
       ly = ry; lz = rz;
-      let cosY = cos(xf.y); let sinY = sin(xf.y);
+      let cosY = cos(xa.y); let sinY = sin(xa.y);
       let rx = lx * cosY + lz * sinY;
       let rz2 = -lx * sinY + lz * cosY;
       lx = rx; lz = rz2;
       worldPx = I.place.xy + vec2f(cx + lx, cy + ly);
-      z = lz + xf.z;
+      z = lz + xa.z;
     }
   }
   let relPos = worldPx - U.camCenter;

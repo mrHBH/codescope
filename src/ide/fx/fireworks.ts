@@ -13,7 +13,7 @@ interface FwParticle {
 const clicks: { x: number; y: number; t: number }[] = [];
 const particles: FwParticle[] = [];
 let extraFA = new Float32Array(4096);
-let extraXF = new Float32Array(1024);
+let extraXF = new Float32Array(2048);
 let extraN = 0;
 
 export const fireworks: Fx = {
@@ -55,7 +55,7 @@ export const fireworks: Fx = {
   },
 
   preFrame(ctx) {
-    const need = ctx.instCount * 4;
+    const need = ctx.instCount * 8;
     if (ctx.fxXforms.length < need) ctx.allocXforms(ctx.instCount);
     ctx.fxXforms.fill(0, 0, need);
   },
@@ -105,7 +105,7 @@ export const fireworks: Fx = {
     let alive = 0;
     const need = particles.length * 16;
     if (extraFA.length < need) extraFA = new Float32Array(need * 2);
-    const xNeed = particles.length * 4;
+    const xNeed = particles.length * 8;
     if (extraXF.length < xNeed) extraXF = new Float32Array(xNeed * 2);
     extraN = 0;
     for (let p = 0; p < particles.length; p++) {
@@ -127,11 +127,15 @@ export const fireworks: Fx = {
       extraFA[dst + 9] = Math.min(1, ctx.inst[pt.src + 9] + fade * 0.3);
       extraFA[dst + 10] = ctx.inst[pt.src + 10] * (1 - fade * 0.4);
       extraFA[dst + 11] = ctx.inst[pt.src + 11] * fade;
-      const exi = extraN * 4;
+      const exi = extraN * 8;
       extraXF[exi] = pt.rotX;
       extraXF[exi + 1] = pt.rotY;
       extraXF[exi + 2] = pt.z;
       extraXF[exi + 3] = 0.7 + fade * 0.5;
+      extraXF[exi + 4] = 0;
+      extraXF[exi + 5] = 0;
+      extraXF[exi + 6] = 0;
+      extraXF[exi + 7] = 0;
       extraN++;
       particles[alive++] = pt;
     }

@@ -19,12 +19,14 @@ import { curl } from './curl';
 import { shatter } from './shatter';
 import { ripple } from './ripple';
 import { helix } from './helix';
+import { physics } from './physics';
 
 export const FX_NAMES = [
   'off',
   'cloth', 'matrix', 'heartbeat', 'glitch', 'aurora', 'blackhole', 'earthquake',
   'fireworks', 'supernova', 'dissolve', 'logo',
   'ocean', 'dome', 'fan', 'tornado', 'standup', 'curl', 'shatter', 'ripple', 'helix',
+  'physics',
 ] as const;
 export type FxMode = typeof FX_NAMES[number];
 
@@ -33,4 +35,5 @@ export const REG: Record<string, Fx | null> = {
   cloth, matrix, heartbeat, glitch, aurora, blackhole, earthquake,
   fireworks, supernova, dissolve, logo,
   ocean, dome, fan, tornado, standup, curl, shatter, ripple, helix,
+  physics,
 };

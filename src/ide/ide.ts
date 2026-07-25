@@ -12,7 +12,7 @@ import { ANALYTIC_MENU_THEME } from '../ui/analyticMenu';
 import { MenuGate, MultiClickTracker, RightGesture, routeScroll, resolveCursor } from '../ui/inputRouter';
 import { tabMenu, folderMenu, fileMenu, editorMenu, terminalMenu, searchMenu, type IdeMenuActions } from './menus';
 import { ideTheme as T } from './theme';
-import { REG, FX_NAMES, fxHash, type FxMode, type FxCtx } from './fx';
+import { REG, FX_NAMES, fxHash, physicsPick, physicsScroll, type FxMode, type FxCtx } from './fx';
 
 const AB_W = 50;
 const SIDEBAR_W = 340;
@@ -686,7 +686,7 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
       i: 0, wx: 0, wy: 0, glyph: false, hash: 0, xi: 0,
       ox: 0, oy: 0, fx3dActive, extraCount: 0,
       ensureInstFA(floats: number) { if (instFA.length < floats) instFA = new Float32Array(floats * 2); },
-      allocXforms(total: number) { const need = total * 4; if (fxXforms.length < need) fxXforms = new Float32Array(need * 2); },
+      allocXforms(total: number) { const need = total * 8; if (fxXforms.length < need) fxXforms = new Float32Array(need * 2); },
       tilt: (polar: number) => { if (cam3d && orbitPolar() < 0.35) fwTiltTarget = polar; },
     };
   }
@@ -743,6 +743,10 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
     inst.length = 0; crv.length = 0; rws.length = 0;
 
     addRect(0, 0, w, h, T.editorBg, crv, rws, inst);
+    if (fxMode === 'physics') {
+      addRect(w / 2 - 50000, h / 2 - 50000, w / 2 + 50000, h / 2 + 50000,
+        [T.editorBg[0] * 0.78, T.editorBg[1] * 0.78, T.editorBg[2] * 0.8, 1], crv, rws, inst);
+    }
 
     // ── Activity bar ──
     addRect(0, 0, AB_W, h, T.activityBarBg, crv, rws, inst);
@@ -982,7 +986,7 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
 
     fx3dActive = false;
     if (fx?.uses3d) {
-      const need = (inst.length / 16) * 4;
+      const need = (inst.length / 16) * 8;
       if (fxXforms.length < need) fxXforms = new Float32Array(need * 2);
       fxXforms.fill(0, 0, need);
     }
@@ -995,10 +999,10 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
           now, t: fxT, dt, w, h, mx, my, cam3d,
           inst, instFA, fxXforms, instCount: n / 16,
           i, wx: inst[i], wy: inst[i + 1],
-          glyph: inst[i + 3] < 1.5, hash: fxHash(i), xi: (i / 16) * 4,
+          glyph: inst[i + 3] < 1.5, hash: fxHash(i), xi: (i / 16) * 8,
           ox: 0, oy: 0, fx3dActive, extraCount: 0,
           ensureInstFA(floats: number) { if (instFA.length < floats) instFA = new Float32Array(floats * 2); },
-          allocXforms(total: number) { const need = total * 4; if (fxXforms.length < need) fxXforms = new Float32Array(need * 2); },
+          allocXforms(total: number) { const need = total * 8; if (fxXforms.length < need) fxXforms = new Float32Array(need * 2); },
           tilt: (polar: number) => { if (cam3d && orbitPolar() < 0.35) fwTiltTarget = polar; },
         };
         fx.apply(pCtx);
@@ -1014,7 +1018,7 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
         i: 0, wx: 0, wy: 0, glyph: false, hash: 0, xi: 0,
         ox: 0, oy: 0, fx3dActive, extraCount: 0,
         ensureInstFA(floats: number) { if (instFA.length < floats) instFA = new Float32Array(floats * 2); },
-        allocXforms(total: number) { const need = total * 4; if (fxXforms.length < need) fxXforms = new Float32Array(need * 2); },
+        allocXforms(total: number) { const need = total * 8; if (fxXforms.length < need) fxXforms = new Float32Array(need * 2); },
         tilt: (polar: number) => { if (cam3d && orbitPolar() < 0.35) fwTiltTarget = polar; },
       };
       fx.postFrame(pCtx);
@@ -1031,10 +1035,10 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
       const extraBytes = extra.count * 16;
       if (instFA.length < inst.length + extraBytes) instFA = new Float32Array((inst.length + extraBytes) * 2);
       instFA.set(extra.instFA.subarray(0, extraBytes), inst.length);
-      const xOff = (totalInst / 16) * 4;
-      const xNeed = xOff + extra.count * 4;
+      const xOff = (totalInst / 16) * 8;
+      const xNeed = xOff + extra.count * 8;
       if (fxXforms.length < xNeed) fxXforms = new Float32Array(xNeed * 2);
-      fxXforms.set(extra.xforms.subarray(0, extra.count * 4), xOff);
+      fxXforms.set(extra.xforms.subarray(0, extra.count * 8), xOff);
       totalInst += extraBytes;
       fx3dActive = true;
     }
@@ -1048,7 +1052,7 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
     uCamScale[0] = cs; uCamScale[1] = cs;
     const instCount = totalInst / 16;
     renderer.setUniforms({ width: Cw, height: Ch, camScale: uCamScale, camCenter: uCamCenter, viewProj: vp, fxActive: fx3dActive ? 1 : 0 });
-    renderer.draw(pass, crvFA.subarray(0, crv.length), rwsUA.subarray(0, rws.length), instFA.subarray(0, totalInst), instCount, fx3dActive ? fxXforms.subarray(0, instCount * 4) : undefined);
+    renderer.draw(pass, crvFA.subarray(0, crv.length), rwsUA.subarray(0, rws.length), instFA.subarray(0, totalInst), instCount, fx3dActive ? fxXforms.subarray(0, instCount * 8) : undefined);
 
     // Toolbar overlay — EXACT CinematicHud pattern (backing-store px + screen-ortho matrix)
     if (toolInst.length > 0) {
@@ -1113,6 +1117,13 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
       }
       dragPX = e.clientX; dragPY = e.clientY;
     }
+    // Physics FX: the pointer layer follows the debris — hovering a flying shard
+    // hovers the element it was torn from (remap for the hover block only).
+    const rawMx = mx, rawMy = my;
+    if (fxMode === 'physics') {
+      const ph = physicsPick(mx, my);
+      if (ph) { mx = ph.x; my = ph.y; }
+    }
     hoverExplorer = false; hoverTerminal = false; hoverSource = -1; hoverAction = -1; hoverSearch = false; hoverTab = -1;
 
     const tile = 34, ty = 8, tileX = (AB_W - tile) / 2;
@@ -1149,6 +1160,7 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
       }
     }
 
+    mx = rawMx; my = rawMy;
     toolbar.updateHover(scrMx * dpr, scrMy * dpr);
     gate.updateHover(mx, my);
     const overChrome = hoverExplorer || hoverTerminal || hoverSearch || hoverSource >= 0 || hoverAction >= 0 || hoverTab >= 0;
@@ -1210,7 +1222,8 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
       }
       return;
     }
-    handlePick(mx, my, e.shiftKey);
+    const ph0 = fxMode === 'physics' ? physicsPick(mx, my) : null;
+    handlePick(ph0 ? ph0.x : mx, ph0 ? ph0.y : my, e.shiftKey);
   }
 
   function handlePick(px: number, py: number, shift: boolean) {
@@ -1345,7 +1358,8 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
       if (d3.moved || performance.now() - d3.t > 400) return;
       const [sx, sy] = toWorld(e);
       const p = screenToDocLocal(sx * dpr, sy * dpr, tCanvas.width, tCanvas.height);
-      handlePick(p.x, p.y, e.shiftKey);
+      const ph = fxMode === 'physics' ? physicsPick(p.x, p.y) : null;
+      handlePick(ph ? ph.x : p.x, ph ? ph.y : p.y, e.shiftKey);
     }
   }
 
@@ -1364,12 +1378,15 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
     if (decision.kind === 'scroll') {
       e.stopImmediatePropagation();
       if (decision.panel === 'tree') {
-        fileTree.scrollBy(e.deltaY * 0.5);
+        const applied = fileTree.scrollBy(e.deltaY * 0.5);
+        if (fxMode === 'physics') physicsScroll('tree', -applied);
       } else {
         const ed = tabs[activeTab].editor;
+        const before = ed.y0;
         ed.y0 -= e.deltaY * 0.5;
         const maxScroll = Math.max(0, ed.contentHeight() - editorH);
         ed.y0 = Math.min(TAB_BAR_H, Math.max(TAB_BAR_H - maxScroll, ed.y0));
+        if (fxMode === 'physics') physicsScroll('editor', ed.y0 - before);
       }
       return;
     }

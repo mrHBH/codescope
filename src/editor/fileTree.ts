@@ -240,8 +240,10 @@ export class FileTree {
   private get listHeight() { this.ensureFlat(); return this.flatRows.length * this.lineHeight; }
   private get maxScroll() { return Math.max(0, this.listHeight - this.bodyH); }
 
-  scrollBy(dy: number) {
+  scrollBy(dy: number): number {
+    const before = this.scrollY;
     this.scrollY = Math.min(Math.max(this.scrollY + dy, 0), this.maxScroll);
+    return this.scrollY - before;
   }
 
   setViewportHeight(hWorld: number) {
