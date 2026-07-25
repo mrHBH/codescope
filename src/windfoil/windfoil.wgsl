@@ -8,6 +8,7 @@ struct Uniforms {
   camScale : vec2f,   // camera scale — drives the AA-skirt pad (was cam.xy)
   camCenter : vec2f,  // camera center (subtracted from world pos for precision)
   viewProj : mat4x4f, // world-relative (x, y, 0, 1) → clip space
+  fxActive : f32,     // 1 = per-instance 3D FX transforms enabled
 };
 
 struct Instance {
@@ -58,6 +59,8 @@ const KERNEL_SKIRT_PX = KERNEL_SUPPORT_PX + vec2f(0.125);
 @group(0) @binding(2) var<storage, read> curves : array<vec2f>;
 // Row-band table: ROW_STRIDE u32s per band (see the ROW_* constants and bands.ts).
 @group(0) @binding(3) var<storage, read> rows : array<u32>;
+// Per-instance 3D FX transform: (rotX, rotY, z, scale). Zero = identity.
+@group(0) @binding(4) var<storage, read> fxXforms : array<vec4f>;
 
 struct VsOut {
   @builtin(position) pos : vec4f,
@@ -72,9 +75,30 @@ fn vs(@builtin(vertex_index) vi : u32, @builtin(instance_index) ii : u32) -> VsO
   let pad = KERNEL_SKIRT_PX / (unitsToPx * max(abs(U.camScale), vec2f(1e-6)));
   let uv = vec2f(f32(vi & 1u), f32(vi >> 1u));
   let em = mix(I.bbox.xy - pad, I.bbox.zw + pad, uv);
-  let worldPx = I.place.xy + em * unitsToPx;
+  var worldPx = I.place.xy + em * unitsToPx;
+  var z : f32 = 0.0;
+  if (U.fxActive > 0.5) {
+    let xf = fxXforms[ii];
+    if (abs(xf.x) + abs(xf.y) + abs(xf.z) > 1e-6) {
+      let cx = (I.bbox.x + I.bbox.z) * 0.5 * unitsToPx;
+      let cy = (I.bbox.y + I.bbox.w) * 0.5 * unitsToPx;
+      var lx = (worldPx.x - I.place.x - cx) * xf.w;
+      var ly = (worldPx.y - I.place.y - cy) * xf.w;
+      var lz : f32 = 0.0;
+      let cosX = cos(xf.x); let sinX = sin(xf.x);
+      let ry = ly * cosX - lz * sinX;
+      let rz = ly * sinX + lz * cosX;
+      ly = ry; lz = rz;
+      let cosY = cos(xf.y); let sinY = sin(xf.y);
+      let rx = lx * cosY + lz * sinY;
+      let rz2 = -lx * sinY + lz * cosY;
+      lx = rx; lz = rz2;
+      worldPx = I.place.xy + vec2f(cx + lx, cy + ly);
+      z = lz + xf.z;
+    }
+  }
   let relPos = worldPx - U.camCenter;
-  return VsOut(U.viewProj * vec4f(relPos.x, relPos.y, 0.0, 1.0), em, ii);
+  return VsOut(U.viewProj * vec4f(relPos.x, relPos.y, -z, 1.0), em, ii);
 }
 
 // Period-2 triangle wave 1 − |1 − (t mod 2)|: folds signed winding to even-odd coverage, range [0, 1].

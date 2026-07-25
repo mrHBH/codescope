@@ -7,7 +7,7 @@ import { FileTree, type FileTreeTheme, type TreeNode } from '../editor/fileTree'
 import { DEPTH_FORMAT } from '../windfoil/mesh3d';
 import { createGlyphRenderer } from '../windfoil/gpu';
 import { AnalyticToolbar, type ToolbarButton } from '../ui/analyticToolbar';
-import { enterOrbit, orbitViewProj, orbitScale, setOrbitEnabled, updateOrbit, screenToDocLocal, setOrbitNear, setOrbitPanChord, orbitTruck, orbitZoomToRect } from '../camera/orbit';
+import { enterOrbit, orbitViewProj, orbitScale, setOrbitEnabled, updateOrbit, screenToDocLocal, setOrbitNear, setOrbitPanChord, orbitTruck, orbitZoomToRect, orbitPolar, orbitAzimuth, orbitSetAngles } from '../camera/orbit';
 import { ANALYTIC_MENU_THEME } from '../ui/analyticMenu';
 import { MenuGate, MultiClickTracker, RightGesture, routeScroll, resolveCursor } from '../ui/inputRouter';
 import { tabMenu, folderMenu, fileMenu, editorMenu, terminalMenu, searchMenu, type IdeMenuActions } from './menus';
@@ -22,7 +22,8 @@ const ANIM_MS = 220;
 
 const REP_R = 72, REP_R2 = REP_R * REP_R, REP_STR = 16;
 const CLOTH_AX = 2.8, CLOTH_AY = 1.4, CLOTH_FX = 0.028, CLOTH_FY = 0.038, CLOTH_SX = 1.6, CLOTH_SY = 2.2;
-const FW_R = 180, FW_R2 = FW_R * FW_R, FW_STR = 55, FW_LIFE = 2.2, FW_GRAV = 60;
+const FW_R = 220, FW_R2 = FW_R * FW_R, FW_STR = 40, FW_LIFE = 3.0, FW_GRAV = 90;
+const FW_Z_STR = 260, FW_SPIN = 4.5;
 const BH_R = 200, BH_R2 = BH_R * BH_R, BH_CORE = 28;
 const SN_R = 240, SN_R2 = SN_R * SN_R, SN_LIFE = 1.8, SN_SPEED = 320;
 const DISSOLVE_MS = 2800;
@@ -565,6 +566,11 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
   let mx = 0, my = 0;
   let fxMode: FxMode = 'cloth';
   const fxClicks: { x: number; y: number; t: number }[] = [];
+  let fxXforms = new Float32Array(65536);
+  let fx3dActive = false;
+  let fwTiltTarget = -1;
+  interface FwParticle { src: number; x: number; y: number; vx: number; vy: number; vz: number; z: number; rotX: number; rotY: number; spinX: number; spinY: number; birth: number; life: number; }
+  const fwParticles: FwParticle[] = [];
   let dissolveT0 = -1;
   let logoT0 = -1;
   let logoTargets: Float32Array | null = null;
@@ -710,6 +716,15 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
     [sidebarT, sidebarDir] = stepAnim(sidebarT, sidebarDir, dt);
     [termT, termDir] = stepAnim(termT, termDir, dt);
     if (cam3d) updateOrbit(dt);
+    if (fwTiltTarget >= 0 && cam3d) {
+      const polar = orbitPolar();
+      if (Math.abs(polar - fwTiltTarget) > 0.01) {
+        const k = 1 - Math.exp(-dt / 400);
+        orbitSetAngles(orbitAzimuth(), polar + (fwTiltTarget - polar) * k);
+      } else {
+        fwTiltTarget = -1;
+      }
+    }
 
     // Advance tab cross-fade and accent animations.
     if (tabFrom >= 0) {
@@ -995,6 +1010,13 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
     }
     if (fxMode !== 'logo' && logoT0 >= 0) { logoT0 = -1; logoTargets = null; logoGlyphMap.clear(); }
 
+    fx3dActive = fxMode === 'fireworks' && fxClicks.length > 0;
+    if (fx3dActive) {
+      const need = (inst.length / 16) * 4;
+      if (fxXforms.length < need) fxXforms = new Float32Array(need * 2);
+      fxXforms.fill(0, 0, need);
+    }
+
     if (fxMode !== 'off') {
       const t = now / 1000;
       const invW = 1 / Math.max(w, 1);
@@ -1087,18 +1109,29 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
             if (d2 > FW_R2 || d2 < 1) continue;
             const d = Math.sqrt(d2);
             const f = 1 - d / FW_R;
-            const ease = 1 - Math.pow(1 - Math.min(age / 0.25, 1), 3);
-            const fall = 0.5 * FW_GRAV * age * age;
+            const ease = 1 - Math.pow(1 - Math.min(age / 0.2, 1), 3);
             const decay = Math.max(0, 1 - age / FW_LIFE);
             const s = FW_STR * f * ease * decay;
             ox += (dx / d) * s;
-            oy += (dy / d) * s - fall * f * decay;
-            if (glyph && f > 0.3) {
-              instFA[i + 2] *= 1 + f * ease * decay * 0.35;
+            oy += (dy / d) * s * 0.4;
+            if (glyph) {
+              const zLaunch = FW_Z_STR * f * ease;
+              const zGrav = 0.5 * FW_GRAV * age * age;
+              const z = Math.max(0, zLaunch * decay - zGrav * f * decay);
+              const spinPhase = h * 6.283;
+              const rotX = Math.sin(age * FW_SPIN + spinPhase) * f * decay * 1.8;
+              const rotY = Math.cos(age * FW_SPIN * 0.7 + spinPhase * 1.3) * f * decay * 2.2;
+              const sc = 1 + f * ease * decay * 0.3;
+              const xi = (i / 16) * 4;
+              fxXforms[xi] = rotX;
+              fxXforms[xi + 1] = rotY;
+              fxXforms[xi + 2] = z;
+              fxXforms[xi + 3] = sc;
               const warm = f * decay;
               instFA[i + 8] = Math.min(1, inst[i + 8] + warm * 0.8);
               instFA[i + 9] = Math.min(1, inst[i + 9] + warm * 0.35);
               instFA[i + 10] *= 1 - warm * 0.5;
+              instFA[i + 11] *= 0.4 + 0.6 * decay;
             }
           }
 
@@ -1244,6 +1277,46 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
     if (rws.length > rwsUA.length) rwsUA = new Uint32Array(rws.length * 2);
     rwsUA.set(rws);
 
+    let totalInst = inst.length;
+    if (fwParticles.length > 0 && fxMode === 'fireworks') {
+      const t = now / 1000;
+      const grav = 320;
+      let alive = 0;
+      const extraCap = fwParticles.length * 16;
+      if (instFA.length < inst.length + extraCap) instFA = new Float32Array((inst.length + extraCap) * 2);
+      const xNeed = ((inst.length / 16) + fwParticles.length) * 4;
+      if (fxXforms.length < xNeed) fxXforms = new Float32Array(xNeed * 2);
+      for (let p = 0; p < fwParticles.length; p++) {
+        const pt = fwParticles[p];
+        const age = t - pt.birth;
+        if (age > pt.life) continue;
+        const prog = age / pt.life;
+        const fade = 1 - prog * prog;
+        pt.x += pt.vx * (1 / 60); pt.y += pt.vy * (1 / 60);
+        pt.vz -= grav * (1 / 60);
+        pt.z = Math.max(0, pt.z + pt.vz * (1 / 60));
+        pt.rotX += pt.spinX * (1 / 60);
+        pt.rotY += pt.spinY * (1 / 60);
+        const dst = totalInst;
+        for (let j = 0; j < 16; j++) instFA[dst + j] = inst[pt.src + j];
+        instFA[dst] = pt.x;
+        instFA[dst + 1] = pt.y;
+        instFA[dst + 8] = Math.min(1, inst[pt.src + 8] + fade * 0.6);
+        instFA[dst + 9] = Math.min(1, inst[pt.src + 9] + fade * 0.3);
+        instFA[dst + 10] = inst[pt.src + 10] * (1 - fade * 0.4);
+        instFA[dst + 11] = inst[pt.src + 11] * fade;
+        const xi = (dst / 16) * 4;
+        fxXforms[xi] = pt.rotX;
+        fxXforms[xi + 1] = pt.rotY;
+        fxXforms[xi + 2] = pt.z;
+        fxXforms[xi + 3] = 0.7 + fade * 0.5;
+        totalInst += 16;
+        fwParticles[alive++] = pt;
+      }
+      fwParticles.length = alive;
+      fx3dActive = true;
+    }
+
     const dv = ensureDepth(Cw, Ch);
     const enc = device.createCommandEncoder();
     const pass = enc.beginRenderPass({
@@ -1251,8 +1324,9 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
       depthStencilAttachment: { view: dv, depthClearValue: 1, depthLoadOp: 'clear', depthStoreOp: 'store' },
     });
     uCamScale[0] = cs; uCamScale[1] = cs;
-    renderer.setUniforms({ width: Cw, height: Ch, camScale: uCamScale, camCenter: uCamCenter, viewProj: vp });
-    renderer.draw(pass, crvFA.subarray(0, crv.length), rwsUA.subarray(0, rws.length), instFA.subarray(0, inst.length), inst.length / 16);
+    const instCount = totalInst / 16;
+    renderer.setUniforms({ width: Cw, height: Ch, camScale: uCamScale, camCenter: uCamCenter, viewProj: vp, fxActive: fx3dActive ? 1 : 0 });
+    renderer.draw(pass, crvFA.subarray(0, crv.length), rwsUA.subarray(0, rws.length), instFA.subarray(0, totalInst), instCount, fx3dActive ? fxXforms.subarray(0, instCount * 4) : undefined);
 
     // Toolbar overlay — EXACT CinematicHud pattern (backing-store px + screen-ortho matrix)
     if (toolInst.length > 0) {
@@ -1382,7 +1456,34 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
     let [wx, wy] = toWorld(e);
     if (cam3d) { const p = screenToDocLocal(wx * dpr, wy * dpr, tCanvas.width, tCanvas.height); wx = p.x; wy = p.y; }
     if (gate.consumeClick(wx, wy)) return;
-    if ((fxMode === 'fireworks' || fxMode === 'supernova') && fxClicks.length < 10) fxClicks.push({ x: wx, y: wy, t: performance.now() / 1000 });
+    if ((fxMode === 'fireworks' || fxMode === 'supernova') && fxClicks.length < 10) {
+      fxClicks.push({ x: wx, y: wy, t: performance.now() / 1000 });
+      if (fxMode === 'fireworks' && cam3d) {
+        if (orbitPolar() < 0.35) fwTiltTarget = 0.55;
+        const now_s = performance.now() / 1000;
+        const glyphIdxs: number[] = [];
+        for (let gi = 0; gi < inst.length; gi += 16) {
+          if (inst[gi + 3] < 1.5) {
+            const dx = inst[gi] - wx, dy = inst[gi + 1] - wy;
+            if (dx * dx + dy * dy < FW_R2) glyphIdxs.push(gi);
+          }
+        }
+        const count = Math.min(glyphIdxs.length, 40);
+        for (let p = 0; p < count; p++) {
+          const src = glyphIdxs[Math.floor(fxHash(p * 77 + fxClicks.length * 13) * glyphIdxs.length)];
+          const ang = fxHash(p * 31 + fxClicks.length * 7) * Math.PI * 2;
+          const spd = 60 + fxHash(p * 53) * 140;
+          fwParticles.push({
+            src, x: inst[src], y: inst[src + 1],
+            vx: Math.cos(ang) * spd * 0.4, vy: Math.sin(ang) * spd * 0.3,
+            vz: 180 + fxHash(p * 19) * 200, z: 0,
+            rotX: 0, rotY: 0,
+            spinX: (fxHash(p * 41) - 0.5) * 10, spinY: (fxHash(p * 67) - 0.5) * 12,
+            birth: now_s, life: 1.8 + fxHash(p * 23) * 1.2,
+          });
+        }
+      }
+    }
     if (fxMode === 'dissolve' && dissolveT0 < 0) dissolveT0 = performance.now();
     [mx, my] = toWorld(e);
     if (cam3d) {
