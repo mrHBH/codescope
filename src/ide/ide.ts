@@ -12,6 +12,7 @@ import { ANALYTIC_MENU_THEME } from '../ui/analyticMenu';
 import { MenuGate, MultiClickTracker, RightGesture, routeScroll, resolveCursor } from '../ui/inputRouter';
 import { tabMenu, folderMenu, fileMenu, editorMenu, terminalMenu, searchMenu, type IdeMenuActions } from './menus';
 import { ideTheme as T } from './theme';
+import { REG, FX_NAMES, fxHash, type FxMode, type FxCtx } from './fx';
 
 const AB_W = 50;
 const SIDEBAR_W = 340;
@@ -19,27 +20,6 @@ const TAB_BAR_H = 36;
 const STATUS_H = 22;
 const TERM_HEADER_H = 28;
 const ANIM_MS = 220;
-
-const REP_R = 72, REP_R2 = REP_R * REP_R, REP_STR = 16;
-const CLOTH_AX = 2.8, CLOTH_AY = 1.4, CLOTH_FX = 0.028, CLOTH_FY = 0.038, CLOTH_SX = 1.6, CLOTH_SY = 2.2;
-const FW_R = 220, FW_R2 = FW_R * FW_R, FW_STR = 40, FW_LIFE = 3.0, FW_GRAV = 90;
-const FW_Z_STR = 260, FW_SPIN = 4.5;
-const BH_R = 200, BH_R2 = BH_R * BH_R, BH_CORE = 28;
-const SN_R = 240, SN_R2 = SN_R * SN_R, SN_LIFE = 1.8, SN_SPEED = 320;
-const DISSOLVE_MS = 2800;
-const FX_NAMES = ['off', 'cloth', 'matrix', 'heartbeat', 'glitch', 'aurora', 'fireworks', 'blackhole', 'supernova', 'dissolve', 'earthquake', 'logo'] as const;
-type FxMode = typeof FX_NAMES[number];
-function fxHash(i: number): number { let h = (i * 2654435761) >>> 0; h ^= h >>> 16; h = Math.imul(h, 0x45d9f3b); h ^= h >>> 16; return (h >>> 0) / 4294967296; }
-function wSDF(px: number, py: number): number {
-  const S = [[0.06, 0.04, 0.27, 0.96], [0.27, 0.96, 0.50, 0.32], [0.50, 0.32, 0.73, 0.96], [0.73, 0.96, 0.94, 0.04]];
-  let m = 1e9;
-  for (const [x0, y0, x1, y1] of S) {
-    const dx = x1 - x0, dy = y1 - y0;
-    const t = Math.max(0, Math.min(1, ((px - x0) * dx + (py - y0) * dy) / (dx * dx + dy * dy)));
-    m = Math.min(m, Math.hypot(px - (x0 + t * dx), py - (y0 + t * dy)));
-  }
-  return m;
-}
 
 const SB_HEADER_H = 53;
 const SB_SEARCH_Y = 61;
@@ -565,16 +545,10 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
 
   let mx = 0, my = 0;
   let fxMode: FxMode = 'cloth';
-  const fxClicks: { x: number; y: number; t: number }[] = [];
   let fxXforms = new Float32Array(65536);
   let fx3dActive = false;
+  let prevFxMode: FxMode = 'cloth';
   let fwTiltTarget = -1;
-  interface FwParticle { src: number; x: number; y: number; vx: number; vy: number; vz: number; z: number; rotX: number; rotY: number; spinX: number; spinY: number; birth: number; life: number; }
-  const fwParticles: FwParticle[] = [];
-  let dissolveT0 = -1;
-  let logoT0 = -1;
-  let logoTargets: Float32Array | null = null;
-  let logoGlyphMap = new Map<number, number>();
   let d3 = { x: 0, y: 0, t: 0, moved: false, active: false };
   let dragSel = false, dragPX = 0, dragPY = 0;
   // "Fitted" = the camera frames the whole IDE (true at boot via enterOrbit
@@ -703,6 +677,18 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
     push('icon:chevronUp', 'Collapse All');
     push('icon:chevron', 'Expand All');
     return { tx0, ty0, tw, th, tabs_, actions, actW };
+  }
+
+  function makeFrameCtx(now: number, t: number, dt: number, w: number, h: number, mx: number, my: number, cam3d: boolean, inst: number[], instFA: Float32Array, fxXforms: Float32Array, instCount: number): FxCtx {
+    return {
+      now, t, dt, w, h, mx, my, cam3d,
+      inst, instFA, fxXforms, instCount,
+      i: 0, wx: 0, wy: 0, glyph: false, hash: 0, xi: 0,
+      ox: 0, oy: 0, fx3dActive, extraCount: 0,
+      ensureInstFA(floats: number) { if (instFA.length < floats) instFA = new Float32Array(floats * 2); },
+      allocXforms(total: number) { const need = total * 4; if (fxXforms.length < need) fxXforms = new Float32Array(need * 2); },
+      tilt: (polar: number) => { if (cam3d && orbitPolar() < 0.35) fwTiltTarget = polar; },
+    };
   }
 
   function render(now: number) {
@@ -985,292 +971,54 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
       vp = vp2d;
       cs = dpr;
     }
-    if (fxMode === 'logo' && logoT0 < 0) {
-      logoT0 = now;
-      logoGlyphMap.clear();
-      let gCount = 0;
-      for (let i = 0; i < inst.length; i += 16) {
-        if (inst[i + 3] < 1.5) logoGlyphMap.set(i, gCount++);
-      }
-      const cell = 7;
-      const gw = Math.floor(w * 0.72 / cell), gh = Math.floor(h * 0.62 / cell);
-      const gx0 = w * 0.14, gy0 = h * 0.19;
-      const strokeW = 0.11;
-      const cells: number[] = [];
-      for (let r = 0; r < gh; r++) for (let c = 0; c < gw; c++) {
-        if (wSDF((c + 0.5) / gw, (r + 0.5) / gh) < strokeW) cells.push(gx0 + (c + 0.5) * cell, gy0 + (r + 0.5) * cell);
-      }
-      const nc = cells.length / 2;
-      logoTargets = new Float32Array(gCount * 2);
-      for (let g = 0; g < gCount; g++) {
-        const ci = nc > 0 ? g % nc : 0;
-        logoTargets[g * 2] = nc > 0 ? cells[ci * 2] : w / 2;
-        logoTargets[g * 2 + 1] = nc > 0 ? cells[ci * 2 + 1] : h / 2;
-      }
+    const fxT = now / 1000;
+    const fx = REG[fxMode] ?? null;
+    const prevFx = REG[prevFxMode] ?? null;
+    if (fxMode !== prevFxMode) {
+      if (prevFx?.onExit) prevFx.onExit(makeFrameCtx(now, fxT, dt, w, h, mx, my, cam3d, inst, instFA, fxXforms, inst.length / 16));
+      if (fx?.onEnter) fx.onEnter(makeFrameCtx(now, fxT, dt, w, h, mx, my, cam3d, inst, instFA, fxXforms, inst.length / 16));
+      prevFxMode = fxMode;
     }
-    if (fxMode !== 'logo' && logoT0 >= 0) { logoT0 = -1; logoTargets = null; logoGlyphMap.clear(); }
 
-    fx3dActive = fxMode === 'fireworks' && fxClicks.length > 0;
-    if (fx3dActive) {
+    fx3dActive = false;
+    if (fx?.uses3d) {
       const need = (inst.length / 16) * 4;
       if (fxXforms.length < need) fxXforms = new Float32Array(need * 2);
       fxXforms.fill(0, 0, need);
     }
+    if (fx?.preFrame) fx.preFrame(makeFrameCtx(now, fxT, dt, w, h, mx, my, cam3d, inst, instFA, fxXforms, inst.length / 16));
 
-    if (fxMode !== 'off') {
-      const t = now / 1000;
-      const invW = 1 / Math.max(w, 1);
+    if (fx) {
       const n = inst.length;
       for (let i = 0; i < n; i += 16) {
-        const wx = inst[i], wy = inst[i + 1];
-        const glyph = inst[i + 3] < 1.5;
-        const h = fxHash(i);
-        let ox = 0, oy = 0;
-
-        if (fxMode === 'cloth') {
-          if (glyph) {
-            const dx = wx - mx, dy = wy - my;
-            const d2 = dx * dx + dy * dy;
-            if (d2 < REP_R2 && d2 > 1) {
-              const d = Math.sqrt(d2), f = 1 - d / REP_R, s = REP_STR * f * f;
-              ox = (dx / d) * s; oy = (dy / d) * s;
-            }
-          }
-          const frac = wx * invW;
-          ox += CLOTH_AX * Math.sin(wy * CLOTH_FY - t * CLOTH_SY) * frac;
-          oy += CLOTH_AY * Math.sin(wx * CLOTH_FX - t * CLOTH_SX) * frac;
-
-        } else if (fxMode === 'matrix') {
-          const col = Math.floor(wx / 9);
-          const speed = 40 + fxHash(col * 7) * 80;
-          const phase = fxHash(col * 13) * 600;
-          oy += ((t * speed + phase) % 70) - 35;
-          const flicker = Math.sin(t * (3 + h * 5) + h * 40) * 0.5 + 0.5;
-          if (glyph) {
-            instFA[i + 8] = 0.1 + 0.15 * flicker;
-            instFA[i + 9] = 0.7 + 0.3 * flicker;
-            instFA[i + 10] = 0.15 + 0.1 * flicker;
-            instFA[i + 11] *= 0.35 + 0.65 * flicker;
-          }
-
-        } else if (fxMode === 'heartbeat') {
-          const cx = w * 0.5, cy = 300;
-          const dx = wx - cx, dy = wy - cy;
-          const d = Math.sqrt(dx * dx + dy * dy) || 1;
-          const beat = t % 1.1;
-          const pulse = beat < 0.12 ? Math.sin(beat / 0.12 * Math.PI) : beat < 0.28 ? 0.6 * Math.sin((beat - 0.12) / 0.16 * Math.PI) : 0;
-          const wave = Math.max(0, pulse - d * 0.0012);
-          if (glyph) {
-            instFA[i + 2] *= 1 + wave * 0.22;
-            instFA[i + 8] = Math.min(1, inst[i + 8] + wave * 0.7);
-            instFA[i + 9] *= 1 - wave * 0.4;
-            instFA[i + 10] *= 1 - wave * 0.4;
-          }
-          ox += (dx / d) * wave * 5;
-          oy += (dy / d) * wave * 5;
-
-        } else if (fxMode === 'glitch') {
-          const sliceY = Math.floor(wy / 18);
-          const sliceH = fxHash(sliceY * 31 + Math.floor(t * 8));
-          if (sliceH > 0.7) {
-            ox += (fxHash(sliceY * 17 + Math.floor(t * 12)) - 0.5) * 30 * ((sliceH - 0.7) / 0.3);
-          }
-          if (glyph && h > 0.88) {
-            ox += (Math.sin(t * 47 + h * 100) > 0 ? 1 : -1) * 3;
-            oy += (Math.cos(t * 53 + h * 200) > 0 ? 1 : -1) * 2;
-            const ch = Math.floor(t * 14 + h * 10) % 3;
-            if (ch === 0) { instFA[i + 8] = 1; instFA[i + 9] = 0.1; instFA[i + 10] = 0.1; }
-            else if (ch === 1) { instFA[i + 8] = 0.1; instFA[i + 9] = 1; instFA[i + 10] = 0.2; }
-            else { instFA[i + 8] = 0.2; instFA[i + 9] = 0.3; instFA[i + 10] = 1; }
-          }
-          if (glyph && h > 0.95) instFA[i + 11] *= Math.sin(t * 30 + h * 50) > 0 ? 1 : 0.15;
-
-        } else if (fxMode === 'aurora') {
-          oy += 3.5 * Math.sin(wx * 0.018 + t * 0.7) + 2 * Math.sin(wx * 0.031 - t * 1.1);
-          ox += 1.5 * Math.cos(wy * 0.022 + t * 0.5);
-          if (glyph) {
-            const hue = (wx * 0.003 + wy * 0.002 + t * 0.15) % 1;
-            const r = Math.abs(hue * 6 - 3) - 1;
-            const g = 2 - Math.abs(hue * 6 - 2);
-            const b = 2 - Math.abs(hue * 6 - 4);
-            instFA[i + 8] = Math.max(0, Math.min(1, r)) * 0.7 + inst[i + 8] * 0.3;
-            instFA[i + 9] = Math.max(0, Math.min(1, g)) * 0.7 + inst[i + 9] * 0.3;
-            instFA[i + 10] = Math.max(0, Math.min(1, b)) * 0.7 + inst[i + 10] * 0.3;
-          }
-          instFA[i + 2] *= 1 + 0.06 * Math.sin(t * 1.8 + wx * 0.01);
-
-        } else if (fxMode === 'fireworks') {
-          for (let r = fxClicks.length - 1; r >= 0; r--) {
-            const c = fxClicks[r];
-            const age = t - c.t;
-            if (age > FW_LIFE) { fxClicks.splice(r, 1); continue; }
-            const dx = wx - c.x, dy = wy - c.y;
-            const d2 = dx * dx + dy * dy;
-            if (d2 > FW_R2 || d2 < 1) continue;
-            const d = Math.sqrt(d2);
-            const f = 1 - d / FW_R;
-            const ease = 1 - Math.pow(1 - Math.min(age / 0.2, 1), 3);
-            const decay = Math.max(0, 1 - age / FW_LIFE);
-            const s = FW_STR * f * ease * decay;
-            ox += (dx / d) * s;
-            oy += (dy / d) * s * 0.4;
-            if (glyph) {
-              const zLaunch = FW_Z_STR * f * ease;
-              const zGrav = 0.5 * FW_GRAV * age * age;
-              const z = Math.max(0, zLaunch * decay - zGrav * f * decay);
-              const spinPhase = h * 6.283;
-              const rotX = Math.sin(age * FW_SPIN + spinPhase) * f * decay * 1.8;
-              const rotY = Math.cos(age * FW_SPIN * 0.7 + spinPhase * 1.3) * f * decay * 2.2;
-              const sc = 1 + f * ease * decay * 0.3;
-              const xi = (i / 16) * 4;
-              fxXforms[xi] = rotX;
-              fxXforms[xi + 1] = rotY;
-              fxXforms[xi + 2] = z;
-              fxXforms[xi + 3] = sc;
-              const warm = f * decay;
-              instFA[i + 8] = Math.min(1, inst[i + 8] + warm * 0.8);
-              instFA[i + 9] = Math.min(1, inst[i + 9] + warm * 0.35);
-              instFA[i + 10] *= 1 - warm * 0.5;
-              instFA[i + 11] *= 0.4 + 0.6 * decay;
-            }
-          }
-
-        } else if (fxMode === 'blackhole') {
-          if (glyph) {
-            const dx = wx - mx, dy = wy - my;
-            const d2 = dx * dx + dy * dy;
-            if (d2 < BH_R2 && d2 > 1) {
-              const d = Math.sqrt(d2);
-              const pull = 1 - d / BH_R;
-              const swirl = pull * pull * 42;
-              const inv = 1 / d;
-              ox += (-dy * inv * swirl - dx * inv * pull * 18);
-              oy += (dx * inv * swirl - dy * inv * pull * 18);
-              if (d < BH_CORE) {
-                const crush = 1 - d / BH_CORE;
-                instFA[i + 2] *= Math.max(0.05, 1 - crush * 0.95);
-                instFA[i + 11] *= 1 - crush;
-                instFA[i + 8] = Math.min(1, inst[i + 8] + crush * 0.6);
-                instFA[i + 9] *= 1 - crush * 0.7;
-                instFA[i + 10] *= 1 - crush * 0.9;
-              } else if (d < BH_CORE * 2.5) {
-                const ring = 1 - Math.abs(d - BH_CORE * 1.6) / (BH_CORE * 0.9);
-                if (ring > 0) {
-                  instFA[i + 2] *= 1 + ring * 0.5;
-                  instFA[i + 8] = Math.min(1, inst[i + 8] + ring * 0.5);
-                  instFA[i + 9] = Math.min(1, inst[i + 9] + ring * 0.25);
-                }
-              }
-            }
-          }
-
-        } else if (fxMode === 'supernova') {
-          for (let r = fxClicks.length - 1; r >= 0; r--) {
-            const c = fxClicks[r];
-            const age = t - c.t;
-            if (age > SN_LIFE) { fxClicks.splice(r, 1); continue; }
-            const dx = wx - c.x, dy = wy - c.y;
-            const d2 = dx * dx + dy * dy;
-            if (d2 > SN_R2 || d2 < 1) continue;
-            const d = Math.sqrt(d2);
-            const ring = age * SN_SPEED;
-            const behind = d < ring;
-            const fade = Math.max(0, 1 - age / SN_LIFE);
-            if (behind) {
-              const scorch = Math.max(0, 1 - (ring - d) / 80) * fade;
-              if (glyph && scorch > 0.01) {
-                instFA[i + 8] = Math.min(1, inst[i + 8] + scorch);
-                instFA[i + 9] = Math.min(1, inst[i + 9] + scorch * 0.85);
-                instFA[i + 10] = Math.min(1, inst[i + 10] + scorch * 0.6);
-                instFA[i + 2] *= 1 - scorch * 0.55;
-                instFA[i + 11] *= 1 - scorch * 0.7;
-              }
-            }
-            const dw = Math.abs(d - ring);
-            if (dw < 30) {
-              const crest = (1 - dw / 30) * fade;
-              const inv = 1 / d;
-              ox += dx * inv * crest * 22;
-              oy += dy * inv * crest * 22;
-              if (glyph) {
-                instFA[i + 2] *= 1 + crest * 0.4;
-                instFA[i + 8] = Math.min(1, inst[i + 8] + crest * 0.9);
-                instFA[i + 9] = Math.min(1, inst[i + 9] + crest * 0.7);
-                instFA[i + 10] = Math.min(1, inst[i + 10] + crest * 0.3);
-              }
-            }
-          }
-
-        } else if (fxMode === 'dissolve') {
-          if (dissolveT0 >= 0) {
-            const elapsed = now - dissolveT0;
-            const sweep = (elapsed / DISSOLVE_MS) * (w + 200) - 100;
-            const threshold = h * 120;
-            const local = sweep - wx + threshold;
-            if (local > 0) {
-              const prog = Math.min(local / 90, 1);
-              const ease = prog * prog;
-              if (glyph) {
-                instFA[i + 11] *= 1 - ease;
-                instFA[i + 2] *= 1 - ease * 0.6;
-                oy += ease * 14;
-                ox += (h - 0.5) * ease * 20;
-                const ember = ease * (1 - ease) * 4;
-                instFA[i + 8] = Math.min(1, inst[i + 8] + ember * 0.7);
-                instFA[i + 9] = Math.min(1, inst[i + 9] + ember * 0.25);
-              } else {
-                instFA[i + 11] *= 1 - ease * 0.85;
-              }
-            }
-            if (elapsed > DISSOLVE_MS + 1200) dissolveT0 = -1;
-          }
-
-        } else if (fxMode === 'earthquake') {
-          const mag = Math.sin(t * 0.4) * 0.5 + 0.5;
-          const amp = mag * mag * 7;
-          const depthPhase = wy * 0.008;
-          ox += amp * Math.sin(t * 23 + depthPhase) * (0.5 + h * 0.5);
-          oy += amp * 0.6 * Math.cos(t * 19 + depthPhase * 1.3);
-          const waveX = ((t * 200) % (w + 300)) - 150;
-          const dw = Math.abs(wx - waveX);
-          if (dw < 60) {
-            const crest = (1 - dw / 60) * mag;
-            oy -= crest * 12;
-            if (glyph) instFA[i + 2] *= 1 + crest * 0.15;
-          }
-          if (glyph && mag > 0.7 && h > 0.92) {
-            instFA[i + 11] *= 0.4 + 0.6 * Math.abs(Math.sin(t * 40 + h * 80));
-          }
-
-        } else if (fxMode === 'logo' && logoTargets) {
-          const elapsed = (now - logoT0) / 1000;
-          const prog = Math.min(elapsed / 3.2, 1);
-          const ease = prog < 0.5 ? 4 * prog * prog * prog : 1 - Math.pow(-2 * prog + 2, 3) / 2;
-          const gi = logoGlyphMap.get(i);
-          if (gi !== undefined) {
-            const tx = logoTargets[gi * 2], ty = logoTargets[gi * 2 + 1];
-            const lx = inst[i], ly = inst[i + 1];
-            instFA[i] = lx + (tx - lx) * ease;
-            instFA[i + 1] = ly + (ty - ly) * ease;
-            const wave = ease * 0.14 * Math.sin(tx * 0.045 + t * 2.6) * Math.cos(ty * 0.035 + t * 1.8);
-            instFA[i + 2] = inst[i + 2] * (1 - ease * 0.35 + wave);
-            instFA[i + 1] += ease * 3.5 * Math.sin(tx * 0.03 + t * 1.4);
-            const hue = (tx * 0.004 + ty * 0.003 + t * 0.12) % 1;
-            const cr = Math.max(0, Math.min(1, Math.abs(hue * 6 - 3) - 1));
-            const cg = Math.max(0, Math.min(1, 2 - Math.abs(hue * 6 - 2)));
-            const cb = Math.max(0, Math.min(1, 2 - Math.abs(hue * 6 - 4)));
-            instFA[i + 8] = inst[i + 8] * (1 - ease) + cr * ease;
-            instFA[i + 9] = inst[i + 9] * (1 - ease) + cg * ease;
-            instFA[i + 10] = inst[i + 10] * (1 - ease) + cb * ease;
-            continue;
-          }
-          instFA[i + 11] *= 1 - ease;
-          continue;
-        }
-
-        instFA[i] += ox;
-        instFA[i + 1] += oy;
+        const pCtx: FxCtx = {
+          now, t: fxT, dt, w, h, mx, my, cam3d,
+          inst, instFA, fxXforms, instCount: n / 16,
+          i, wx: inst[i], wy: inst[i + 1],
+          glyph: inst[i + 3] < 1.5, hash: fxHash(i), xi: (i / 16) * 4,
+          ox: 0, oy: 0, fx3dActive, extraCount: 0,
+          ensureInstFA(floats: number) { if (instFA.length < floats) instFA = new Float32Array(floats * 2); },
+          allocXforms(total: number) { const need = total * 4; if (fxXforms.length < need) fxXforms = new Float32Array(need * 2); },
+          tilt: (polar: number) => { if (cam3d && orbitPolar() < 0.35) fwTiltTarget = polar; },
+        };
+        fx.apply(pCtx);
+        instFA[i] += pCtx.ox;
+        instFA[i + 1] += pCtx.oy;
+        if (pCtx.fx3dActive) fx3dActive = true;
       }
+    }
+    if (fx?.postFrame) {
+      const pCtx: FxCtx = {
+        now, t: fxT, dt, w, h, mx, my, cam3d,
+        inst, instFA, fxXforms, instCount: inst.length / 16,
+        i: 0, wx: 0, wy: 0, glyph: false, hash: 0, xi: 0,
+        ox: 0, oy: 0, fx3dActive, extraCount: 0,
+        ensureInstFA(floats: number) { if (instFA.length < floats) instFA = new Float32Array(floats * 2); },
+        allocXforms(total: number) { const need = total * 4; if (fxXforms.length < need) fxXforms = new Float32Array(need * 2); },
+        tilt: (polar: number) => { if (cam3d && orbitPolar() < 0.35) fwTiltTarget = polar; },
+      };
+      fx.postFrame(pCtx);
+      if (pCtx.fx3dActive) fx3dActive = true;
     }
     if (crv.length > crvFA.length) crvFA = new Float32Array(crv.length * 2);
     crvFA.set(crv);
@@ -1278,42 +1026,16 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
     rwsUA.set(rws);
 
     let totalInst = inst.length;
-    if (fwParticles.length > 0 && fxMode === 'fireworks') {
-      const t = now / 1000;
-      const grav = 320;
-      let alive = 0;
-      const extraCap = fwParticles.length * 16;
-      if (instFA.length < inst.length + extraCap) instFA = new Float32Array((inst.length + extraCap) * 2);
-      const xNeed = ((inst.length / 16) + fwParticles.length) * 4;
+    const extra = fx?.extras?.();
+    if (extra && extra.count > 0) {
+      const extraBytes = extra.count * 16;
+      if (instFA.length < inst.length + extraBytes) instFA = new Float32Array((inst.length + extraBytes) * 2);
+      instFA.set(extra.instFA.subarray(0, extraBytes), inst.length);
+      const xOff = (totalInst / 16) * 4;
+      const xNeed = xOff + extra.count * 4;
       if (fxXforms.length < xNeed) fxXforms = new Float32Array(xNeed * 2);
-      for (let p = 0; p < fwParticles.length; p++) {
-        const pt = fwParticles[p];
-        const age = t - pt.birth;
-        if (age > pt.life) continue;
-        const prog = age / pt.life;
-        const fade = 1 - prog * prog;
-        pt.x += pt.vx * (1 / 60); pt.y += pt.vy * (1 / 60);
-        pt.vz -= grav * (1 / 60);
-        pt.z = Math.max(0, pt.z + pt.vz * (1 / 60));
-        pt.rotX += pt.spinX * (1 / 60);
-        pt.rotY += pt.spinY * (1 / 60);
-        const dst = totalInst;
-        for (let j = 0; j < 16; j++) instFA[dst + j] = inst[pt.src + j];
-        instFA[dst] = pt.x;
-        instFA[dst + 1] = pt.y;
-        instFA[dst + 8] = Math.min(1, inst[pt.src + 8] + fade * 0.6);
-        instFA[dst + 9] = Math.min(1, inst[pt.src + 9] + fade * 0.3);
-        instFA[dst + 10] = inst[pt.src + 10] * (1 - fade * 0.4);
-        instFA[dst + 11] = inst[pt.src + 11] * fade;
-        const xi = (dst / 16) * 4;
-        fxXforms[xi] = pt.rotX;
-        fxXforms[xi + 1] = pt.rotY;
-        fxXforms[xi + 2] = pt.z;
-        fxXforms[xi + 3] = 0.7 + fade * 0.5;
-        totalInst += 16;
-        fwParticles[alive++] = pt;
-      }
-      fwParticles.length = alive;
+      fxXforms.set(extra.xforms.subarray(0, extra.count * 4), xOff);
+      totalInst += extraBytes;
       fx3dActive = true;
     }
 
@@ -1456,35 +1178,20 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
     let [wx, wy] = toWorld(e);
     if (cam3d) { const p = screenToDocLocal(wx * dpr, wy * dpr, tCanvas.width, tCanvas.height); wx = p.x; wy = p.y; }
     if (gate.consumeClick(wx, wy)) return;
-    if ((fxMode === 'fireworks' || fxMode === 'supernova') && fxClicks.length < 10) {
-      fxClicks.push({ x: wx, y: wy, t: performance.now() / 1000 });
-      if (fxMode === 'fireworks' && cam3d) {
-        if (orbitPolar() < 0.35) fwTiltTarget = 0.55;
-        const now_s = performance.now() / 1000;
-        const glyphIdxs: number[] = [];
-        for (let gi = 0; gi < inst.length; gi += 16) {
-          if (inst[gi + 3] < 1.5) {
-            const dx = inst[gi] - wx, dy = inst[gi + 1] - wy;
-            if (dx * dx + dy * dy < FW_R2) glyphIdxs.push(gi);
-          }
-        }
-        const count = Math.min(glyphIdxs.length, 40);
-        for (let p = 0; p < count; p++) {
-          const src = glyphIdxs[Math.floor(fxHash(p * 77 + fxClicks.length * 13) * glyphIdxs.length)];
-          const ang = fxHash(p * 31 + fxClicks.length * 7) * Math.PI * 2;
-          const spd = 60 + fxHash(p * 53) * 140;
-          fwParticles.push({
-            src, x: inst[src], y: inst[src + 1],
-            vx: Math.cos(ang) * spd * 0.4, vy: Math.sin(ang) * spd * 0.3,
-            vz: 180 + fxHash(p * 19) * 200, z: 0,
-            rotX: 0, rotY: 0,
-            spinX: (fxHash(p * 41) - 0.5) * 10, spinY: (fxHash(p * 67) - 0.5) * 12,
-            birth: now_s, life: 1.8 + fxHash(p * 23) * 1.2,
-          });
-        }
-      }
+    const fxFn = REG[fxMode];
+    if (fxFn?.onClick) {
+      const clickNow = performance.now();
+      const clickCtx: FxCtx = {
+        now: clickNow, t: clickNow / 1000, dt: 16, w: cssW(), h: cssH(), mx, my, cam3d,
+        inst, instFA, fxXforms, instCount: inst.length / 16,
+        i: 0, wx: 0, wy: 0, glyph: false, hash: 0, xi: 0,
+        ox: 0, oy: 0, fx3dActive, extraCount: 0,
+        ensureInstFA() {}, allocXforms() {},
+        tilt: (polar: number) => { if (cam3d && orbitPolar() < 0.35) fwTiltTarget = polar; },
+      };
+      fxFn.onClick(clickCtx, wx, wy);
+      if (clickCtx.fx3dActive) fx3dActive = true;
     }
-    if (fxMode === 'dissolve' && dissolveT0 < 0) dissolveT0 = performance.now();
     [mx, my] = toWorld(e);
     if (cam3d) {
       d3 = { x: e.clientX, y: e.clientY, t: performance.now(), moved: false, active: true };
