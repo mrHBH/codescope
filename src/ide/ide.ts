@@ -12,7 +12,7 @@ import { ANALYTIC_MENU_THEME } from '../ui/analyticMenu';
 import { MenuGate, MultiClickTracker, RightGesture, routeScroll, resolveCursor } from '../ui/inputRouter';
 import { tabMenu, folderMenu, fileMenu, editorMenu, terminalMenu, searchMenu, type IdeMenuActions } from './menus';
 import { ideTheme as T } from './theme';
-import { REG, FX_NAMES, fxHash, physicsPick, physicsScroll, type FxMode, type FxCtx } from './fx';
+import { REG, FX_NAMES, fxHash, physicsPick, physicsScroll, physicsDead, type FxMode, type FxCtx } from './fx';
 
 const AB_W = 50;
 const SIDEBAR_W = 340;
@@ -546,6 +546,7 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
   let mx = 0, my = 0;
   let fxMode: FxMode = 'cloth';
   let fxXforms = new Float32Array(65536);
+  let clipFA = new Float32Array(65536);
   let fx3dActive = false;
   let prevFxMode: FxMode = 'cloth';
   let fwTiltTarget = -1;
@@ -744,8 +745,7 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
 
     addRect(0, 0, w, h, T.editorBg, crv, rws, inst);
     if (fxMode === 'physics') {
-      addRect(w / 2 - 50000, h / 2 - 50000, w / 2 + 50000, h / 2 + 50000,
-        [T.editorBg[0] * 0.78, T.editorBg[1] * 0.78, T.editorBg[2] * 0.8, 1], crv, rws, inst);
+      addRect(w / 2 - 50000, h / 2 - 50000, w / 2 + 50000, h / 2 + 50000, T.editorBg, crv, rws, inst);
     }
 
     // ── Activity bar ──
@@ -1030,6 +1030,7 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
     rwsUA.set(rws);
 
     let totalInst = inst.length;
+    const baseCount = totalInst / 16;
     const extra = fx?.extras?.();
     if (extra && extra.count > 0) {
       const extraBytes = extra.count * 16;
@@ -1051,8 +1052,18 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
     });
     uCamScale[0] = cs; uCamScale[1] = cs;
     const instCount = totalInst / 16;
+    let clipArg: Float32Array | undefined;
+    if (fx3dActive) {
+      const cNeed = instCount * 24;
+      if (clipFA.length < cNeed) clipFA = new Float32Array(cNeed * 2);
+      clipFA.fill(0, 0, cNeed);
+      if (extra && extra.count > 0 && extra.clip) {
+        clipFA.set(extra.clip.subarray(0, extra.count * 24), baseCount * 24);
+      }
+      clipArg = clipFA.subarray(0, cNeed);
+    }
     renderer.setUniforms({ width: Cw, height: Ch, camScale: uCamScale, camCenter: uCamCenter, viewProj: vp, fxActive: fx3dActive ? 1 : 0 });
-    renderer.draw(pass, crvFA.subarray(0, crv.length), rwsUA.subarray(0, rws.length), instFA.subarray(0, totalInst), instCount, fx3dActive ? fxXforms.subarray(0, instCount * 8) : undefined);
+    renderer.draw(pass, crvFA.subarray(0, crv.length), rwsUA.subarray(0, rws.length), instFA.subarray(0, totalInst), instCount, fx3dActive ? fxXforms.subarray(0, instCount * 8) : undefined, clipArg);
 
     // Toolbar overlay — EXACT CinematicHud pattern (backing-store px + screen-ortho matrix)
     if (toolInst.length > 0) {
@@ -1119,10 +1130,13 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
     }
     // Physics FX: the pointer layer follows the debris — hovering a flying shard
     // hovers the element it was torn from (remap for the hover block only).
+    // Destroyed elements only work through their shards: a pointer over a shard's
+    // now-empty home footprint hovers nothing.
     const rawMx = mx, rawMy = my;
     if (fxMode === 'physics') {
       const ph = physicsPick(mx, my);
       if (ph) { mx = ph.x; my = ph.y; }
+      else if (physicsDead(mx, my)) { mx = -1e5; my = -1e5; }
     }
     hoverExplorer = false; hoverTerminal = false; hoverSource = -1; hoverAction = -1; hoverSearch = false; hoverTab = -1;
 
@@ -1189,9 +1203,17 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
 
     let [wx, wy] = toWorld(e);
     if (cam3d) { const p = screenToDocLocal(wx * dpr, wy * dpr, tCanvas.width, tCanvas.height); wx = p.x; wy = p.y; }
+    // Pressing a flying shard operates the element it was torn from — no blast
+    // (the blast would kick the shard out from under the pointer before the
+    // pointer-up pick could resolve it).
+    let viaShard = false;
+    if (fxMode === 'physics') {
+      const ph = physicsPick(wx, wy);
+      if (ph) { wx = ph.x; wy = ph.y; viaShard = true; }
+    }
     if (gate.consumeClick(wx, wy)) return;
     const fxFn = REG[fxMode];
-    if (fxFn?.onClick) {
+    if (fxFn?.onClick && !viaShard) {
       const clickNow = performance.now();
       const clickCtx: FxCtx = {
         now: clickNow, t: clickNow / 1000, dt: 16, w: cssW(), h: cssH(), mx, my, cam3d,
@@ -1212,7 +1234,8 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
       // placed now so the drag extends from here); elsewhere a drag pans.
       const p = screenToDocLocal(mx * dpr, my * dpr, tCanvas.width, tCanvas.height);
       const { editorX, editorH } = layout();
-      if (!searchFocused && p.x >= editorX && p.y >= TAB_BAR_H && p.y < TAB_BAR_H + editorH) {
+      const deadPress = viaShard || (fxMode === 'physics' && !physicsPick(p.x, p.y) && physicsDead(p.x, p.y));
+      if (!searchFocused && !deadPress && p.x >= editorX && p.y >= TAB_BAR_H && p.y < TAB_BAR_H + editorH) {
         dragSel = true;
         focus = 'editor';
         const ed = tabs[activeTab].editor;
@@ -1223,10 +1246,12 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
       return;
     }
     const ph0 = fxMode === 'physics' ? physicsPick(mx, my) : null;
-    handlePick(ph0 ? ph0.x : mx, ph0 ? ph0.y : my, e.shiftKey);
+    if (ph0) handlePick(ph0.x, ph0.y, e.shiftKey, true);
+    else handlePick(mx, my, e.shiftKey);
   }
 
-  function handlePick(px: number, py: number, shift: boolean) {
+  function handlePick(px: number, py: number, shift: boolean, viaShard = false) {
+    if (!viaShard && fxMode === 'physics' && physicsDead(px, py)) return;
     mx = px; my = py;
     const { w, h, editorX, editorH, sw, termH } = layout();
     const tile = 34, ty = 8;
@@ -1359,7 +1384,8 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
       const [sx, sy] = toWorld(e);
       const p = screenToDocLocal(sx * dpr, sy * dpr, tCanvas.width, tCanvas.height);
       const ph = fxMode === 'physics' ? physicsPick(p.x, p.y) : null;
-      handlePick(ph ? ph.x : p.x, ph ? ph.y : p.y, e.shiftKey);
+      if (ph) handlePick(ph.x, ph.y, e.shiftKey, true);
+      else handlePick(p.x, p.y, e.shiftKey);
     }
   }
 
@@ -1458,6 +1484,11 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
     if (cam3d) {
       const p = screenToDocLocal(wx * dpr, wy * dpr, tCanvas.width, tCanvas.height);
       wx = p.x; wy = p.y;
+    }
+    if (fxMode === 'physics') {
+      const ph = physicsPick(wx, wy);
+      if (ph) { wx = ph.x; wy = ph.y; }
+      else if (physicsDead(wx, wy)) return;
     }
     const { h, editorX, sw, termH } = layout();
 

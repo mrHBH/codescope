@@ -64,5 +64,5 @@ export interface Fx {
   preFrame?(ctx: FxCtx): void;
   apply(ctx: FxCtx): void;
   postFrame?(ctx: FxCtx): void;
-  extras?(): { instFA: Float32Array; xforms: Float32Array; count: number } | null;
+  extras?(): { instFA: Float32Array; xforms: Float32Array; clip?: Float32Array; count: number } | null;
 }

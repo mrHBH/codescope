@@ -12,8 +12,10 @@ const SIG_MOD = 999983;
 const THICK = 0.05;
 const FLOOR_T = 0.1;
 const FLOOR_HALF = 500;
-const CELLS_PER_RECT = 90;
-const RECT_AREA_MAX = 40000;
+const RECT_AREA_MAX = 400000;
+const RECT_ALPHA = 0.9;
+const KPLANES = 6;
+const CLIP_STRIDE = KPLANES * 4;
 const GRID_CELL = 64;
 
 const LAY_AB = 50;
@@ -31,8 +33,14 @@ interface Shard {
   sig: number;
   homeCx: number;
   homeCy: number;
+  homeHx: number;
+  homeHy: number;
   sc: number;
   isRect: boolean;
+  sx: number;
+  sy: number;
+  bw: number;
+  bh: number;
   hx: number;
   hy: number;
   px: number;
@@ -44,6 +52,7 @@ interface Shard {
   qw: number;
   fa: Float32Array;
   xf: Float32Array;
+  clip: Float32Array | null;
   asleep: boolean;
   dorm: boolean;
   dormIdx: number;
@@ -60,12 +69,14 @@ let live: Shard[] = [];
 let dormant: Shard[] = [];
 let dormFA = new Float32Array(16384);
 let dormXF = new Float32Array(8192);
+let dormCL = new Float32Array(8192);
 let dormN = 0;
 
 let byBKey = new Map<string, Shard>();
 let shardByKey = new Map<number, Shard>();
 let rectKeys = new Set<number>();
 let grid = new Map<number, Shard[]>();
+let homeGrid = new Map<number, Shard[]>();
 let gridDirty = true;
 
 let frameId = 0;
@@ -73,8 +84,11 @@ let hov: Shard | null = null;
 let acc = 0;
 let extraFA = new Float32Array(16384);
 let extraXF = new Float32Array(8192);
+let extraCL = new Float32Array(8192);
 let extraN = 0;
 let clickSeq = 0;
+let lastCoverage = 0;
+const ZERO24 = new Float32Array(CLIP_STRIDE);
 let lastClickNow = -1e9;
 let combo = 0;
 let evBuf: EventsBuffer | null = null;
@@ -138,9 +152,9 @@ function writeFloats(s: Shard): void {
 }
 
 function tint(fa: Float32Array, o: number, s: Shard): void {
-  fa[o + 8] = Math.min(1, s.snap[8] + 0.28);
-  fa[o + 9] = Math.min(1, s.snap[9] + 0.24);
-  fa[o + 10] = Math.min(1, s.snap[10] + 0.1);
+  fa[o + 8] = Math.min(1, s.snap[8] + 0.16);
+  fa[o + 9] = Math.min(1, s.snap[9] + 0.16);
+  fa[o + 10] = Math.min(1, s.snap[10] + 0.16);
 }
 
 function makeTray(w: number, h: number): void {
@@ -175,9 +189,11 @@ function destroyWorld(): void {
   shardByKey = new Map();
   rectKeys = new Set();
   grid = new Map();
+  homeGrid = new Map();
   gridDirty = true;
   hov = null;
   extraN = 0;
+  lastCoverage = 0;
   acc = 0;
   pendingTreeDy = 0;
   pendingEdDy = 0;
@@ -194,8 +210,14 @@ function dormantize(s: Shard): void {
     nxf.set(dormXF);
     dormXF = nxf;
   }
+  if ((dormN + 1) * CLIP_STRIDE > dormCL.length) {
+    const ncl = new Float32Array(dormCL.length * 2);
+    ncl.set(dormCL);
+    dormCL = ncl;
+  }
   dormFA.set(s.fa, dormN * 16);
   dormXF.set(s.xf, dormN * 8);
+  dormCL.set(s.clip ?? ZERO24, dormN * CLIP_STRIDE);
   s.dormIdx = dormN;
   s.dorm = true;
   dormant.push(s);
@@ -212,6 +234,7 @@ function undormant(s: Shard): void {
     t.dormIdx = i;
     dormFA.copyWithin(i * 16, last * 16, last * 16 + 16);
     dormXF.copyWithin(i * 8, last * 8, last * 8 + 8);
+    dormCL.copyWithin(i * CLIP_STRIDE, last * CLIP_STRIDE, last * CLIP_STRIDE + CLIP_STRIDE);
   }
   dormant.pop();
   dormN--;
@@ -235,22 +258,77 @@ function spawnBody(cxPx: number, cyPx: number, hxPx: number, hyPx: number): b3Bo
   return body;
 }
 
+function convexHull(pts: number[][]): number[][] {
+  const p = pts.slice().sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  const n = p.length;
+  if (n < 3) return p.slice();
+  const cross = (o: number[], a: number[], b: number[]) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+  const lower: number[][] = [];
+  for (const q of p) { while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], q) <= 0) lower.pop(); lower.push(q); }
+  const upper: number[][] = [];
+  for (let i = n - 1; i >= 0; i--) { const q = p[i]; while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], q) <= 0) upper.pop(); upper.push(q); }
+  lower.pop(); upper.pop();
+  const h = lower.concat(upper);
+  return h.length >= 3 ? h : p.slice(0, 3);
+}
+
+// Random convex polygon inscribed in a (sw x sh) box, returned as up to KPLANES inward
+// half-planes in the polygon's own tight-AABB-local space (plus that AABB's size/offset).
+function randConvexClip(seed: number, sw: number, sh: number): { planes: Float32Array; w: number; h: number; minx: number; miny: number } {
+  const m = 3 + Math.floor(fxHash(seed + 0.13) * 4);
+  const pts: number[][] = [];
+  for (let k = 0; k < m; k++) pts.push([fxHash(seed + k * 1.37 + 5.1) * sw, fxHash(seed + k * 2.71 + 9.3) * sh]);
+  let hull = convexHull(pts);
+  if (hull.length < 3) hull = [[0, 0], [sw, 0], [sw * 0.5, sh]];
+  let minx = 1e9, miny = 1e9, maxx = -1e9, maxy = -1e9;
+  let cx = 0, cy = 0;
+  for (const v of hull) {
+    if (v[0] < minx) minx = v[0]; if (v[1] < miny) miny = v[1];
+    if (v[0] > maxx) maxx = v[0]; if (v[1] > maxy) maxy = v[1];
+    cx += v[0]; cy += v[1];
+  }
+  cx /= hull.length; cy /= hull.length;
+  const w = Math.max(1, maxx - minx), h = Math.max(1, maxy - miny);
+  const planes = new Float32Array(CLIP_STRIDE);
+  const cnt = Math.min(hull.length, KPLANES);
+  for (let i = 0; i < cnt; i++) {
+    const a = hull[i], b = hull[(i + 1) % hull.length];
+    let nx = (b[1] - a[1]), ny = -(b[0] - a[0]);
+    const len = Math.hypot(nx, ny);
+    if (len < 1e-9) continue;
+    nx /= len; ny /= len;
+    const ax = a[0] - minx, ay = a[1] - miny;
+    if (nx * (cx - minx - ax) + ny * (cy - miny - ay) < 0) { nx = -nx; ny = -ny; }
+    planes[i * 4] = nx;
+    planes[i * 4 + 1] = ny;
+    planes[i * 4 + 2] = -(nx * ax + ny * ay);
+  }
+  planes[3] = cnt;
+  return { planes, w, h, minx, miny };
+}
+
 function pushShard(
   body: b3BodyId, snap: Float32Array, isRect: boolean,
   homeX: number, homeY: number, sig: number, homeCx: number, homeCy: number,
-  hx: number, hy: number, px: number, py: number, pz: number,
+  hx: number, hy: number, homeHx: number, homeHy: number,
+  px: number, py: number, pz: number, clip: Float32Array | null,
 ): void {
   const s: Shard = {
     body, bkey: bodyKey(body), snap,
-    homeX, homeY, sig, homeCx, homeCy,
-    sc: scrollCfg(snap, 0), isRect, hx, hy,
+    homeX, homeY, sig, homeCx, homeCy, homeHx, homeHy,
+    sc: scrollCfg(snap, 0), isRect,
+    sx: snap[0], sy: snap[1],
+    bw: isRect ? snap[6] : (snap[6] - snap[4]) * snap[2],
+    bh: isRect ? snap[7] : (snap[7] - snap[5]) * snap[2],
+    hx, hy,
     px, py, pz, qx: 0, qy: 0, qz: 0, qw: 1,
-    fa: new Float32Array(16), xf: new Float32Array(8),
+    fa: new Float32Array(16), xf: new Float32Array(8), clip,
     asleep: false, dorm: false, dormIdx: -1, claimedFrame: -1,
   };
   writeFloats(s);
   live.push(s);
   byBKey.set(s.bkey, s);
+  gridDirty = true;
   if (isRect) rectKeys.add(hideKey(homeX, homeY, sig));
   else shardByKey.set(hideKey(homeX, homeY, sig), s);
 }
@@ -303,6 +381,74 @@ function kickRubble(s: Shard, wx: number, wy: number, rad: number, boost: number
   }
 }
 
+function removeShard(s: Shard): void {
+  byBKey.delete(s.bkey);
+  if (b3 && world) b3.b3DestroyBody(s.body);
+  if (!s.isRect) shardByKey.delete(hideKey(s.homeX, s.homeY, s.sig));
+  if (s.dorm) {
+    const i = s.dormIdx, last = dormant.length - 1;
+    if (i !== last) {
+      const t = dormant[last];
+      dormant[i] = t;
+      t.dormIdx = i;
+      dormFA.copyWithin(i * 16, last * 16, last * 16 + 16);
+      dormXF.copyWithin(i * 8, last * 8, last * 8 + 8);
+      dormCL.copyWithin(i * CLIP_STRIDE, last * CLIP_STRIDE, last * CLIP_STRIDE + CLIP_STRIDE);
+    }
+    dormant.pop();
+    dormN--;
+    s.dorm = false;
+    s.dormIdx = -1;
+  } else {
+    const i = live.indexOf(s);
+    if (i >= 0) {
+      const last = live.length - 1;
+      if (i !== last) live[i] = live[last];
+      live.pop();
+    }
+  }
+  if (hov === s) hov = null;
+  gridDirty = true;
+}
+
+// Recursive fracture: shatter a big convex tile into a few smaller irregular pieces
+// that burst outward (their dynamic bodies then shove neighbours via real collisions).
+function fracture(s: Shard, wx: number, wy: number, boost: number, seedRef: { v: number }): void {
+  const n = 2 + Math.floor(fxHash(seedRef.v + 0.5) * 3);
+  const col = [s.snap[8], s.snap[9], s.snap[10], s.snap[11]];
+  const fullW = s.hx * 2, fullH = s.hy * 2;
+  for (let k = 0; k < n; k++) {
+    seedRef.v++;
+    const chw = Math.max(10, fullW * (0.3 + fxHash(seedRef.v * 2.1 + 2) * 0.7));
+    const chh = Math.max(10, fullH * (0.3 + fxHash(seedRef.v * 3.3 + 3) * 0.7));
+    const ox = (fxHash(seedRef.v * 4.7 + 4) - 0.5) * s.hx * 1.1;
+    const oy = (fxHash(seedRef.v * 5.9 + 5) - 0.5) * s.hy * 1.1;
+    const ccx = s.px + ox, ccy = s.py + oy;
+    const rc = randConvexClip(seedRef.v * 7.1 + 6, chw, chh);
+    if (rc.w < 4 || rc.h < 4) continue;
+    const tlx = ccx - rc.w / 2, tly = ccy - rc.h / 2;
+    const body = spawnBody(ccx, ccy, rc.w / 2, rc.h / 2);
+    const ddx = ccx - wx, ddy = ccy - wy;
+    const dd = Math.max(Math.hypot(ddx, ddy), 1);
+    const sp = (1.2 + fxHash(seedRef.v * 8.3 + 7) * 3.2) * boost;
+    b3!.b3Body_SetLinearVelocity(body, {
+      x: (ddx / dd) * sp + (fxHash(seedRef.v * 9.1) - 0.5) * 2.4,
+      y: -(ddy / dd) * sp + (fxHash(seedRef.v * 9.7) - 0.5) * 2.4,
+      z: (1.2 + fxHash(seedRef.v * 10.3) * 3.4) * boost,
+    });
+    b3!.b3Body_SetAngularVelocity(body, {
+      x: (fxHash(seedRef.v * 11.1) - 0.5) * 22,
+      y: (fxHash(seedRef.v * 11.7) - 0.5) * 22,
+      z: (fxHash(seedRef.v * 12.3) - 0.5) * 18,
+    });
+    const snap = new Float32Array(16);
+    snap[0] = tlx; snap[1] = tly; snap[2] = 1; snap[3] = 2; snap[6] = rc.w; snap[7] = rc.h;
+    snap[8] = col[0] * 0.95; snap[9] = col[1] * 0.95; snap[10] = col[2] * 0.95; snap[11] = col[3];
+    pushShard(body, snap, true, s.homeX, s.homeY, s.sig, ccx, ccy, rc.w / 2, rc.h / 2, rc.w / 2, rc.h / 2, ccx, ccy, (THICK / 2 + 0.02) * M2PX, rc.planes);
+  }
+  removeShard(s);
+}
+
 function rotCorner(s: Shard, lx: number, ly: number): [number, number] {
   const cx = -s.qz * ly + s.qw * lx;
   const cy = s.qz * lx + s.qw * ly;
@@ -334,14 +480,33 @@ function cellKey(x: number, y: number): number {
 
 function rebuildGrid(): void {
   grid = new Map();
-  const add = (s: Shard) => {
+  homeGrid = new Map();
+  const addPos = (s: Shard) => {
     const k = cellKey(s.px, s.py);
     const arr = grid.get(k);
     if (arr) arr.push(s);
     else grid.set(k, [s]);
   };
-  for (const s of dormant) add(s);
-  for (const s of live) if (s.asleep) add(s);
+  const addHome = (s: Shard) => {
+    const x0 = Math.floor((s.homeCx - s.homeHx) / GRID_CELL), x1 = Math.floor((s.homeCx + s.homeHx) / GRID_CELL);
+    const y0 = Math.floor((s.homeCy - s.homeHy) / GRID_CELL), y1 = Math.floor((s.homeCy + s.homeHy) / GRID_CELL);
+    for (let gy = y0; gy <= y1; gy++) {
+      for (let gx = x0; gx <= x1; gx++) {
+        const k = (gx + 4096) * 8192 + (gy + 4096);
+        const arr = homeGrid.get(k);
+        if (arr) arr.push(s);
+        else homeGrid.set(k, [s]);
+      }
+    }
+  };
+  for (const s of dormant) {
+    addPos(s);
+    addHome(s);
+  }
+  for (const s of live) {
+    addHome(s);
+    if (s.asleep) addPos(s);
+  }
   gridDirty = false;
 }
 
@@ -367,6 +532,17 @@ function pickShard(x: number, y: number): Shard | null {
 export function physicsPick(x: number, y: number): { x: number; y: number } | null {
   const s = pickShard(x, y);
   return s ? { x: s.homeCx, y: s.homeCy } : null;
+}
+
+export function physicsDead(x: number, y: number): boolean {
+  if (shardByKey.size === 0 && rectKeys.size === 0) return false;
+  if (gridDirty) rebuildGrid();
+  const arr = homeGrid.get(cellKey(x, y));
+  if (!arr) return false;
+  for (const s of arr) {
+    if (Math.abs(x - s.homeCx) <= s.homeHx * 1.1 && Math.abs(y - s.homeCy) <= s.homeHy * 1.1) return true;
+  }
+  return false;
 }
 
 export function physicsScroll(panel: 'tree' | 'editor', contentDy: number): void {
@@ -395,10 +571,25 @@ export const physics: Fx = {
     lastClickNow = ctx.now;
     const rad = RADIUS * (1 + 0.4 * (combo - 1)) * (0.9 + fxHash(clickSeq * 7) * 0.2);
     const boost = (0.75 + 0.45 * (combo - 1)) * (0.9 + fxHash(clickSeq * 13) * 0.25);
-    ctx.tilt?.(0.5 + 0.15 * (combo - 1));
 
-    for (const s of live) kickRubble(s, wx, wy, rad, boost);
-    for (const s of dormant) kickRubble(s, wx, wy, rad, boost);
+    let seed = 0;
+    const seedRef = { v: 0 };
+    const snapArr = live.concat(dormant);
+    let fracBudget = 160 + 80 * (combo - 1);
+    for (const s of snapArr) {
+      if (!byBKey.has(s.bkey)) continue;
+      const ddx = s.px - wx, ddy = s.py - wy;
+      if (ddx * ddx + ddy * ddy >= rad * rad) continue;
+      if (s.isRect && fracBudget > 0 && s.hx * s.hy * 4 >= 150) {
+        const before = live.length + dormant.length;
+        seedRef.v = seed;
+        fracture(s, wx, wy, boost, seedRef);
+        seed = seedRef.v;
+        fracBudget -= Math.max(1, live.length + dormant.length - before + 1);
+      } else {
+        kickRubble(s, wx, wy, rad, boost);
+      }
+    }
 
     const inst = ctx.inst;
     const glyphs: number[] = [];
@@ -427,7 +618,6 @@ export const physics: Fx = {
       const j = Math.floor(fxHash(k * 91 + clickSeq * 17) * (k + 1));
       const tmp = glyphs[k]; glyphs[k] = glyphs[j]; glyphs[j] = tmp;
     }
-    let seed = 0;
     const glyphTake = Math.min(glyphs.length, 160 + 80 * (combo - 1));
     for (let n = 0; n < glyphTake; n++) {
       const gi = glyphs[n];
@@ -441,43 +631,45 @@ export const physics: Fx = {
       kick(body, cx, cy, wx, wy, rad, boost, seed++);
       const snap = new Float32Array(16);
       for (let j = 0; j < 16; j++) snap[j] = inst[gi + j];
-      pushShard(body, snap, false, inst[gi], inst[gi + 1], instSig(inst, gi), cx, cy, wpx / 2, hpx / 2, cx, cy, (THICK / 2 + 0.02) * M2PX);
+      pushShard(body, snap, false, inst[gi], inst[gi + 1], instSig(inst, gi), cx, cy, wpx / 2, hpx / 2, wpx / 2, hpx / 2, cx, cy, (THICK / 2 + 0.02) * M2PX, null);
     }
 
     rects.sort((a, b) => a.d2 - b.d2);
-    let cellBudget = 180 + 90 * (combo - 1);
+    let polyBudget = 220 + 110 * (combo - 1);
+    let rectAreaSum = 0, tileAreaSum = 0;
     for (const { gi } of rects) {
-      if (cellBudget <= 0) break;
+      if (polyBudget <= 0) break;
       const x0 = inst[gi], y0 = inst[gi + 1];
-      const wpx = inst[gi + 6], hpx = inst[gi + 7];
-      let cell = Math.min(40, Math.max(12, Math.sqrt((wpx * hpx) / CELLS_PER_RECT)));
-      let nx = Math.max(1, Math.ceil(wpx / cell));
-      let ny = Math.max(1, Math.ceil(hpx / cell));
-      if (nx * ny > CELLS_PER_RECT) {
-        const k = Math.sqrt((nx * ny) / CELLS_PER_RECT);
-        nx = Math.max(1, Math.ceil(nx / k));
-        ny = Math.max(1, Math.ceil(ny / k));
-      }
-      const take = Math.min(nx * ny, cellBudget);
-      cellBudget -= take;
-      const cw = wpx / nx, ch = hpx / ny;
+      const W = inst[gi + 6], H = inst[gi + 7];
+      rectAreaSum += W * H;
       const sig = instSig(inst, gi);
-      let made = 0;
-      for (let iy = 0; iy < ny && made < take; iy++) {
-        for (let ix = 0; ix < nx && made < take; ix++) {
-          const x = x0 + ix * cw, y = y0 + iy * ch;
-          const ccx = x + cw / 2, ccy = y + ch / 2;
-          const body = spawnBody(ccx, ccy, cw / 2, ch / 2);
-          kick(body, ccx, ccy, wx, wy, rad, boost, seed++);
-          const snap = new Float32Array(16);
-          snap[0] = x; snap[1] = y; snap[2] = 1; snap[3] = 2;
-          snap[6] = cw; snap[7] = ch;
-          snap[8] = inst[gi + 8]; snap[9] = inst[gi + 9]; snap[10] = inst[gi + 10]; snap[11] = inst[gi + 11];
-          pushShard(body, snap, true, x0, y0, sig, ccx, ccy, cw / 2, ch / 2, ccx, ccy, (THICK / 2 + 0.02) * M2PX);
-          made++;
-        }
+      const K = Math.min(polyBudget, Math.max(3, Math.min(16, Math.round((W * H) / 9000))));
+      polyBudget -= K;
+      const maxSW = Math.max(13, Math.min(W - 2, 0.6 * W));
+      const maxSH = Math.max(13, Math.min(H - 2, 0.6 * H));
+      if (maxSW < 12 || maxSH < 12) continue;
+      for (let k = 0; k < K; k++) {
+        const s1 = seed + k * 13.1 + gi * 0.0137;
+        seed++;
+        const sw = 12 + fxHash(s1 + 1.7) * (maxSW - 12);
+        const sh = 12 + fxHash(s1 + 3.9) * (maxSH - 12);
+        const sx = fxHash(s1 + 6.1) * (W - sw);
+        const sy = fxHash(s1 + 8.3) * (H - sh);
+        const rc = randConvexClip(s1, sw, sh);
+        if (rc.w < 4 || rc.h < 4) continue;
+        const tlx = x0 + sx + rc.minx, tly = y0 + sy + rc.miny;
+        const ccx = tlx + rc.w / 2, ccy = tly + rc.h / 2;
+        tileAreaSum += rc.w * rc.h;
+        const body = spawnBody(ccx, ccy, rc.w / 2, rc.h / 2);
+        kick(body, ccx, ccy, wx, wy, rad, boost, seed++);
+        const snap = new Float32Array(16);
+        snap[0] = tlx; snap[1] = tly; snap[2] = 1; snap[3] = 2;
+        snap[6] = rc.w; snap[7] = rc.h;
+        snap[8] = inst[gi + 8]; snap[9] = inst[gi + 9]; snap[10] = inst[gi + 10]; snap[11] = inst[gi + 11] * RECT_ALPHA;
+        pushShard(body, snap, true, x0, y0, sig, ccx, ccy, rc.w / 2, rc.h / 2, rc.w / 2, rc.h / 2, ccx, ccy, (THICK / 2 + 0.02) * M2PX, rc.planes);
       }
     }
+    lastCoverage = rectAreaSum > 0 ? Math.min(1, tileAreaSum / rectAreaSum) : 0;
   },
 
   preFrame(ctx) {
@@ -508,13 +700,8 @@ export const physics: Fx = {
             dormXF.set(s.xf, s.dormIdx * 8);
           }
         };
-        for (const s of live) if (s.sc === sc) shift(s);
-        for (const s of dormant) if (s.sc === sc) shift(s);
-        if (rectKeys.size > 0) {
-          rectKeys = new Set();
-          for (const s of live) if (s.isRect) rectKeys.add(hideKey(s.homeX, s.homeY, s.sig));
-          for (const s of dormant) if (s.isRect) rectKeys.add(hideKey(s.homeX, s.homeY, s.sig));
-        }
+        for (const s of live) if (s.sc === sc && !s.isRect) shift(s);
+        for (const s of dormant) if (s.sc === sc && !s.isRect) shift(s);
         gridDirty = true;
       };
       applyDy(1, pendingTreeDy);
@@ -544,9 +731,9 @@ export const physics: Fx = {
       ctx.fxXforms[xi + 7] = s.qw;
       ctx.fx3dActive = true;
       if (s === hov) {
-        ctx.instFA[i + 8] = Math.min(1, inst[i + 8] + 0.28);
-        ctx.instFA[i + 9] = Math.min(1, inst[i + 9] + 0.24);
-        ctx.instFA[i + 10] = Math.min(1, inst[i + 10] + 0.1);
+        ctx.instFA[i + 8] = Math.min(1, inst[i + 8] + 0.16);
+        ctx.instFA[i + 9] = Math.min(1, inst[i + 9] + 0.16);
+        ctx.instFA[i + 10] = Math.min(1, inst[i + 10] + 0.16);
       }
     } else if (rectKeys.size > 0) {
       if (rectKeys.has(hideKey(inst[i], inst[i + 1], instSig(inst, i)))) {
@@ -589,10 +776,12 @@ export const physics: Fx = {
     if (dormN > 0) {
       if (dormN * 16 > extraFA.length) extraFA = new Float32Array(dormN * 32);
       if (dormN * 8 > extraXF.length) extraXF = new Float32Array(dormN * 16);
+      if (dormN * CLIP_STRIDE > extraCL.length) extraCL = new Float32Array(dormN * CLIP_STRIDE * 2);
       extraFA.set(dormFA.subarray(0, dormN * 16), 0);
       extraXF.set(dormXF.subarray(0, dormN * 8), 0);
+      extraCL.set(dormCL.subarray(0, dormN * CLIP_STRIDE), 0);
       extraN = dormN;
-      if (hov && hov.dorm) tint(extraFA, hov.dormIdx * 16, hov);
+      if (hov && hov.dorm && !hov.isRect) tint(extraFA, hov.dormIdx * 16, hov);
     }
 
     let w = 0;
@@ -610,9 +799,15 @@ export const physics: Fx = {
           nxf.set(extraXF.subarray(0, extraN * 8));
           extraXF = nxf;
         }
+        if ((extraN + 1) * CLIP_STRIDE > extraCL.length) {
+          const ncl = new Float32Array(extraCL.length * 2);
+          ncl.set(extraCL.subarray(0, extraN * CLIP_STRIDE));
+          extraCL = ncl;
+        }
         extraFA.set(s.fa, extraN * 16);
         extraXF.set(s.xf, extraN * 8);
-        if (s === hov) tint(extraFA, extraN * 16, s);
+        extraCL.set(s.clip ?? ZERO24, extraN * CLIP_STRIDE);
+        if (s === hov && !s.isRect) tint(extraFA, extraN * 16, s);
         extraN++;
       }
       if (!claimed && s.asleep) {
@@ -628,6 +823,10 @@ export const physics: Fx = {
 
   extras() {
     if (extraN === 0) return null;
-    return { instFA: extraFA, xforms: extraXF, count: extraN };
+    return { instFA: extraFA, xforms: extraXF, clip: extraCL, count: extraN };
   },
 };
+
+export function physicsStats(): { live: number; dormant: number; coverage: number } {
+  return { live: live.length, dormant: dormant.length, coverage: lastCoverage };
+}

@@ -54,11 +54,13 @@ export function createGlyphRenderer(
   const INIT_ROW = 1024 * 1024;
   const INIT_INST = 16 * 1024 * 1024;
   const INIT_XFORM = 1024 * 1024;
-  let curveCap = INIT_CURVE, rowCap = INIT_ROW, instCap = INIT_INST, xformCap = INIT_XFORM;
+  const INIT_CLIP = 1024 * 1024;
+  let curveCap = INIT_CURVE, rowCap = INIT_ROW, instCap = INIT_INST, xformCap = INIT_XFORM, clipCap = INIT_CLIP;
   let curveBuf = device.createBuffer({ size: curveCap, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
   let rowBuf = device.createBuffer({ size: rowCap, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
   let instBuf = device.createBuffer({ size: instCap, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
   let xformBuf = device.createBuffer({ size: xformCap, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+  let clipBuf = device.createBuffer({ size: clipCap, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
 
   const layout = pipeline.getBindGroupLayout(0);
   let bindGroup = device.createBindGroup({
@@ -69,6 +71,7 @@ export function createGlyphRenderer(
       { binding: 2, resource: { buffer: curveBuf } },
       { binding: 3, resource: { buffer: rowBuf } },
       { binding: 4, resource: { buffer: xformBuf } },
+      { binding: 5, resource: { buffer: clipBuf } },
     ],
   });
 
@@ -90,7 +93,7 @@ export function createGlyphRenderer(
       uniformData[24] = fxActive;
       device.queue.writeBuffer(uniform, 0, uniformData);
     },
-    draw(pass: GPURenderPassEncoder, curves: Float32Array, rows: Uint32Array, instances: Float32Array, instanceCount: number, xforms?: Float32Array) {
+    draw(pass: GPURenderPassEncoder, curves: Float32Array, rows: Uint32Array, instances: Float32Array, instanceCount: number, xforms?: Float32Array, clip?: Float32Array) {
       if (!instanceCount) return;
       let newBindGroup = false;
       let c: GPUBuffer, cc: number;
@@ -108,6 +111,12 @@ export function createGlyphRenderer(
         if (x !== xformBuf) { xformBuf = x; xformCap = xc; newBindGroup = true; }
         device.queue.writeBuffer(xformBuf, 0, xforms);
       }
+      if (clip && clip.length > 0) {
+        let cl: GPUBuffer, clc: number;
+        [cl, clc] = ensureBuf(clipBuf, clip.byteLength, clipCap);
+        if (cl !== clipBuf) { clipBuf = cl; clipCap = clc; newBindGroup = true; }
+        device.queue.writeBuffer(clipBuf, 0, clip);
+      }
       device.queue.writeBuffer(curveBuf, 0, curves);
       device.queue.writeBuffer(rowBuf, 0, rows);
       device.queue.writeBuffer(instBuf, 0, instances);
@@ -120,6 +129,7 @@ export function createGlyphRenderer(
             { binding: 2, resource: { buffer: curveBuf } },
             { binding: 3, resource: { buffer: rowBuf } },
             { binding: 4, resource: { buffer: xformBuf } },
+            { binding: 5, resource: { buffer: clipBuf } },
           ],
         });
       }

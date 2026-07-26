@@ -63,6 +63,11 @@ const KERNEL_SKIRT_PX = KERNEL_SUPPORT_PX + vec2f(0.125);
 //   A = (rotX, rotY, z, scale) on the legacy Euler path; (tx, ty, z, scale) when B is active.
 //   B = (qx, qy, qz, qw) orientation quaternion; zero = inactive (legacy path).
 @group(0) @binding(4) var<storage, read> fxXforms : array<vec4f>;
+// Per-instance convex clip polygon (rect fast path only): CLIP_PLANES half-planes
+// (nx, ny, d) with the active plane count packed into slot0.w (0 = no clip). Lets a
+// rect shard render as a triangle / irregular quad instead of its bounding box.
+@group(0) @binding(5) var<storage, read> clip : array<vec4f>;
+const CLIP_PLANES : u32 = 6u;
 
 struct VsOut {
   @builtin(position) pos : vec4f,
@@ -376,6 +381,24 @@ fn exact_coverage(band : vec4f, y0 : f32, fillRule : f32, rc : vec2f, s : vec2f)
   return f32(inside) / f32(EXACT_GRID * EXACT_GRID);
 }
 
+// Multiply rect coverage by the per-instance convex clip polygon (in local-px rc space).
+// Each plane is a unit-normal half-space; saturate(d + 0.5) gives a ~1px AA edge.
+// Guarded by fxActive so the clip buffer is never read when the FX is off (it is only
+// sized/uploaded while a 3D FX runs — reading it otherwise would be out of bounds).
+fn clip_poly(rc : vec2f, ii : u32) -> f32 {
+  if (U.fxActive < 0.5) { return 1.0; }
+  let c0 = clip[ii * CLIP_PLANES];
+  let cnt = u32(round(c0.w));
+  if (cnt == 0u) { return 1.0; }
+  var cov = saturate(dot(c0.xy, rc) + c0.z + 0.5);
+  if (cnt >= 2u) { let c = clip[ii * CLIP_PLANES + 1u]; cov *= saturate(dot(c.xy, rc) + c.z + 0.5); }
+  if (cnt >= 3u) { let c = clip[ii * CLIP_PLANES + 2u]; cov *= saturate(dot(c.xy, rc) + c.z + 0.5); }
+  if (cnt >= 4u) { let c = clip[ii * CLIP_PLANES + 3u]; cov *= saturate(dot(c.xy, rc) + c.z + 0.5); }
+  if (cnt >= 5u) { let c = clip[ii * CLIP_PLANES + 4u]; cov *= saturate(dot(c.xy, rc) + c.z + 0.5); }
+  if (cnt >= 6u) { let c = clip[ii * CLIP_PLANES + 5u]; cov *= saturate(dot(c.xy, rc) + c.z + 0.5); }
+  return cov;
+}
+
 @fragment
 fn fs(in : VsOut) -> @location(0) vec4f {
   let I = instances[in.inst];
@@ -397,7 +420,8 @@ fn fs(in : VsOut) -> @location(0) vec4f {
     let hi = I.bbox.zw;
     let ox = clamp(min(rc.x + s.x * 0.5, hi.x) - max(rc.x - s.x * 0.5, lo.x), 0.0, s.x);
     let oy = clamp(min(rc.y + s.y * 0.5, hi.y) - max(rc.y - s.y * 0.5, lo.y), 0.0, s.y);
-    return shade(I.color, (ox * oy) / (s.x * s.y));
+    let boxCov = (ox * oy) / (s.x * s.y);
+    return shade(I.color, boxCov * clip_poly(rc, in.inst));
   }
 
   if (EXACT_MODE) {
