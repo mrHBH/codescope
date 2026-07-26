@@ -564,6 +564,8 @@ export const physics2: Fx = {
     ensureBox3D();
     combo = 0;
     lastClickNow = -1e9;
+    phase = 0;
+    clicksInPhase = 0;
   },
 
   onExit() {
@@ -576,23 +578,28 @@ export const physics2: Fx = {
     clickSeq++;
     combo = ctx.now - lastClickNow < COMBO_MS ? Math.min(3, combo + 1) : 1;
     lastClickNow = ctx.now;
+
+    clicksInPhase++;
+    if (clicksInPhase > CLICKS_PER_PHASE) {
+      phase++;
+      clicksInPhase = 1;
+    }
+
+    const phaseBoost = 1 + phase * 0.3;
     const rad = RADIUS * (1 + 0.4 * (combo - 1)) * (0.9 + fxHash(clickSeq * 7) * 0.2);
-    const boost = (0.75 + 0.45 * (combo - 1)) * (0.9 + fxHash(clickSeq * 13) * 0.25);
+    const boost = (0.75 + 0.45 * (combo - 1)) * (0.9 + fxHash(clickSeq * 13) * 0.25) * phaseBoost;
 
     let seed = 0;
     const seedRef = { v: 0 };
     const snapArr = live.concat(dormant);
-    let fracBudget = 160 + 80 * (combo - 1);
     for (const s of snapArr) {
       if (!byBKey.has(s.bkey)) continue;
       const ddx = s.px - wx, ddy = s.py - wy;
       if (ddx * ddx + ddy * ddy >= rad * rad) continue;
-      if (s.isRect && fracBudget > 0 && s.hx * s.hy * 4 >= 150) {
-        const before = live.length + dormant.length;
+      if (s.isRect && s.hx * s.hy * 4 >= 150) {
         seedRef.v = seed;
         fracture(s, wx, wy, boost, seedRef);
         seed = seedRef.v;
-        fracBudget -= Math.max(1, live.length + dormant.length - before + 1);
       } else {
         kickRubble(s, wx, wy, rad, boost);
       }
@@ -600,7 +607,8 @@ export const physics2: Fx = {
 
     const inst = ctx.inst;
     const glyphs: number[] = [];
-    const rects: { gi: number; d2: number }[] = [];
+    const smallRects: { gi: number; d2: number }[] = [];
+    const largeRects: { gi: number; d2: number }[] = [];
     for (let gi = 0; gi < inst.length; gi += 16) {
       const u2px = inst[gi + 2];
       const cx = inst[gi] + ((inst[gi + 4] + inst[gi + 6]) / 2) * u2px;
@@ -616,8 +624,11 @@ export const physics2: Fx = {
         if (rectKeys.has(key)) continue;
         const wpx = (inst[gi + 6] - inst[gi + 4]) * u2px;
         const hpx = (inst[gi + 7] - inst[gi + 5]) * u2px;
-        if (wpx < 2 || hpx < 2 || wpx * hpx > RECT_AREA_MAX || inst[gi + 11] < 0.25) continue;
-        rects.push({ gi, d2 });
+        if (wpx * hpx < LARGE_RECT_AREA) {
+          smallRects.push({ gi, d2 });
+        } else {
+          largeRects.push({ gi, d2 });
+        }
       }
     }
 
@@ -625,13 +636,12 @@ export const physics2: Fx = {
       const j = Math.floor(fxHash(k * 91 + clickSeq * 17) * (k + 1));
       const tmp = glyphs[k]; glyphs[k] = glyphs[j]; glyphs[j] = tmp;
     }
-    const glyphTake = Math.min(glyphs.length, 160 + 80 * (combo - 1));
-    for (let n = 0; n < glyphTake; n++) {
+    for (let n = 0; n < glyphs.length; n++) {
       const gi = glyphs[n];
       const u2px = inst[gi + 2];
       const wpx = (inst[gi + 6] - inst[gi + 4]) * u2px;
       const hpx = (inst[gi + 7] - inst[gi + 5]) * u2px;
-      if (wpx < 2 || hpx < 2) continue;
+      if (wpx < 1 || hpx < 1) continue;
       const cx = inst[gi] + ((inst[gi + 4] + inst[gi + 6]) / 2) * u2px;
       const cy = inst[gi + 1] + ((inst[gi + 5] + inst[gi + 7]) / 2) * u2px;
       const body = spawnBody(cx, cy, wpx / 2, hpx / 2);
@@ -641,17 +651,28 @@ export const physics2: Fx = {
       pushShard(body, snap, false, inst[gi], inst[gi + 1], instSig(inst, gi), cx, cy, wpx / 2, hpx / 2, wpx / 2, hpx / 2, cx, cy, (THICK / 2 + 0.02) * M2PX, null);
     }
 
-    rects.sort((a, b) => a.d2 - b.d2);
-    let polyBudget = 220 + 110 * (combo - 1);
+    smallRects.sort((a, b) => a.d2 - b.d2);
+    for (const { gi } of smallRects) {
+      const x0 = inst[gi], y0 = inst[gi + 1];
+      const W = inst[gi + 6], H = inst[gi + 7];
+      const cx = x0 + W / 2, cy = y0 + H / 2;
+      const body = spawnBody(cx, cy, W / 2, H / 2);
+      kick(body, cx, cy, wx, wy, rad, boost, seed++);
+      const snap = new Float32Array(16);
+      snap[0] = x0; snap[1] = y0; snap[2] = 1; snap[3] = 2;
+      snap[6] = W; snap[7] = H;
+      snap[8] = inst[gi + 8]; snap[9] = inst[gi + 9]; snap[10] = inst[gi + 10]; snap[11] = inst[gi + 11] * RECT_ALPHA;
+      pushShard(body, snap, true, x0, y0, instSig(inst, gi), cx, cy, W / 2, H / 2, W / 2, H / 2, cx, cy, (THICK / 2 + 0.02) * M2PX, null);
+    }
+
+    largeRects.sort((a, b) => a.d2 - b.d2);
     let rectAreaSum = 0, tileAreaSum = 0;
-    for (const { gi } of rects) {
-      if (polyBudget <= 0) break;
+    for (const { gi } of largeRects) {
       const x0 = inst[gi], y0 = inst[gi + 1];
       const W = inst[gi + 6], H = inst[gi + 7];
       rectAreaSum += W * H;
       const sig = instSig(inst, gi);
-      const K = Math.min(polyBudget, Math.max(3, Math.min(16, Math.round((W * H) / 9000))));
-      polyBudget -= K;
+      const K = Math.max(3, Math.min(16, Math.round((W * H) / 9000)));
       const maxSW = Math.max(13, Math.min(W - 2, 0.6 * W));
       const maxSH = Math.max(13, Math.min(H - 2, 0.6 * H));
       if (maxSW < 12 || maxSH < 12) continue;
