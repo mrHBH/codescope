@@ -2,9 +2,11 @@
 
 import type { Vec2, Color, ParamValue, ParamRef } from '../ir/types';
 import type { DrawHelpers } from './draw';
+import type { FontFace } from '../../windfoil/font';
+import type { GlyphAtlas } from '../../windfoil/bands';
 
 export interface IslandEmitCtx {
-  font: any; atlas: any;
+  font: FontFace; atlas: GlyphAtlas;
   inst: number[]; crv: number[]; rws: number[];
   view: { zoom: number; left: number; right: number; top: number; bottom: number };
   now: number;

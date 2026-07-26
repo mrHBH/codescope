@@ -1,6 +1,7 @@
 // ── trace tests ─────────────────────────────────────────────────────────────
 
 import { glyphOutline, resampleOutline, traceToKeyframes } from './trace';
+import type { FontFace } from '../../windfoil/font';
 
 let passed = 0, failed = 0;
 function test(name: string, fn: () => void) {
@@ -49,7 +50,7 @@ test('resampleOutline handles n=1', () => {
 
 // ── Test 4: traceToKeyframes fallback for no glyph ─────────────────────
 test('traceToKeyframes fallback when no glyph outline', () => {
-  const mockFont = {};
+  const mockFont = {} as FontFace;
   const kfs = traceToKeyframes(mockFont, '?', { x: 100, y: 200, w: 300, h: 400 }, {
     zoom: 10, d: 5, startTime: 0,
   });
@@ -59,7 +60,7 @@ test('traceToKeyframes fallback when no glyph outline', () => {
 
 // ── Test 5: traceToKeyframes with pullBack adds final kf ───────────────
 test('traceToKeyframes pullBack adds chapter-fit keyframe', () => {
-  const mockFont = {};
+  const mockFont = {} as FontFace;
   const kfs = traceToKeyframes(mockFont, '?', { x: 0, y: 0, w: 100, h: 100 }, {
     zoom: 14, d: 6, startTime: 10, pullBack: true, fitId: 'ch0',
   });

@@ -9,6 +9,7 @@
 // outside the camera's y-range.
 
 import type { FontFace } from '../windfoil/font';
+import type { GlyphAtlas } from '../windfoil/bands';
 import { advanceOf } from '../windfoil/font';
 import { addRect } from '../layout/metrics';
 import { fileIconForPath } from './fileIcons';
@@ -441,7 +442,7 @@ export class FileTree {
   private get bodyTop() { return this.y0 + (this.showTitleBar ? this.pad + this.barH : this.pad * 0.5); }
 
   // ── Render ──────────────────────────────────────────────────────────────────
-  render(font: FontFace, atlas: any, inst: number[], crv: number[], rws: number[],
+  render(font: FontFace, atlas: GlyphAtlas, inst: number[], crv: number[], rws: number[],
          worldTop: number, worldBottom: number, now: number, th: FileTreeTheme) {
     if (!this.font) this.font = font;
     const dt = this._lastNow ? Math.min((now - this._lastNow) / 1000, 0.05) : 0;
@@ -668,7 +669,7 @@ export class FileTree {
     }
   }
 
-  private emitText(inst: number[], atlas: any, s: number, text: string, color: number[], x: number, baseline: number) {
+  private emitText(inst: number[], atlas: GlyphAtlas, s: number, text: string, color: number[], x: number, baseline: number) {
     let cx = x;
     for (const ch of text) {
       if (ch === ' ') { cx += this.advance(ch); continue; }

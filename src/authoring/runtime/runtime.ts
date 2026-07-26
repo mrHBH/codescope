@@ -9,7 +9,8 @@ import { getIsland, type IslandDef, type IslandEmitCtx, type IslandTime } from '
 import { EmitCache } from '../../windfoil/emitCache';
 import { enter3D } from '../../camera/camera';
 import { orbitDistForZoom, orbitSetPose, updateOrbit, disableOrbit, orbitTargetLocal } from '../../camera/orbit';
-import { glyphQuads } from '../../windfoil/font';
+import { glyphQuads, type FontFace } from '../../windfoil/font';
+import type { GlyphAtlas } from '../../windfoil/bands';
 import { fillQuads, strokeInto, polygonQuads, type Pt } from '../../windgraph/stroke/stroke';
 import { tw, layoutStr } from '../../layout/metrics';
 import { MathTex } from '../../windgraph/math/mathtex';
@@ -55,7 +56,7 @@ export class SceneRuntime {
   playing = false; tourT = 0;
   private lastNow = -1;
   private fitSettling = false;
-  private font: any; private atlas: any;
+  private font: FontFace; private atlas: GlyphAtlas;
   private doc: SceneDoc;
   private caches: Map<string, EmitCache> = new Map();
   private texCache: Map<string, MathTex> = new Map();
@@ -105,7 +106,7 @@ export class SceneRuntime {
   hudInstLen = 0; hudCrvLen = 0; hudRwsLen = 0; hudCount = 0;
   private _s: AppState | null = null;
 
-  constructor(doc: SceneDoc, ctx: { font: any; atlas: any }) {
+  constructor(doc: SceneDoc, ctx: { font: FontFace; atlas: GlyphAtlas }) {
     this.doc = doc;
     this.font = ctx.font; this.atlas = ctx.atlas;
     this.measure = makeMeasureFn(ctx.font, undefined, ctx.atlas);
@@ -349,7 +350,7 @@ export class SceneRuntime {
     };
   }
 
-  emit(font: any, atlas: any, inst: number[], crv: number[], rws: number[], now: number, view: { zoom: number; left: number; right: number; top: number; bottom: number }) {
+  emit(font: FontFace, atlas: GlyphAtlas, inst: number[], crv: number[], rws: number[], now: number, view: { zoom: number; left: number; right: number; top: number; bottom: number }) {
     const rv = this.resolveView(view);
     this.lastView = rv;
     const ctx: DrawCtx = { font, atlas, buff: { inst, crv, rws } };

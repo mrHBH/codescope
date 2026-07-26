@@ -12,7 +12,7 @@ import { ANALYTIC_MENU_THEME } from '../ui/analyticMenu';
 import { MenuGate, MultiClickTracker, RightGesture, routeScroll, resolveCursor } from '../ui/inputRouter';
 import { tabMenu, folderMenu, fileMenu, editorMenu, terminalMenu, searchMenu, type IdeMenuActions } from './menus';
 import { ideTheme as T } from './theme';
-import { REG, FX_NAMES, fxHash, physicsPick, physicsScroll, physicsDead, type FxMode, type FxCtx } from './fx';
+import { REG, FX_NAMES, fxHash, physicsPick, physicsScroll, physicsDead, physics2Pick, physics2Scroll, physics2Dead, type FxMode, type FxCtx } from './fx';
 
 const AB_W = 50;
 const SIDEBAR_W = 340;
@@ -545,6 +545,10 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
 
   let mx = 0, my = 0;
   let fxMode: FxMode = 'cloth';
+  const isPhys = () => fxMode === 'physics' || fxMode === 'physics2';
+  const physPick = (x: number, y: number) => fxMode === 'physics2' ? physics2Pick(x, y) : physicsPick(x, y);
+  const physDead = (x: number, y: number) => fxMode === 'physics2' ? physics2Dead(x, y) : physicsDead(x, y);
+  const physScroll = (p: 'tree' | 'editor', dy: number) => { if (fxMode === 'physics2') physics2Scroll(p, dy); else physicsScroll(p, dy); };
   let fxXforms = new Float32Array(65536);
   let clipFA = new Float32Array(65536);
   let fx3dActive = false;
@@ -744,7 +748,7 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
     inst.length = 0; crv.length = 0; rws.length = 0;
 
     addRect(0, 0, w, h, T.editorBg, crv, rws, inst);
-    if (fxMode === 'physics') {
+    if (isPhys()) {
       addRect(w / 2 - 50000, h / 2 - 50000, w / 2 + 50000, h / 2 + 50000, T.editorBg, crv, rws, inst);
     }
 
@@ -1133,10 +1137,10 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
     // Destroyed elements only work through their shards: a pointer over a shard's
     // now-empty home footprint hovers nothing.
     const rawMx = mx, rawMy = my;
-    if (fxMode === 'physics') {
-      const ph = physicsPick(mx, my);
+    if (isPhys()) {
+      const ph = physPick(mx, my);
       if (ph) { mx = ph.x; my = ph.y; }
-      else if (physicsDead(mx, my)) { mx = -1e5; my = -1e5; }
+      else if (physDead(mx, my)) { mx = -1e5; my = -1e5; }
     }
     hoverExplorer = false; hoverTerminal = false; hoverSource = -1; hoverAction = -1; hoverSearch = false; hoverTab = -1;
 
@@ -1207,8 +1211,8 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
     // (the blast would kick the shard out from under the pointer before the
     // pointer-up pick could resolve it).
     let viaShard = false;
-    if (fxMode === 'physics') {
-      const ph = physicsPick(wx, wy);
+    if (isPhys()) {
+      const ph = physPick(wx, wy);
       if (ph) { wx = ph.x; wy = ph.y; viaShard = true; }
     }
     if (gate.consumeClick(wx, wy)) return;
@@ -1234,7 +1238,7 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
       // placed now so the drag extends from here); elsewhere a drag pans.
       const p = screenToDocLocal(mx * dpr, my * dpr, tCanvas.width, tCanvas.height);
       const { editorX, editorH } = layout();
-      const deadPress = viaShard || (fxMode === 'physics' && !physicsPick(p.x, p.y) && physicsDead(p.x, p.y));
+      const deadPress = viaShard || (isPhys() && !physPick(p.x, p.y) && physDead(p.x, p.y));
       if (!searchFocused && !deadPress && p.x >= editorX && p.y >= TAB_BAR_H && p.y < TAB_BAR_H + editorH) {
         dragSel = true;
         focus = 'editor';
@@ -1245,13 +1249,13 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
       }
       return;
     }
-    const ph0 = fxMode === 'physics' ? physicsPick(mx, my) : null;
+    const ph0 = isPhys() ? physPick(mx, my) : null;
     if (ph0) handlePick(ph0.x, ph0.y, e.shiftKey, true);
     else handlePick(mx, my, e.shiftKey);
   }
 
   function handlePick(px: number, py: number, shift: boolean, viaShard = false) {
-    if (!viaShard && fxMode === 'physics' && physicsDead(px, py)) return;
+    if (!viaShard && isPhys() && physDead(px, py)) return;
     mx = px; my = py;
     const { w, h, editorX, editorH, sw, termH } = layout();
     const tile = 34, ty = 8;
@@ -1383,7 +1387,7 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
       if (d3.moved || performance.now() - d3.t > 400) return;
       const [sx, sy] = toWorld(e);
       const p = screenToDocLocal(sx * dpr, sy * dpr, tCanvas.width, tCanvas.height);
-      const ph = fxMode === 'physics' ? physicsPick(p.x, p.y) : null;
+      const ph = isPhys() ? physPick(p.x, p.y) : null;
       if (ph) handlePick(ph.x, ph.y, e.shiftKey, true);
       else handlePick(p.x, p.y, e.shiftKey);
     }
@@ -1405,14 +1409,14 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
       e.stopImmediatePropagation();
       if (decision.panel === 'tree') {
         const applied = fileTree.scrollBy(e.deltaY * 0.5);
-        if (fxMode === 'physics') physicsScroll('tree', -applied);
+        if (isPhys()) physScroll('tree', -applied);
       } else {
         const ed = tabs[activeTab].editor;
         const before = ed.y0;
         ed.y0 -= e.deltaY * 0.5;
         const maxScroll = Math.max(0, ed.contentHeight() - editorH);
         ed.y0 = Math.min(TAB_BAR_H, Math.max(TAB_BAR_H - maxScroll, ed.y0));
-        if (fxMode === 'physics') physicsScroll('editor', ed.y0 - before);
+        if (isPhys()) physScroll('editor', ed.y0 - before);
       }
       return;
     }
@@ -1485,10 +1489,10 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
       const p = screenToDocLocal(wx * dpr, wy * dpr, tCanvas.width, tCanvas.height);
       wx = p.x; wy = p.y;
     }
-    if (fxMode === 'physics') {
-      const ph = physicsPick(wx, wy);
+    if (isPhys()) {
+      const ph = physPick(wx, wy);
       if (ph) { wx = ph.x; wy = ph.y; }
-      else if (physicsDead(wx, wy)) return;
+      else if (physDead(wx, wy)) return;
     }
     const { h, editorX, sw, termH } = layout();
 

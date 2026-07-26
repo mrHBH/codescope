@@ -5,10 +5,11 @@ import { registerIsland, type IslandDef } from '../registry';
 import { buildGlyphAsset, renderGlyphAnalytic, renderGlyphOutline } from '../glyphAsset';
 import { loop01 } from '../../builder/helpers';
 import { strokeInto } from '../../../windgraph/stroke/stroke';
+import type { FontFace } from '../../../windfoil/font';
 
 const GLYPH_CHAR = 'a';
 let cachedGlyph: any = null;
-function getGlyph(font: any) { if (!cachedGlyph) cachedGlyph = buildGlyphAsset(font, GLYPH_CHAR); return cachedGlyph; }
+function getGlyph(font: FontFace) { if (!cachedGlyph) cachedGlyph = buildGlyphAsset(font, GLYPH_CHAR); return cachedGlyph; }
 
 const C = {
   head: [0.94, 0.95, 0.97, 1], body: [0.73, 0.74, 0.77, 1], dim: [0.55, 0.56, 0.60, 1],

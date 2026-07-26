@@ -11,6 +11,7 @@
 // the digit advance (Lato digits are tabular, so they align).
 
 import type { FontFace } from '../windfoil/font';
+import type { GlyphAtlas } from '../windfoil/bands';
 import { advanceOf } from '../windfoil/font';
 import { addRect } from '../layout/metrics';
 import { TextDocument, type Pos, type Range, posMin, posMax, clonePos } from './document';
@@ -274,7 +275,7 @@ export class CodeEditor {
   // Pushes instances for: panel bg, current-line highlight, selection, gutter,
   // line numbers, syntax-colored glyphs, and the caret. Only lines within
   // [worldTop, worldBottom] are laid out.
-  render(font: FontFace, atlas: any, inst: number[], crv: number[], rws: number[],
+  render(font: FontFace, atlas: GlyphAtlas, inst: number[], crv: number[], rws: number[],
          worldTop: number, worldBottom: number, now: number, th: EditorTheme, caretW: number) {
     if (!this.font) this.font = font;
     const lh = this.lineHeight, s = this.fontSize / (font as any).unitsPerEm;
@@ -425,7 +426,7 @@ export class CodeEditor {
   }
 
   // Tabular digit run (line numbers): fixed digit-width cells so numbers align.
-  private emitDigits(inst: number[], text: string, color: number[], atlas: any, x: number, baseline: number, s: number) {
+  private emitDigits(inst: number[], text: string, color: number[], atlas: GlyphAtlas, x: number, baseline: number, s: number) {
     for (let i = 0; i < text.length; i++) {
       const ch = text[i];
       const gl = atlas.table[ch];

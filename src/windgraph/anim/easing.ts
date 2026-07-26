@@ -5,7 +5,7 @@
 
 export type Easing = (t: number) => number;
 
-export const clamp01 = (t: number): number => (t < 0 ? 0 : t > 1 ? 1 : t);
+export { clamp01 } from '../../util/math';
 
 export const linear: Easing = (t) => t;
 

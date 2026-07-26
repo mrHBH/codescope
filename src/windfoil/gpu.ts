@@ -83,6 +83,9 @@ export function createGlyphRenderer(
     return [newBuf, newCap];
   }
 
+  let lastCurves: Float32Array | null = null;
+  let lastRows: Uint32Array | null = null;
+
   return {
     setUniforms({ width, height, camScale = [1, 1] as number[], camCenter = [0, 0] as number[], viewProj, fxActive = 0 }: { width: number; height: number; camScale?: number[]; camCenter?: number[]; viewProj: ArrayLike<number>; fxActive?: number }) {
       uniformData[0] = width; uniformData[1] = height;
@@ -98,10 +101,10 @@ export function createGlyphRenderer(
       let newBindGroup = false;
       let c: GPUBuffer, cc: number;
       [c, cc] = ensureBuf(curveBuf, curves.byteLength, curveCap);
-      if (c !== curveBuf) { curveBuf = c; curveCap = cc; newBindGroup = true; }
+      if (c !== curveBuf) { curveBuf = c; curveCap = cc; newBindGroup = true; lastCurves = null; }
       let r: GPUBuffer, rc: number;
       [r, rc] = ensureBuf(rowBuf, rows.byteLength, rowCap);
-      if (r !== rowBuf) { rowBuf = r; rowCap = rc; newBindGroup = true; }
+      if (r !== rowBuf) { rowBuf = r; rowCap = rc; newBindGroup = true; lastRows = null; }
       let i: GPUBuffer, ic: number;
       [i, ic] = ensureBuf(instBuf, instances.byteLength, instCap);
       if (i !== instBuf) { instBuf = i; instCap = ic; newBindGroup = true; }
@@ -117,8 +120,8 @@ export function createGlyphRenderer(
         if (cl !== clipBuf) { clipBuf = cl; clipCap = clc; newBindGroup = true; }
         device.queue.writeBuffer(clipBuf, 0, clip);
       }
-      device.queue.writeBuffer(curveBuf, 0, curves);
-      device.queue.writeBuffer(rowBuf, 0, rows);
+      if (curves !== lastCurves) { device.queue.writeBuffer(curveBuf, 0, curves); lastCurves = curves; }
+      if (rows !== lastRows) { device.queue.writeBuffer(rowBuf, 0, rows); lastRows = rows; }
       device.queue.writeBuffer(instBuf, 0, instances);
       if (newBindGroup) {
         bindGroup = device.createBindGroup({
@@ -139,3 +142,5 @@ export function createGlyphRenderer(
     },
   };
 }
+
+export type GlyphRenderer = ReturnType<typeof createGlyphRenderer>;

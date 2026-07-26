@@ -111,17 +111,15 @@ export function cameraScale(s: AppState): number {
 
 // This frame's view-projection matrix: orthographic (legacy 2D) or the
 // camera-controls perspective camera with the document laid flat on the ground.
+const _orthoVP = new Float32Array(16) as Mat4;
 export function cameraViewProj(s: AppState, Cw: number, Ch: number): Mat4 {
   if (!s.cam3d.active) {
-    // Origin-centered orthographic matrix — camera translation is handled via
-    // the camCenter uniform (subtracted in the vertex shader). This keeps the
-    // matrix terms small and avoids catastrophic cancellation at extreme zoom.
     const sx = s.viewZ, sy = s.viewZ;
-    const m = new Float32Array(16) as Mat4;
-    m[0] = (2 * sx) / Cw;
-    m[5] = -(2 * sy) / Ch;
-    m[15] = 1;
-    return m;
+    _orthoVP.fill(0);
+    _orthoVP[0] = (2 * sx) / Cw;
+    _orthoVP[5] = -(2 * sy) / Ch;
+    _orthoVP[15] = 1;
+    return _orthoVP;
   }
   return orbitViewProj(Cw, Ch);
 }

@@ -68,9 +68,13 @@ function fromTHREE(m: THREE.Matrix4): Mat4 {
 }
 
 // This frame's view-projection = proj · view · groundModel.
+let _lastAspectW = 0, _lastAspectH = 0;
 export function orbitViewProj(Cw: number, Ch: number): Mat4 {
-  camera.aspect = Cw / Ch;
-  camera.updateProjectionMatrix();
+  if (Cw !== _lastAspectW || Ch !== _lastAspectH) {
+    camera.aspect = Cw / Ch;
+    camera.updateProjectionMatrix();
+    _lastAspectW = Cw; _lastAspectH = Ch;
+  }
   camera.updateMatrixWorld();
   _proj.set(fromTHREE(camera.projectionMatrix));
   const view = fromTHREE(camera.matrixWorldInverse);

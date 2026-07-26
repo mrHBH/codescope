@@ -14,12 +14,12 @@ import { parseColor } from '../css/engine';
 // tank when the mouse moved.
 const _advCache = new Map<string, number>();
 const _kernCache = new Map<string, number>();
-function advCached(font: FontFace, ch: string): number {
+export function advCached(font: FontFace, ch: string): number {
   let v = _advCache.get(ch);
   if (v === undefined) { v = advanceOf(font, ch); _advCache.set(ch, v); }
   return v;
 }
-function kernCached(font: FontFace, a: string, b: string): number {
+export function kernCached(font: FontFace, a: string, b: string): number {
   const key = a + b;
   let v = _kernCache.get(key);
   if (v === undefined) { v = kerningOf(font, a, b); _kernCache.set(key, v); }
@@ -69,21 +69,27 @@ export function addRect(x0:number,y0:number,x1:number,y1:number,clr:number[],crv
 }
 
 const CODE_KW = new Set(['export','function','var','let','const','for','each','return','min','abs','if','else','in','of','while','new','type']);
+const COL_DEFAULT = parseColor('#cdd6f4');
+const COL_COMMENT = parseColor('#676e95');
+const COL_STRING = parseColor('#c3e88d');
+const COL_NUMBER = parseColor('#f78c6c');
+const COL_KEYWORD = parseColor('#c792ea');
+const COL_PUNCT = parseColor('#89ddff');
 export function highlightCode(text: string): Seg[] {
   const segs:Seg[]=[];
-  let buf=''; let col=parseColor('#cdd6f4');
+  let buf=''; let col=COL_DEFAULT;
   const flush=()=>{ if(buf){segs.push({kind:'word',text:buf,color:col});buf='';} };
   let i=0;const n=text.length;
   while(i<n){
     const c=text[i];
-    if(c==='/'&&text[i+1]==='/'){flush();let j=text.indexOf('\n',i);if(j<0)j=n;segs.push({kind:'word',text:text.slice(i,j),color:parseColor('#676e95')});i=j;continue;}
-    if(c==='/'&&text[i+1]==='*'){flush();let j=text.indexOf('*/',i+2);j=j<0?n:j+2;segs.push({kind:'word',text:text.slice(i,j),color:parseColor('#676e95')});i=j;continue;}
-    if(c==='"'||c==="'"||c==='`'){flush();const q=c;let j=i+1;while(j<n&&text[j]!==q)j++;j++;segs.push({kind:'word',text:text.slice(i,j),color:parseColor('#c3e88d')});i=j;continue;}
+    if(c==='/'&&text[i+1]==='/'){flush();let j=text.indexOf('\n',i);if(j<0)j=n;segs.push({kind:'word',text:text.slice(i,j),color:COL_COMMENT});i=j;continue;}
+    if(c==='/'&&text[i+1]==='*'){flush();let j=text.indexOf('*/',i+2);j=j<0?n:j+2;segs.push({kind:'word',text:text.slice(i,j),color:COL_COMMENT});i=j;continue;}
+    if(c==='"'||c==="'"||c==='`'){flush();const q=c;let j=i+1;while(j<n&&text[j]!==q)j++;j++;segs.push({kind:'word',text:text.slice(i,j),color:COL_STRING});i=j;continue;}
     if(c==='\n'){flush();segs.push({kind:'nl',text:'\n',color:col});i++;continue;}
     if(c===' '||c==='\t'){flush();segs.push({kind:'space',text:c,color:col});i++;continue;}
-    if(/[0-9]/.test(c)){flush();let j=i;while(j<n&&/[0-9._]/.test(text[j]))j++;segs.push({kind:'word',text:text.slice(i,j),color:parseColor('#f78c6c')});i=j;continue;}
-    if(/[A-Za-z_]/.test(c)){flush();let j=i;while(j<n&&/[A-Za-z0-9_]/.test(text[j]))j++;const w=text.slice(i,j);segs.push({kind:'word',text:w,color:CODE_KW.has(w)?parseColor('#c792ea'):parseColor('#cdd6f4')});i=j;continue;}
-    if(/[{}()[\];:,.<>=+\-*/&|!?]/.test(c)){flush();segs.push({kind:'word',text:c,color:parseColor('#89ddff')});i++;continue;}
+    if(/[0-9]/.test(c)){flush();let j=i;while(j<n&&/[0-9._]/.test(text[j]))j++;segs.push({kind:'word',text:text.slice(i,j),color:COL_NUMBER});i=j;continue;}
+    if(/[A-Za-z_]/.test(c)){flush();let j=i;while(j<n&&/[A-Za-z0-9_]/.test(text[j]))j++;const w=text.slice(i,j);segs.push({kind:'word',text:w,color:CODE_KW.has(w)?COL_KEYWORD:COL_DEFAULT});i=j;continue;}
+    if(/[{}()[\];:,.<>=+\-*/&|!?]/.test(c)){flush();segs.push({kind:'word',text:c,color:COL_PUNCT});i++;continue;}
     buf+=c; i++;
   }
   flush();

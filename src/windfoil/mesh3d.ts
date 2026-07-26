@@ -70,8 +70,9 @@ export function createMeshRenderer(device: GPUDevice, format: GPUTextureFormat) 
     return [device.createBuffer({ size: nc, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST }), nc];
   };
 
+  const _vpScratch = new Float32Array(16);
   return {
-    setViewProj(vp: ArrayLike<number>) { device.queue.writeBuffer(uniform, 0, new Float32Array(vp as number[])); },
+    setViewProj(vp: ArrayLike<number>) { _vpScratch.set(vp as ArrayLike<number>); device.queue.writeBuffer(uniform, 0, _vpScratch); },
     drawTris(pass: GPURenderPassEncoder, verts: Float32Array) {
       const n = verts.length / 7; if (!n) return;
       const prev = triBuf;

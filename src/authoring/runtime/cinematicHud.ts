@@ -9,6 +9,9 @@
 
 import { DrawHelpers, type DrawCtx, type EmitBuffers } from '../islands/draw';
 import { tw } from '../../layout/metrics';
+import { clamp01 } from '../../util/math';
+import type { FontFace } from '../../windfoil/font';
+import type { GlyphAtlas } from '../../windfoil/bands';
 import type { ChapterWindow } from './timeline';
 import type { SceneRuntime } from './runtime';
 import type { AppState } from '../../state';
@@ -27,8 +30,6 @@ export interface HudInfo {
 }
 
 type Hit = 'play' | 'replay' | 'back' | 'scrub' | 'debug' | null;
-
-const clamp01 = (v: number) => (v < 0 ? 0 : v > 1 ? 1 : v);
 
 // ── palette (matches timelineHud.ts CSS) ────────────────────────────────────
 const BAR_COL   = [0.027, 0.031, 0.047, 1];   // #07080c
@@ -205,7 +206,7 @@ export class CinematicHud {
   // (DrawHelpers transforms every primitive, text included → razor-sharp), and
   // `opts.masterAlpha` drives the screen↔world crossfade during the peel.
   // `worldLetterbox` draws bars in world mode so the peel matches the screen HUD.
-  build(font: any, atlas: any, now: number, W: number, H: number, info: HudInfo, out: EmitBuffers, opts?: {
+  build(font: FontFace, atlas: GlyphAtlas, now: number, W: number, H: number, info: HudInfo, out: EmitBuffers, opts?: {
     xform?: { ox: number; oy: number; sx: number; sy: number };
     masterAlpha?: number;
     worldLetterbox?: boolean;
@@ -347,7 +348,7 @@ export class CinematicHud {
 
   /** Draw `text` clipped to `maxW` (binary-search truncation) — the analytic
    *  equivalent of the DOM label's `overflow:hidden; text-overflow:ellipsis`. */
-  private clippedText(draw: DrawHelpers, font: any, text: string, x: number, y: number, size: number, color: number[], alpha: number, maxW: number) {
+  private clippedText(draw: DrawHelpers, font: FontFace, text: string, x: number, y: number, size: number, color: number[], alpha: number, maxW: number) {
     if (maxW <= 1 || !text) return;
     if (tw(text, font, size) <= maxW) { draw.text(text, x, y, size, color, alpha, 'start'); return; }
     let lo = 0, hi = text.length, best = '';

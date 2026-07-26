@@ -20,7 +20,7 @@ function getEase(name: EasingName | undefined): (t: number) => number {
 
 export interface ChapterWindow { id: string; start: number; duration: number; title: string; sub: string; }
 
-export function chapterWindows(doc: any): ChapterWindow[] {
+export function chapterWindows(doc: SceneDoc): ChapterWindow[] {
   const ch: ChapterWindow[] = [];
   let acc = 0;
   for (const [id, spec] of Object.entries(doc.objects)) {
@@ -33,7 +33,7 @@ export function chapterWindows(doc: any): ChapterWindow[] {
   return ch;
 }
 
-export function docDuration(doc: any): number {
+export function docDuration(doc: SceneDoc): number {
   let d = 0;
   for (const [id, spec] of Object.entries(doc.objects)) {
     if ((spec as any).kind === 'group' && (spec as any).chapter) d += (spec as any).chapter.duration;
@@ -53,7 +53,7 @@ interface ClipIndex { len: number; byTarget: Map<string, any[]>; paramClips: any
 const clipIndexCache = new WeakMap<object, ClipIndex>();
 const NO_CLIPS: any[] = [];
 
-function clipIndexFor(doc: any): ClipIndex {
+function clipIndexFor(doc: SceneDoc): ClipIndex {
   const arr = doc.clips as any[];
   let idx = clipIndexCache.get(arr);
   if (idx && idx.len === arr.length) return idx;
@@ -78,7 +78,7 @@ export interface FrameState {
   currentChapterId: string | null;
 }
 
-export function evalScene(doc: any, t: number, paramOverrides?: Map<string, any>): FrameState {
+export function evalScene(doc: SceneDoc, t: number, paramOverrides?: Map<string, any>): FrameState {
   const paramValues = new Map<string, any>();
   for (const [k, p] of Object.entries(doc.params)) paramValues.set(k, (p as any).default);
   if (paramOverrides) { for (const [k, v] of paramOverrides) paramValues.set(k, v); }

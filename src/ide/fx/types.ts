@@ -8,7 +8,8 @@ export function fxHash(i: number): number {
   return (h >>> 0) / 4294967296;
 }
 
-export function clamp01(x: number): number { return x < 0 ? 0 : x > 1 ? 1 : x; }
+export { clamp01 } from '../../util/math';
+import { clamp01 } from '../../util/math';
 
 export function hueRgb(hue: number): [number, number, number] {
   const r = Math.abs(hue * 6 - 3) - 1;

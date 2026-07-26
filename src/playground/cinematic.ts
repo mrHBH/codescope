@@ -9,6 +9,7 @@
 import type { AppState } from '../state';
 import { enter3D } from '../camera/camera';
 import { createTimelineHud } from './timelineHud';
+import { clamp01 } from '../util/math';
 import {
   updateOrbit, disableOrbit,
   orbitSetPose, orbitGetPose, orbitDistForZoom, orbitZoomForDist,
@@ -28,7 +29,6 @@ interface Shot {
 
 const easeOut = (t: number) => 1 - Math.pow(1 - t, 3);           // quick launch, soft land (fast cuts)
 const easeInOut = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
-const clamp01 = (t: number) => (t < 0 ? 0 : t > 1 ? 1 : t);
 
 export interface DemoController {
   running: boolean;

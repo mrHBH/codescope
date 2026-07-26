@@ -4,7 +4,7 @@
 // camera follow the ink.
 
 import type { SceneDoc, CameraKeyframe, Vec2, EasingName } from '../ir/types';
-import { glyphQuads } from '../../windfoil/font';
+import { glyphQuads, type FontFace } from '../../windfoil/font';
 import type { LayoutMap } from '../layout/solve';
 
 /** A sampled point on the outline. */
@@ -15,7 +15,7 @@ export interface TraceSample { x: number; y: number; arcLen: number; }
  * `sub` = cubic-to-quad subdivision level (higher = smoother).
  */
 export function glyphOutline(
-  font: any, char: string,
+  font: FontFace, char: string,
   sub = 4,
 ): TraceSample[] {
   if (!font || !font.charToGlyph) return []; // no font available
@@ -99,7 +99,7 @@ export function resampleOutline(
  * `opts.fitId` — chapter group id for the pull-back keyframe.
  */
 export function traceToKeyframes(
-  font: any,
+  font: FontFace,
   char: string,
   box: { x: number; y: number; w: number; h: number },
   opts: {

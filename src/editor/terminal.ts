@@ -10,6 +10,7 @@
 // Everything animates off the frame clock, so the panel is alive even when idle.
 
 import type { FontFace } from '../windfoil/font';
+import type { GlyphAtlas } from '../windfoil/bands';
 import { advanceOf } from '../windfoil/font';
 import { addRect } from '../layout/metrics';
 
@@ -356,7 +357,7 @@ export class Terminal {
   }
 
   // ── Render ───────────────────────────────────────────────────────────────
-  render(font: FontFace, atlas: any, inst: number[], crv: number[], rws: number[], now: number, dt: number, th: TerminalTheme, caretW: number) {
+  render(font: FontFace, atlas: GlyphAtlas, inst: number[], crv: number[], rws: number[], now: number, dt: number, th: TerminalTheme, caretW: number) {
     if (!this.font) this.font = font;
     TASSIGN(th);
     this.update(now, dt);
@@ -476,7 +477,7 @@ export class Terminal {
   }
 
   // Emit one glyph at world x, returning its advance so callers can walk.
-  private emitAt(inst: number[], atlas: any, s: number, ch: string, color: number[], x: number, baseline: number): number {
+  private emitAt(inst: number[], atlas: GlyphAtlas, s: number, ch: string, color: number[], x: number, baseline: number): number {
     const adv = this.advance(ch);
     if (ch !== ' ') {
       const gl = atlas.table[ch];
@@ -486,7 +487,7 @@ export class Terminal {
   }
 
   // Proportional text run; advances by each glyph's real width.
-  private emit(inst: number[], atlas: any, s: number, text: string, color: number[], x: number, baseline: number) {
+  private emit(inst: number[], atlas: GlyphAtlas, s: number, text: string, color: number[], x: number, baseline: number) {
     let cx = x;
     for (const ch of text) cx += this.emitAt(inst, atlas, s, ch, color, cx, baseline);
   }
@@ -517,7 +518,7 @@ export class Terminal {
   }
 
   // ── Widget dock renderer (GPU rects, eased, sub-cell smooth) ────────────────
-  private renderWidget(inst: number[], atlas: any, crv: number[], rws: number[], s: number,
+  private renderWidget(inst: number[], atlas: GlyphAtlas, crv: number[], rws: number[], s: number,
                        now: number, dt: number, th: TerminalTheme,
                        x: number, y: number, w: number, h: number) {
     const wg = this.widget!;

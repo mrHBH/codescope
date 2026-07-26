@@ -2,11 +2,12 @@
 // Each method adds (ox, oy) to every coordinate for gallery grid layout.
 
 import type { FontFace } from '../../windfoil/font';
+import type { GlyphAtlas } from '../../windfoil/bands';
 import { addRect, layoutStr, tw } from '../../layout/metrics';
 import { fillQuads, strokeInto, strokeQuadPath, polygonQuads, circleQuads, type Pt } from '../../windgraph/stroke/stroke';
 
 export interface EmitBuffers { inst: number[]; crv: number[]; rws: number[]; }
-export interface DrawCtx { font: FontFace; atlas: any; buff: EmitBuffers; }
+export interface DrawCtx { font: FontFace; atlas: GlyphAtlas; buff: EmitBuffers; }
 
 export class DrawHelpers {
   private ctx: DrawCtx;

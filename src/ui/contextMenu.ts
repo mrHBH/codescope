@@ -20,6 +20,7 @@ export interface MenuItem {
 export class ContextMenu {
   private root: HTMLDivElement;
   private open = false;
+  private ac = new AbortController();
 
   constructor() {
     const root = document.createElement('div');
@@ -36,11 +37,16 @@ export class ContextMenu {
       document.head.appendChild(st);
     }
 
-    // Global dismissal: any outside pointer, scroll, resize, or Escape closes.
-    addEventListener('pointerdown', (e) => { if (this.open && !this.root.contains(e.target as Node)) this.hide(); }, true);
-    addEventListener('keydown', (e) => { if (this.open && e.key === 'Escape') { e.stopPropagation(); this.hide(); } }, true);
-    addEventListener('blur', () => this.hide());
-    addEventListener('resize', () => this.hide());
+    const { signal } = this.ac;
+    addEventListener('pointerdown', (e) => { if (this.open && !this.root.contains(e.target as Node)) this.hide(); }, { capture: true, signal });
+    addEventListener('keydown', (e) => { if (this.open && e.key === 'Escape') { e.stopPropagation(); this.hide(); } }, { capture: true, signal });
+    addEventListener('blur', () => this.hide(), { signal });
+    addEventListener('resize', () => this.hide(), { signal });
+  }
+
+  dispose() {
+    this.ac.abort();
+    this.root.remove();
   }
 
   isOpen() { return this.open; }

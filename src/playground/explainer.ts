@@ -15,6 +15,7 @@ import { MathTex } from '../windgraph/math/mathtex';
 import { enter3D } from '../camera/camera';
 import { disableOrbit, orbitDistForZoom, orbitSetPose, updateOrbit } from '../camera/orbit';
 import { createTimelineHud } from './timelineHud';
+import { clamp, clamp01, lerp } from '../util/math';
 
 type BoardView = { zoom: number; left: number; right: number; top: number; bottom: number };
 type EmitCtx = { font: any; atlas: any; inst: number[]; crv: number[]; rws: number[]; view: BoardView; now: number };
@@ -61,12 +62,9 @@ function cx0(i: number) { return CH[i].pos[0]; }
 function cy0(i: number) { return CH[i].pos[1]; }
 function txOff(i: number) { return CH[i].flip ? RX : LX; }
 function vxOff(i: number) { return CH[i].flip ? LX : RX; }
-function clamp(v: number, lo: number, hi: number) { return v < lo ? lo : v > hi ? hi : v; }
-function clamp01(v: number) { return clamp(v, 0, 1); }
 function smooth(v: number) { v = clamp01(v); return v * v * (3 - 2 * v); }
 function bump(v: number) { return Math.sin(clamp01(v) * Math.PI); }
 function rgba(c: number[], a = 1): number[] { return [c[0], c[1], c[2], (c[3] ?? 1) * a]; }
-function lerp(a: number, b: number, t: number) { return a + (b - a) * t; }
 function loop01(t: number, period: number, phase = 0) { return ((t / period + phase) % 1 + 1) % 1; }
 function ping(t: number, period: number, phase = 0) { return 0.5 - 0.5 * Math.cos(loop01(t, period, phase) * Math.PI * 2); }
 

@@ -6,50 +6,54 @@
 
 import type { FontFace } from '../windfoil/font';
 import type { StyledEl } from './types';
-import { advanceOf, kerningOf } from '../windfoil/font';
-import { addRect } from './metrics';
+import { addRect, advCached, kernCached } from './metrics';
+
+let _lineTops: number[] = [0];
+let _glyphX: number[] = [];
+let _glyphBl: number[] = [];
+let _glyphRef: any[] = [];
+let _glyphLen = 0;
+const _selColor: number[] = [0, 0, 0, 0.35];
 
 export function layoutEditable(el: StyledEl, font: FontFace, atlas: any, inst: number[], crv: number[], rws: number[], caretW: number, now: number, showCaret: boolean, caretColor: number[], selColor: number[]) {
   const left = el.x + el.pad[3], right = el.x + el.w - el.pad[1];
   const top = el.y + el.pad[0];
   const text = el.editText, size = el.fs, s = size / font.unitsPerEm;
   const n = text.length;
-  const cx0: number[] = new Array(n + 1).fill(0);
-  const cline: number[] = new Array(n + 1).fill(0);
-  const lineTops: number[] = [top];
-  const glyphs: { x: number; bl: number; gl: any }[] = [];
+  let cx0 = el.caretXs;
+  let cline = el.caretLines;
+  if (!cx0 || cx0.length < n + 1) { cx0 = new Array(n + 1); cline = new Array(n + 1); }
+  _lineTops.length = 1; _lineTops[0] = top;
+  _glyphLen = 0;
   let curX = left, curY = top, lineIdx = 0, prev: string | null = null;
   for (let i = 0; i < n; i++) {
     const ch = text[i];
-    if (ch === '\n') { curX = left; curY += el.lh; lineIdx++; lineTops[lineIdx] = curY; prev = null; cx0[i] = curX; cline[i] = lineIdx; continue; }
-    let adv = advanceOf(font, ch) * s; if (prev) adv += kerningOf(font, prev, ch) * s;
-    if (curX + adv > right && curX > left) { curX = left; curY += el.lh; lineIdx++; lineTops[lineIdx] = curY; }
+    if (ch === '\n') { curX = left; curY += el.lh; lineIdx++; _lineTops[lineIdx] = curY; prev = null; cx0[i] = curX; cline![i] = lineIdx; continue; }
+    let adv = advCached(font, ch) * s; if (prev) adv += kernCached(font, prev, ch) * s;
+    if (curX + adv > right && curX > left) { curX = left; curY += el.lh; lineIdx++; _lineTops[lineIdx] = curY; }
     const x = curX, bl = curY + size * 0.8;
-    cx0[i] = x; cline[i] = lineIdx;
-    if (ch !== ' ' && ch !== '\t') { const gl = atlas.table[ch]; if (gl) glyphs.push({ x, bl, gl }); }
+    cx0[i] = x; cline![i] = lineIdx;
+    if (ch !== ' ' && ch !== '\t') { const gl = atlas.table[ch]; if (gl) { _glyphX[_glyphLen] = x; _glyphBl[_glyphLen] = bl; _glyphRef[_glyphLen] = gl; _glyphLen++; } }
     curX += adv; prev = ch;
   }
-  cx0[n] = curX; cline[n] = lineIdx;
-  el.caretXs = cx0; el.caretLines = cline; el.lineTops = lineTops;
+  cx0[n] = curX; cline![n] = lineIdx;
+  el.caretXs = cx0; el.caretLines = cline; el.lineTops = _lineTops.slice(0, lineIdx + 1);
+  const lineTops = el.lineTops;
 
   const a = Math.min(el.caret, el.selAnchor < 0 ? el.caret : el.selAnchor);
   const b = Math.max(el.caret, el.selAnchor < 0 ? el.caret : el.selAnchor);
   if (b > a) {
-    const sel: number[] = [selColor[0], selColor[1], selColor[2], 0.35];
+    _selColor[0] = selColor[0]; _selColor[1] = selColor[1]; _selColor[2] = selColor[2];
     for (let i = a; i < b; i++) {
       const x0 = cx0[i], x1 = cx0[i + 1]; if (x1 - x0 < 0.5) continue;
-      const ln = cline[i], y0 = lineTops[ln], y1 = y0 + el.lh;
-      addRect(x0, y0, x1, y1, sel, crv, rws, inst);
+      const ln = cline![i], y0 = lineTops[ln], y1 = y0 + el.lh;
+      addRect(x0, y0, x1, y1, _selColor, crv, rws, inst);
     }
   }
-  for (const g of glyphs) { const gl = g.gl; inst.push(g.x, g.bl, s, 0, gl.bbox[0], gl.bbox[1], gl.bbox[2], gl.bbox[3], el.color[0], el.color[1], el.color[2], el.color[3], gl.rowBase, gl.bandCount, gl.bandH, gl.invH); }
+  for (let gi = 0; gi < _glyphLen; gi++) { const gl = _glyphRef[gi]; inst.push(_glyphX[gi], _glyphBl[gi], s, 0, gl.bbox[0], gl.bbox[1], gl.bbox[2], gl.bbox[3], el.color[0], el.color[1], el.color[2], el.color[3], gl.rowBase, gl.bandCount, gl.bandH, gl.invH); }
 
-  // Caret: a thin bar aligned to the glyph em-box (not the line box). The text
-  // baseline is at lineTops[ln] + size*0.8, so the visual glyph span is
-  // [lineTops, lineTops + size]; centering there keeps the caret matched to the
-  // text regardless of line-height. A little padding above/below feels natural.
   if (showCaret && (now % 1060) < 530) {
-    const ci = Math.max(0, Math.min(n, el.caret)), ln = cline[ci], x = cx0[ci];
+    const ci = Math.max(0, Math.min(n, el.caret)), ln = cline![ci], x = cx0[ci];
     const baseline = lineTops[ln] + size * 0.8;
     const y0 = baseline - size * 0.82, y1 = baseline + size * 0.20;
     addRect(x, y0, x + caretW, y1, caretColor, crv, rws, inst);

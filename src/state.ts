@@ -4,6 +4,8 @@
 // tangle of closure variables, which keeps main.ts a thin wiring layer.
 
 import type { FontFace } from './windfoil/font';
+import type { GlyphAtlas } from './windfoil/bands';
+import type { GlyphRenderer } from './windfoil/gpu';
 import type { StyledEl, PageRect, Seg } from './layout/types';
 import type { CodeEditor } from './editor/editor';
 import type { Terminal } from './editor/terminal';
@@ -15,6 +17,13 @@ export interface ThemeCol {
   shadow: number[]; caret: number[]; sel: number[];
 }
 
+export interface BoardView { zoom: number; left: number; right: number; top: number; bottom: number; }
+
+export interface Board {
+  x0: number; y0: number; width: number; height: number;
+  emit(font: FontFace, atlas: GlyphAtlas, inst: number[], crv: number[], rws: number[], now: number, view: BoardView, camX?: number, camY?: number): void;
+}
+
 export interface AppState {
   // canvases + contexts
   dpr: number;
@@ -24,9 +33,9 @@ export interface AppState {
   rCtx: CanvasRenderingContext2D;
   gpuCtx: GPUCanvasContext;
   device: GPUDevice;
-  renderer: any;
+  renderer: GlyphRenderer;
   font: FontFace;
-  atlas: any;
+  atlas: GlyphAtlas;
   // Internal render-resolution multiplier on top of dpr (default 1). The perf
   // benchmark drops this for its low-resolution comparison phases; setSize reads
   // it when sizing the canvas backing store.
@@ -46,7 +55,7 @@ export interface AppState {
   // Dedicated glyph renderer for the DOM-free screen-space HUD overlay (only the
   // cinematic sets it; see frame.ts). Owns separate storage buffers so its draw
   // never aliases the scene draw in the same command buffer.
-  hudRenderer: any;
+  hudRenderer: GlyphRenderer | null;
   // Per-frame debug readout (fps · zoom · js · worst · ev) written by the frame
   // loop; the cinematic HUD draws it analytically (the DOM #fps is hidden there).
   hudDebugText: string;
@@ -108,6 +117,8 @@ export interface AppState {
   // precomputed static buffers
   preCrv: number[]; preRws: number[];
   preCrvLen: number; preRwsLen: number;
+  staticCrv: number[]; staticRws: number[];
+  staticCrvLen: number; staticRwsLen: number;
   highlightCache: Map<StyledEl, Seg[]>;
   bgByPage: number[][]; textByPage: number[][];
   pageVisible: boolean[];
@@ -143,22 +154,20 @@ export interface AppState {
   demo: { running: boolean; toggle(): void; start(): void; stop(): void; update(now: number): void } | null;
 
   // windgraph Phase-0/1/2 demo (world-space board; see windgraph/demo.ts)
-  windgraph: { x0: number; y0: number; width: number; height: number; emit(font: FontFace, atlas: any, inst: number[], crv: number[], rws: number[], now: number, view: { zoom: number; left: number; right: number; top: number; bottom: number }, camX?: number, camY?: number): void } | null;
+  windgraph: Board | null;
 
   // windgraph Phase-4 animation demo (world-space board; see windgraph/anim/demo.ts)
-  morphDemo: { x0: number; y0: number; width: number; height: number; emit(font: FontFace, atlas: any, inst: number[], crv: number[], rws: number[], now: number, view: { zoom: number; left: number; right: number; top: number; bottom: number }): void } | null;
+  morphDemo: Board | null;
 
   // windgraph Phase-5 interactivity demo (world-space, draggable; see windgraph/interact/demo.ts)
-  interactive: {
-    x0: number; y0: number; width: number; height: number;
-    emit(font: FontFace, atlas: any, inst: number[], crv: number[], rws: number[], now: number, view: { zoom: number; left: number; right: number; top: number; bottom: number }): void;
+  interactive: (Board & {
     tryBeginDrag(wx: number, wy: number, scale: number): boolean;
     dragTo(wx: number, wy: number): void;
     endDrag(): void;
     updateHover(wx: number, wy: number, scale: number): boolean;
     autoDrive(): void;
     readonly dragging: boolean;
-  } | null;
+  }) | null;
 
   // windgraph Phase-7 3D graphing demo (true 3D mesh; see windgraph/space3d/demo.ts)
   graph3d: {
@@ -169,10 +178,10 @@ export interface AppState {
   meshRenderer: import('./windfoil/mesh3d').MeshRenderer | null;
 
   // windgraph Phase-6 math typesetting demo (world-space; see windgraph/math/demo.ts)
-  mathDemo: { x0: number; y0: number; width: number; height: number; emit(font: FontFace, atlas: any, inst: number[], crv: number[], rws: number[], now: number, view: { zoom: number; left: number; right: number; top: number; bottom: number }): void } | null;
+  mathDemo: Board | null;
 
   // Perf isolation bench (world-space; see playground/bench.ts)
-  bench: { x0: number; y0: number; width: number; height: number; mode: number; cycle(): void; emit(font: FontFace, atlas: any, inst: number[], crv: number[], rws: number[], now: number, view: { zoom: number; left: number; right: number; top: number; bottom: number }): void } | null;
+  bench: (Board & { mode: number; cycle(): void }) | null;
 
   // Scripted performance benchmark (camera script + metrics + results board;
   // see playground/benchmark.ts). Driven from the frame loop like the demo
@@ -183,7 +192,7 @@ export interface AppState {
     running: boolean; showResults: boolean; version: number;
     toggle(): void; status(): string; update(now: number): void;
     sample(dt: number, jsMs: number, instCount: number, seg?: Record<string, number> | null, ev?: number, evCoal?: number, evMs?: number): void;
-    emit(font: FontFace, atlas: any, inst: number[], crv: number[], rws: number[]): void;
+    emit(font: FontFace, atlas: GlyphAtlas, inst: number[], crv: number[], rws: number[]): void;
   } | null;
 }
 
@@ -211,6 +220,7 @@ export function createAppState(partial: Partial<AppState>): AppState {
       active: false, exiting: false,
     },
     preCrv: [], preRws: [], preCrvLen: 0, preRwsLen: 0,
+    staticCrv: [], staticRws: [], staticCrvLen: 0, staticRwsLen: 0,
     highlightCache: new Map(),
     bgByPage: [], textByPage: [], pageVisible: [],
     baseCrv: [], baseRws: [], baseCrvLen: 0, baseRwsLen: 0,

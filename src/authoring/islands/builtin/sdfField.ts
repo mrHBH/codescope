@@ -3,10 +3,11 @@
 
 import { registerIsland, type IslandDef } from '../registry';
 import { buildGlyphAsset, renderGlyphField } from '../glyphAsset';
+import type { FontFace } from '../../../windfoil/font';
 
 const GLYPH_CHAR = 'a';
 let cachedGlyph: any = null;
-function getGlyph(font: any) { if (!cachedGlyph) cachedGlyph = buildGlyphAsset(font, GLYPH_CHAR); return cachedGlyph; }
+function getGlyph(font: FontFace) { if (!cachedGlyph) cachedGlyph = buildGlyphAsset(font, GLYPH_CHAR); return cachedGlyph; }
 
 const island: IslandDef = {
   id: 'sdf-field',

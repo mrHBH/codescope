@@ -6,6 +6,8 @@
 import { CinematicHud, type HudInfo } from './cinematicHud';
 import { type EmitBuffers } from '../islands/draw';
 import type { SceneRuntime } from './runtime';
+import type { FontFace } from '../../windfoil/font';
+import type { GlyphAtlas } from '../../windfoil/bands';
 
 export interface HudWorldSlot {
   x: number; y: number; w: number; h: number;
@@ -60,7 +62,7 @@ export function emitHudWorld(
   hud: CinematicHud,
   _runtime: SceneRuntime,
   peel: HudPeelState,
-  font: any, atlas: any,
+  font: FontFace, atlas: GlyphAtlas,
   out: EmitBuffers,
   now: number,
   info: HudInfo,

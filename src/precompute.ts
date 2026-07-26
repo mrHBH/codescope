@@ -101,6 +101,10 @@ export function buildStatic(s: AppState) {
   s.baseRws = Array.from(s.atlas.rows);
   s.baseCrvLen = s.baseCrv.length;
   s.baseRwsLen = s.baseRws.length;
+  s.staticCrv = s.baseCrv.concat(preCrv);
+  s.staticRws = s.baseRws.concat(preRws);
+  s.staticCrvLen = s.staticCrv.length;
+  s.staticRwsLen = s.staticRws.length;
 }
 
 // Re-derive the whole layout tree from the (mutated) hidden DOM and rebuild the

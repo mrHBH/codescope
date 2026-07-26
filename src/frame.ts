@@ -18,6 +18,12 @@ import { DEPTH_FORMAT } from './windfoil/mesh3d';
 import { EmitCache } from './windfoil/emitCache';
 import { ANALYTIC_MENU_THEME } from './ui/analyticMenu';
 
+const _hoveredSet = new Set<StyledEl>();
+const _tmpColor: number[] = [0, 0, 0, 0];
+const ZERO_COLOR: number[] = [0, 0, 0, 0];
+const SHIMMER_COLOR: number[] = [1, 1, 1, 0.12];
+const _boardView = { zoom: 1, left: 0, right: 0, top: 0, bottom: 0 };
+
 // Shared depth texture for the 3D mesh pass, recreated when the canvas resizes.
 let _depthTex: GPUTexture | null = null;
 let _depthView: GPUTextureView | null = null;
@@ -37,60 +43,65 @@ function ensureDepthView(device: GPUDevice, w: number, h: number): GPUTextureVie
 // in the 3D free camera we skip emitting boards/pages that aren't on screen
 // (otherwise EVERY board + page emits every frame, tanking FPS in 3D).
 function rect3DVisible(vp: ArrayLike<number>, x0: number, y0: number, x1: number, y1: number): boolean {
-  const cs: [number, number][] = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
   let left = 0, right = 0, top = 0, bot = 0, behind = 0;
-  for (const [x, y] of cs) {
-    const cx = vp[0] * x + vp[4] * y + vp[12];
-    const cy = vp[1] * x + vp[5] * y + vp[13];
-    const cw = vp[3] * x + vp[7] * y + vp[15];
-    if (cx < -cw) left++;
-    if (cx > cw) right++;
-    if (cy < -cw) top++;
-    if (cy > cw) bot++;
-    if (cw <= 1e-6) behind++;
-  }
+  let cx = vp[0] * x0 + vp[4] * y0 + vp[12];
+  let cy = vp[1] * x0 + vp[5] * y0 + vp[13];
+  let cw = vp[3] * x0 + vp[7] * y0 + vp[15];
+  if (cx < -cw) left++; if (cx > cw) right++; if (cy < -cw) top++; if (cy > cw) bot++; if (cw <= 1e-6) behind++;
+  cx = vp[0] * x1 + vp[4] * y0 + vp[12];
+  cy = vp[1] * x1 + vp[5] * y0 + vp[13];
+  cw = vp[3] * x1 + vp[7] * y0 + vp[15];
+  if (cx < -cw) left++; if (cx > cw) right++; if (cy < -cw) top++; if (cy > cw) bot++; if (cw <= 1e-6) behind++;
+  cx = vp[0] * x1 + vp[4] * y1 + vp[12];
+  cy = vp[1] * x1 + vp[5] * y1 + vp[13];
+  cw = vp[3] * x1 + vp[7] * y1 + vp[15];
+  if (cx < -cw) left++; if (cx > cw) right++; if (cy < -cw) top++; if (cy > cw) bot++; if (cw <= 1e-6) behind++;
+  cx = vp[0] * x0 + vp[4] * y1 + vp[12];
+  cy = vp[1] * x0 + vp[5] * y1 + vp[13];
+  cw = vp[3] * x0 + vp[7] * y1 + vp[15];
+  if (cx < -cw) left++; if (cx > cw) right++; if (cy < -cw) top++; if (cy > cw) bot++; if (cw <= 1e-6) behind++;
   return !(left === 4 || right === 4 || top === 4 || bot === 4 || behind === 4);
 }
 
-function terminalTheme(): TerminalTheme {
-  // A fixed dark VS Code-ish palette (the terminal reads as a dark surface in
-  // every app theme — like a real embedded shell).
-  return {
-    bg: [0.086, 0.086, 0.098, 1],      // #16161a
-    barBg: [0.13, 0.13, 0.15, 1],
-    barFg: [0.7, 0.72, 0.78, 1],
-    text: [0.83, 0.85, 0.90, 1],
-    dim: [0.45, 0.48, 0.55, 1],
-    prompt: [0.83, 0.85, 0.90, 1],
-    green: [0.42, 0.80, 0.44, 1],
-    cyan: [0.35, 0.82, 0.94, 1],
-    yellow: [0.95, 0.76, 0.35, 1],
-    red: [0.88, 0.40, 0.38, 1],
-    magenta: [0.72, 0.48, 0.96, 1],
-    caret: [0.62, 0.82, 0.55, 1],
-  };
-}
+const TERMINAL_THEME: TerminalTheme = {
+  bg: [0.086, 0.086, 0.098, 1],
+  barBg: [0.13, 0.13, 0.15, 1],
+  barFg: [0.7, 0.72, 0.78, 1],
+  text: [0.83, 0.85, 0.90, 1],
+  dim: [0.45, 0.48, 0.55, 1],
+  prompt: [0.83, 0.85, 0.90, 1],
+  green: [0.42, 0.80, 0.44, 1],
+  cyan: [0.35, 0.82, 0.94, 1],
+  yellow: [0.95, 0.76, 0.35, 1],
+  red: [0.88, 0.40, 0.38, 1],
+  magenta: [0.72, 0.48, 0.96, 1],
+  caret: [0.62, 0.82, 0.55, 1],
+};
 
-function fileTreeTheme(): FileTreeTheme {
-  return {
-    bg: [0.086, 0.086, 0.098, 1],       // #16161a
-    barBg: [0.13, 0.13, 0.15, 1],
-    barFg: [0.7, 0.72, 0.78, 1],
-    text: [0.83, 0.85, 0.90, 1],
-    dim: [0.56, 0.58, 0.64, 1],
-    gold: [0.86, 0.71, 0.48, 1],         // #dcb67a — yasmineoss folder gold
-    folder: [0.83, 0.85, 0.90, 1],       // folder name color
-    line: [0.48, 0.40, 0.27, 1],         // warm rails (reference style)
-    accent: [0.86, 0.71, 0.48, 1],       // chevron/branch highlight in folder-gold
-    selected: [0.10, 0.34, 0.52, 0.42],  // subdued cyan selection strip
-    hover: [1, 1, 1, 0.05],              // hover highlight
-  };
-}
+const FILE_TREE_THEME: FileTreeTheme = {
+  bg: [0.086, 0.086, 0.098, 1],
+  barBg: [0.13, 0.13, 0.15, 1],
+  barFg: [0.7, 0.72, 0.78, 1],
+  text: [0.83, 0.85, 0.90, 1],
+  dim: [0.56, 0.58, 0.64, 1],
+  gold: [0.86, 0.71, 0.48, 1],
+  folder: [0.83, 0.85, 0.90, 1],
+  line: [0.48, 0.40, 0.27, 1],
+  accent: [0.86, 0.71, 0.48, 1],
+  selected: [0.10, 0.34, 0.52, 0.42],
+  hover: [1, 1, 1, 0.05],
+};
 
+let _editorThemeCache: EditorTheme | null = null;
+let _editorThemeDark: boolean | null = null;
+let _editorThemeSel: number[] | null = null;
 function editorTheme(s: AppState): EditorTheme {
   const c = s.themeCol;
   const dark = s.isDark;
-  return {
+  if (_editorThemeCache && _editorThemeDark === dark && _editorThemeSel === c.sel) return _editorThemeCache;
+  _editorThemeDark = dark;
+  _editorThemeSel = c.sel;
+  _editorThemeCache = {
     bg: dark ? [0.06, 0.07, 0.10, 1] : [0.96, 0.97, 0.99, 1],
     gutterBg: dark ? [0.04, 0.05, 0.08, 1] : [0.92, 0.94, 0.97, 1],
     gutterFg: dark ? [0.42, 0.45, 0.58, 1] : [0.38, 0.42, 0.50, 1],
@@ -100,6 +111,7 @@ function editorTheme(s: AppState): EditorTheme {
     caret: dark ? [0.95, 0.96, 1, 1] : [0.10, 0.14, 0.22, 1],
     sel: [c.sel[0], c.sel[1], c.sel[2], 0.4],
   };
+  return _editorThemeCache;
 }
 
 export function runFrame(s: AppState): () => void {
@@ -199,8 +211,8 @@ export function runFrame(s: AppState): () => void {
     const wheelCool = (performance.now() - s.lastWheelT) < 200;
     mark('setup');
     const hovered = (wheelCool || !s.pointerInput) ? null : hitTest(s.docRoot, s.mwx, s.mwy);
-    const hoveredSet = new Set<StyledEl>();
-    if (hovered) { let cur: StyledEl | null = hovered; while (cur) { hoveredSet.add(cur); cur = cur.parent; } }
+    _hoveredSet.clear();
+    if (hovered) { let cur: StyledEl | null = hovered; while (cur) { _hoveredSet.add(cur); cur = cur.parent; } }
 
     // File tree hover detection (world-space panel, not in DOM)
     if (s.fileTree && !wheelCool && s.pointerInput) {
@@ -214,13 +226,13 @@ export function runFrame(s: AppState): () => void {
     }
     mark('hover');
 
-    // Build working arrays: base atlas + pre-computed static backgrounds
+    // Build working arrays: pre-concatenated base atlas + precomputed static data
     const crv: number[] = s.baseCrv as number[];
-    crv.length = s.baseCrvLen;
-    for (let i = 0; i < s.preCrvLen; i++) crv.push(s.preCrv[i]);
+    crv.length = s.staticCrvLen;
+    for (let i = s.baseCrvLen; i < s.staticCrvLen; i++) crv[i] = s.staticCrv[i];
     const rws: number[] = s.baseRws as number[];
-    rws.length = s.baseRwsLen;
-    for (let i = 0; i < s.preRwsLen; i++) rws.push(s.preRws[i]);
+    rws.length = s.staticRwsLen;
+    for (let i = s.baseRwsLen; i < s.staticRwsLen; i++) rws[i] = s.staticRws[i];
     s.instJS.length = 0;
     const inst: number[] = s.instJS;
     // Layer 1: static backgrounds (visible pages only)
@@ -238,7 +250,7 @@ export function runFrame(s: AppState): () => void {
     // are already baked into the precomputed buffers.
     for (const el of s.dynamicEls) {
       if (el.ownerPage >= 0 && !visible[el.ownerPage]) continue;
-      const isHov = hoveredSet.has(el), isAct = el === s.pressed;
+      const isHov = _hoveredSet.has(el), isAct = el === s.pressed;
       if (isHov || isAct) {
         // Hover/active background is precomputed in buildStatic (no per-frame CSS
         // selector matching — that was the mouse-move FPS killer).
@@ -255,36 +267,36 @@ export function runFrame(s: AppState): () => void {
       const anim = el.anim;
       if (anim === 'bounce') {
         const dy = Math.sin(now / 520) * 8;
-        addRect(el.x, el.y + dy, el.x + el.w, el.y + el.h + dy, el.curBg[3] > 0.004 ? el.curBg : [0, 0, 0, 0], crv, rws, inst);
+        addRect(el.x, el.y + dy, el.x + el.w, el.y + el.h + dy, el.curBg[3] > 0.004 ? el.curBg : ZERO_COLOR, crv, rws, inst);
       } else if (anim === 'heartbeat') {
         const sc = 1 + Math.sin(now / 380) * 0.065;
         const cx = el.x + el.w / 2, cy = el.y + el.h / 2, hw = el.w * sc / 2, hh = el.h * sc / 2;
-        addRect(cx - hw, cy - hh, cx + hw, cy + hh, el.curBg[3] > 0.004 ? el.curBg : [0, 0, 0, 0], crv, rws, inst);
+        addRect(cx - hw, cy - hh, cx + hw, cy + hh, el.curBg[3] > 0.004 ? el.curBg : ZERO_COLOR, crv, rws, inst);
       } else if (anim === 'glow') {
         const pulse = 0.3 + 0.7 * Math.abs(Math.sin(now / 600));
         const g = 18 * pulse;
-        addRect(el.x - g, el.y - g, el.x + el.w + g, el.y + el.h + g, [el.curBg[0], el.curBg[1], el.curBg[2], 0.35 * pulse], crv, rws, inst);
-        addRect(el.x, el.y, el.x + el.w, el.y + el.h, el.curBg[3] > 0.004 ? el.curBg : [0, 0, 0, 0], crv, rws, inst);
+        _tmpColor[0] = el.curBg[0]; _tmpColor[1] = el.curBg[1]; _tmpColor[2] = el.curBg[2]; _tmpColor[3] = 0.35 * pulse;
+        addRect(el.x - g, el.y - g, el.x + el.w + g, el.y + el.h + g, _tmpColor, crv, rws, inst);
+        addRect(el.x, el.y, el.x + el.w, el.y + el.h, el.curBg[3] > 0.004 ? el.curBg : ZERO_COLOR, crv, rws, inst);
       } else if (anim === 'float') {
         const dy = Math.sin(now / 900) * 12;
-        addRect(el.x, el.y + dy, el.x + el.w, el.y + el.h + dy, el.curBg[3] > 0.004 ? el.curBg : [0, 0, 0, 0], crv, rws, inst);
+        addRect(el.x, el.y + dy, el.x + el.w, el.y + el.h + dy, el.curBg[3] > 0.004 ? el.curBg : ZERO_COLOR, crv, rws, inst);
       } else if (anim === 'spin') {
         const sc = 0.85 + 0.15 * Math.sin(now / 450);
         const cx = el.x + el.w / 2, cy = el.y + el.h / 2, hw = el.w * sc / 2, hh = el.h * sc / 2;
-        addRect(cx - hw, cy - hh, cx + hw, cy + hh, el.curBg[3] > 0.004 ? el.curBg : [0, 0, 0, 0], crv, rws, inst);
+        addRect(cx - hw, cy - hh, cx + hw, cy + hh, el.curBg[3] > 0.004 ? el.curBg : ZERO_COLOR, crv, rws, inst);
       } else if (anim === 'shimmer') {
-        addRect(el.x, el.y, el.x + el.w, el.y + el.h, el.curBg[3] > 0.004 ? el.curBg : [0, 0, 0, 0], crv, rws, inst);
+        addRect(el.x, el.y, el.x + el.w, el.y + el.h, el.curBg[3] > 0.004 ? el.curBg : ZERO_COLOR, crv, rws, inst);
         const shimX = el.x + ((now * 0.12) % (el.w + 60)) - 30;
-        addRect(shimX, el.y, shimX + 30, el.y + el.h, [1, 1, 1, 0.12], crv, rws, inst);
+        addRect(shimX, el.y, shimX + 30, el.y + el.h, SHIMMER_COLOR, crv, rws, inst);
       }
       if ((isHov || isAct) && el.curShadow > 0.01) {
         const g = 14 * el.curShadow;
-        addRect(el.x - g, el.y - g, el.x + el.w + g, el.y + el.h + g, [s.themeCol.shadow[0], s.themeCol.shadow[1], s.themeCol.shadow[2], s.themeCol.shadow[3] * el.curShadow], crv, rws, inst);
+        const sh = s.themeCol.shadow;
+        _tmpColor[0] = sh[0]; _tmpColor[1] = sh[1]; _tmpColor[2] = sh[2]; _tmpColor[3] = sh[3] * el.curShadow;
+        addRect(el.x - g, el.y - g, el.x + el.w + g, el.y + el.h + g, _tmpColor, crv, rws, inst);
         addRect(el.x, el.y, el.x + el.w, el.y + el.h, el.curBg, crv, rws, inst);
       } else if (anim === '' && (isHov || isAct)) {
-        // Hover/active fill for non-animated controls (buttons, tabs, toggles,
-        // dropdown, cards). Inset by the border so the baked border ring stays
-        // visible; the baked static bg beneath is fully covered by curBg.
         const [bt, br, bb, bl] = el.borderW;
         addRect(el.x + bl, el.y + bt, el.x + el.w - br, el.y + el.h - bb, el.curBg, crv, rws, inst);
       }
@@ -295,7 +307,9 @@ export function runFrame(s: AppState): () => void {
         addRect(el.x + el.pad[3], el.y + el.h / 2 - 5, el.x + el.pad[3] + fw, el.y + el.h / 2 + 5, s.themeCol.prog, crv, rws, inst);
       } else if (anim === 'pulse') {
         const a = 0.45 + 0.55 * Math.sin(now / 280);
-        addRect(el.x + 2, el.y + el.h / 2 - 7, el.x + 16, el.y + el.h / 2 + 7, [s.themeCol.pulse[0], s.themeCol.pulse[1], s.themeCol.pulse[2], a], crv, rws, inst);
+        const pl = s.themeCol.pulse;
+        _tmpColor[0] = pl[0]; _tmpColor[1] = pl[1]; _tmpColor[2] = pl[2]; _tmpColor[3] = a;
+        addRect(el.x + 2, el.y + el.h / 2 - 7, el.x + 16, el.y + el.h / 2 + 7, _tmpColor, crv, rws, inst);
       }
     }
 
@@ -348,7 +362,7 @@ export function runFrame(s: AppState): () => void {
       const tm = s.terminal;
       const tR = tm.x0 + tm.contentW, tB = tm.y0 + tm.contentH;
       if (boardVis(tm.x0, tm.y0, tR, tB)) {
-        tm.render(s.font, s.atlas, inst, crv, rws, now, dt, terminalTheme(), caretW);
+        tm.render(s.font, s.atlas, inst, crv, rws, now, dt, TERMINAL_THEME, caretW);
       }
     }
 
@@ -357,7 +371,7 @@ export function runFrame(s: AppState): () => void {
       const ft = s.fileTree;
       const fR = ft.x0 + ft.width, fB = ft.y0 + ft.contentHeight;
       if (boardVis(ft.x0, ft.y0, fR, fB)) {
-        ft.render(s.font, s.atlas, inst, crv, rws, vT, vB, now, fileTreeTheme());
+        ft.render(s.font, s.atlas, inst, crv, rws, vT, vB, now, FILE_TREE_THEME);
       }
     }
     mark('term+tree');
@@ -365,9 +379,12 @@ export function runFrame(s: AppState): () => void {
     // windgraph demo board (world-space).
     // In 3D (cinematic flight) the 2D view bounds/zoom are stale, so pass the
     // camera's on-axis scale and unbounded extents (culling is per-board above).
-    const boardView = s.cam3d.active
-      ? { zoom: cameraScale(s), left: -1e12, right: 1e12, top: -1e12, bottom: 1e12 }
-      : { zoom: s.viewZ, left: vL, right: vR, top: vT, bottom: vB };
+    const boardView = _boardView;
+    if (s.cam3d.active) {
+      boardView.zoom = cameraScale(s); boardView.left = -1e12; boardView.right = 1e12; boardView.top = -1e12; boardView.bottom = 1e12;
+    } else {
+      boardView.zoom = s.viewZ; boardView.left = vL; boardView.right = vR; boardView.top = vT; boardView.bottom = vB;
+    }
     if (s.windgraph) {
       const g = s.windgraph;
       const gR = g.x0 + g.width, gB = g.y0 + g.height;

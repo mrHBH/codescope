@@ -5,6 +5,8 @@
 import { listIslands } from './registry';
 import type { IslandEmitCtx, IslandTime } from './registry';
 import { DrawHelpers, type DrawCtx } from './draw';
+import type { FontFace } from '../../windfoil/font';
+import type { GlyphAtlas } from '../../windfoil/bands';
 
 const CELL_W = 520, CELL_H = 660, GAP = 40, PAD = 20;
 const COLS = 3;
@@ -34,7 +36,7 @@ export class IslandGallery {
     }
   }
 
-  emit(font: any, atlas: any, inst: number[], crv: number[], rws: number[], now: number, view: any) {
+  emit(font: FontFace, atlas: GlyphAtlas, inst: number[], crv: number[], rws: number[], now: number, view: any) {
     const ctx: DrawCtx = { font, atlas, buff: { inst, crv, rws } };
     const draw = new DrawHelpers(ctx);
     const islands = listIslands();

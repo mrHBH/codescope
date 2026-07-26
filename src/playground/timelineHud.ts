@@ -22,7 +22,7 @@ export interface TimelineHud {
   onScrub(handler: ((ratio01: number) => void) | null): void;
 }
 
-const clamp01 = (v: number) => (v < 0 ? 0 : v > 1 ? 1 : v);
+import { clamp01 } from '../util/math';
 
 export function createTimelineHud(opts: TimelineHudOptions = {}): TimelineHud {
   const activeScale = opts.activeScale ?? 1.42;
