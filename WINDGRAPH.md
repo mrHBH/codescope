@@ -132,8 +132,9 @@ unique assets (analytic AA, shared 3D, physics, glyph height).
 - [ ] **P2** Envelope of a curve family (GeoGebra `Envelope`)
 - [ ] **P2** Conformal-map / complex-function views: domain coloring, |f|/arg
       surfaces (GPU fragment side-channel — analytic fill + per-pixel color field)
-- [ ] **P2** Fractals: Mandelbrot/Julia via GPU compute, orbit traps, zoom-sharp
-      boundary (our AA makes the boundary *the* showcase) ⚡
+- [ ] **P2** Fractals: Mandelbrot/Julia via GPU compute, orbit traps — interiors
+      are **sampled content** (§5); the boundary itself is traced as analytic
+      contours where feasible, which is the showcase ⚡
 - [ ] **P2** L-systems & space-filling curves (Hilbert, Koch, Sierpiński) with
       animated generation depth
 
@@ -263,7 +264,8 @@ unique assets (analytic AA, shared 3D, physics, glyph height).
 - [ ] **P0** Space curves `C(t)`: helix, torus knots `(p,q)`, 3D Lissajous — as
       analytic tubes (stroke engine extruded ⚡)
 - [ ] **P1** **Implicit surfaces** `f(x,y,z)=0` via marching cubes (worker thread),
-      smooth-shaded; gyroid showcase
+      smooth-shaded; gyroid showcase — **sampled content** (§5 carve-out):
+      adaptive tessellation + silhouette refinement, labeled as such
 - [ ] **P1** **Solid of revolution**: 2D curve swept about an axis — animated
       sweep with ghost profile ⚡ (the 2D→3D story made literal)
 - [ ] **P1** Slicing plane: draggable cross-section of any surface/volume, contour
@@ -277,8 +279,10 @@ unique assets (analytic AA, shared 3D, physics, glyph height).
 - [ ] **P2** Spherical/cylindrical coordinate grids + coordinate-transform morphs
 - [ ] **P2** **4D → 3D projection** (MathBox territory): rotating tesseract,
       4D rotation planes, stereographic — our depth buffer makes this coherent ⚡
-- [ ] **P2** Volume rendering (raymarch pass) — stretch; analytic edges on
-      raymarched interiors would be a first
+      (edges rendered as analytic tubes where feasible; projected faces are
+      **sampled content** per §5)
+- [ ] **P2** Volume rendering (raymarch pass) — stretch; **sampled content**
+      per §5; analytic edges on raymarched interiors would be a first
 
 ### G. Continuous 2D↔3D — the signature differentiator ⚡
 
@@ -493,7 +497,17 @@ V5–V6 are the moat; V7–V8 ride the moat; V9–V10 make it a product.
 
 ## 5. Acceptance bar (unchanged from sprint/README.md, extended)
 
-- Razor-sharp at 1000× zoom — including extruded silhouettes and shadow edges.
+- Razor-sharp at 1000× zoom — including extruded silhouettes and shadow edges —
+  for all **analytic content**: strokes, fills, glyphs, math, chart chrome,
+  Bézier curves, contour lines, and shadow *edges*. This is the contract.
+- **Sampled-content carve-out.** Inherently discretized features (marching-cubes
+  implicit surfaces, volume raymarching, 4D→3D projections, point-splat
+  bifurcation diagrams, fractal interiors) do NOT claim the analytic guarantee.
+  They are explicitly labeled "sampled" in UI/docs, get adaptive tessellation +
+  silhouette refinement so edges degrade gracefully under zoom, and may be
+  composited with analytic overlays (axes, contour lines, labels) that *do*
+  stay sharp. The headline pitch ("zero aliasing, any zoom") refers to the
+  analytic pipeline; sampled features are honest exceptions, never faked.
 - One draw call for the 2D pass; 3D shares the depth-tested world.
 - No snapping anywhere: every mode change is an animatable parameter.
 - Physics is deterministic under scrub (seeded, fixed substep) or it doesn't

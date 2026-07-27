@@ -38,10 +38,25 @@ from the code lives here. Newest entries at the bottom of each section.
   commits unless asked; no new npm deps; targeted edits, never file overwrites.
 - **D7 — Phase 1 extends the existing IR, it does not fork it.** `ir/types.ts`
   already has `ObjectSpec` kinds (text, glyph, rect, circle, polygon, line,
-  math, group, island), `ClipSpec` kinds (fadeIn/out, draw, write, …), and a
-  **parameter system** (`{kind:'number', min, max, step}`, boolean, point,
-  color — `ir/types.ts:209-212`). New windgraph kinds and the slider binding
-  plug into these existing mechanisms.
+  math, group, island), `ClipSpec` kinds (fadeIn/out, draw, write, moveTo,
+  scaleTo, rotateTo, **morph, param**), and a **parameter system**
+  (`{kind:'number', min, max, step}`, boolean, point, color —
+  `ir/types.ts:208-215`; `ParamRef = {$param}` is the slider-binding wire,
+  already used by `IslandSpec.params`). New windgraph kinds and slider binding
+  plug into these. Full spec sketches: `contracts.md`.
+- **D8 — runtime.ts split seams (settles OQ-7, Phase 0.1).** The split shipped
+  as: `runtime/shared.ts` (state-free: DragState, PlanPage, constants, sigVal,
+  trimPolyline, emitGlow, emitGlyph, resolveIslandParams), `runtime/emitObject.ts`
+  (emitObject/emitObjectAt behind an `ObjectEmitHost` interface),
+  `runtime/dragControl.ts` (all drag/hit-testing behind a `DragHost` interface).
+  runtime.ts: 1311 → 677 lines. Pattern for future extraction: free functions
+  + narrow host interface that SceneRuntime satisfies structurally; `import
+  type` for back-references (no runtime cycles). Cost: ~15 class members
+  de-privatized (grabbed, hoveredHandle, hudPeel, lastView, liveParams,
+  paramVersion, livePageSize, liveItemWH, layoutMap, font, atlas, frameState,
+  ensureLayout, invalidateLayout, findPageParent, isNestedPage) + 2 new public
+  methods (texFor, grabbedHandleName). External API unchanged; tsc + all 58
+  authoring tests green.
 
 ## 2. Technical tips (file:line anchored)
 
@@ -127,9 +142,9 @@ from the code lives here. Newest entries at the bottom of each section.
   Interim: playground buttons. Revisit at CP6 with the full board count.
 - **OQ-6 — Naming.** "windgraph" is a working title (sprint/README.md:3).
   Settle before Phase 6 export/branding work.
-- **OQ-7 — runtime.ts split seams (0.1).** Verify actual structure before
-  cutting; the seams listed in §2 are a hypothesis. Behavior-identical only —
-  tests (timeline, trace, safeArea) must stay green, no API changes.
+- ~~**OQ-7 — runtime.ts split seams (0.1).**~~ **Resolved 2026-07-27 → D8.**
+  Seams confirmed as hypothesized, minus camera/playback/layout (too
+  state-entangled to separate cleanly; they stay on the class).
 
 ## 4. Lessons (digest of oldsprintplan/POSTMORTEM.md + v1 sprint)
 

@@ -27,6 +27,7 @@ churn autonomously, typecheck after every task, never stop except at a 🔍 CP.
 | `STATE.md` | Live state — current task, log. **Update after every task and CP.** |
 | `NOTES.md` | Decisions, tips, open questions, lessons. Append, never delete. |
 | `TODO.md` | Master checklist across all phases (details live in phase files). |
+| `contracts.md` | Integration contracts: primitives vs islands, ObjectSpec kind sketches, board-adapter contract (Phase 1 executes against this). |
 | `checkpoints.md` | CP1–CP8 test procedures + results log. |
 | `phase-0-substrate.md` … `phase-6-product.md` | Per-phase task lists with files + acceptance criteria. |
 

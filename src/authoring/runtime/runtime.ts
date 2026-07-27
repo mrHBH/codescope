@@ -1,69 +1,50 @@
 // ── SceneRuntime — implements s.interactive contract ─────────────────────────
 // Owns a SceneDoc, evaluates timeline, drives camera, emits into the pipeline.
+// Per-object emit lives in emitObject.ts, drag/hit-testing in dragControl.ts,
+// state-free helpers in shared.ts (sprint-v2 Phase 0.1 split).
 
-import type { SceneDoc, ObjectSpec, Vec2, Color, ParamValue, ParamRef, GroupSpec } from '../ir/types';
-import { evalScene, docDuration, chapterWindows, type ObjFrame, type FrameState, type ChapterWindow } from './timeline';
-import { poseAt, type CameraPose } from './camera';
-import { DrawHelpers, type DrawCtx, type EmitBuffers } from '../islands/draw';
-import { getIsland, type IslandDef, type IslandEmitCtx, type IslandTime } from '../islands/registry';
+import type { SceneDoc, ObjectSpec, Vec2, GroupSpec } from '../ir/types';
+import { evalScene, docDuration, chapterWindows, type FrameState, type ChapterWindow } from './timeline';
+import { poseAt } from './camera';
+import { DrawHelpers, type DrawCtx } from '../islands/draw';
 import { EmitCache } from '../../windfoil/emitCache';
 import { enter3D } from '../../camera/camera';
 import { orbitDistForZoom, orbitSetPose, updateOrbit, disableOrbit, orbitTargetLocal } from '../../camera/orbit';
-import { glyphQuads, type FontFace } from '../../windfoil/font';
+import type { FontFace } from '../../windfoil/font';
 import type { GlyphAtlas } from '../../windfoil/bands';
-import { fillQuads, strokeInto, polygonQuads, type Pt } from '../../windgraph/stroke/stroke';
-import { tw, layoutStr } from '../../layout/metrics';
+import { tw } from '../../layout/metrics';
 import { MathTex } from '../../windgraph/math/mathtex';
 import type { AppState } from '../../state';
-import { solveDocLayout, ensureTaffy, type LayoutMap, type Box } from '../layout/solve';
+import { solveDocLayout, ensureTaffy, type LayoutMap } from '../layout/solve';
 import { makeMeasureFn, wrapText, type MeasureFn } from '../layout/measure';
 import { ChromeController } from './chrome';
 import { CinematicHud } from './cinematicHud';
 import { effHeight, safePageWH, safePageZoom } from './safeArea';
 import {
-  emitHudWorld, hudWorldToScreen, screenLockedHudPose, lerpSlot,
+  emitHudWorld, screenLockedHudPose, lerpSlot,
   type HudPeelState, type HudWorldSlot,
 } from './hudWorld';
-
-type DragState =
-  | { kind: 'island'; islandId: string; instId: string; handleName: string }
-  | { kind: 'page'; id: string; startWx: number; startWy: number; startSize: Vec2 }
-  | { kind: 'item'; id: string; startWx: number; startWy: number; startW: number; startH: number }
-  | { kind: 'hud' }
-  | null;
-
-/** Per top-page emit plan: what to draw and when it becomes static. Built once
- *  per doc — the page is the cache/cull unit, mirroring the original explainer's
- *  per-chapter EmitCache (only the current chapter rebuilds every frame). */
-interface PlanPage {
-  id: string;
-  nested: string[];      // nested-page group ids (card chrome), doc order
-  children: string[];    // non-group descendants, doc order
-  staticAfter: number;   // latest clip end touching the page (t beyond → static)
-}
-
-const SEC_W = 1260, SEC_H = 820;
-const TOTAL_W = 14500, TOTAL_H = 5200;
-
-function sigVal(v: any): string {
-  if (typeof v === 'number') return v.toFixed(2);
-  if (Array.isArray(v)) return v.map((x) => (typeof x === 'number' ? x.toFixed(2) : String(x))).join(',');
-  return String(v);
-}
+import { type DragState, type PlanPage, TOTAL_W, TOTAL_H, sigVal } from './shared';
+import { emitObject, emitObjectAt } from './emitObject';
+import {
+  tryBeginDrag as dragTryBegin, dragTo as dragMoveTo, endDrag as dragEnd,
+  updateHover as dragUpdateHover, isHudControlScreen as dragIsHudControl,
+  layoutWorldBox,
+} from './dragControl';
 
 export class SceneRuntime {
   x0 = -900; y0 = -2200; width = TOTAL_W; height = TOTAL_H;
   playing = false; tourT = 0;
   private lastNow = -1;
   private fitSettling = false;
-  private font: FontFace; private atlas: GlyphAtlas;
+  font: FontFace; atlas: GlyphAtlas;
   private doc: SceneDoc;
   private caches: Map<string, EmitCache> = new Map();
   private texCache: Map<string, MathTex> = new Map();
-  private liveParams: Map<string, any> = new Map();
-  private grabbed: DragState = null;
-  private hoveredHandle: string | null = null;
-  private lastView: { zoom: number; left: number; right: number; top: number; bottom: number } | null = null;
+  liveParams: Map<string, any> = new Map();
+  grabbed: DragState = null;
+  hoveredHandle: string | null = null;
+  lastView: { zoom: number; left: number; right: number; top: number; bottom: number } | null = null;
   private childToChapter = new Map<string, string>();  // child object id → chapter group id
   /** Designer chrome (object tree / inspector / clip timeline). Off for cinematic tours. */
   showChrome = false;
@@ -73,12 +54,12 @@ export class SceneRuntime {
   get dragging() { return this.grabbed !== null; }
 
   // ── Layout state ───────────────────────────────────────────────────────
-  private layoutMap: LayoutMap = new Map();
+  layoutMap: LayoutMap = new Map();
   private layoutDirty = true;
   private measure: MeasureFn;
   private layoutReady = false;
-  private livePageSize = new Map<string, Vec2>();
-  private liveItemWH = new Map<string, { w: number; h: number }>();
+  livePageSize = new Map<string, Vec2>();
+  liveItemWH = new Map<string, { w: number; h: number }>();
   /** Cached parent pointers + top-page lookup (rebuilt on reload). */
   private parentMap: Map<string, string> | null = null;
   private topPageCache = new Map<string, string | null>();
@@ -86,7 +67,7 @@ export class SceneRuntime {
   /** Quantized barT that last drove a layout solve (avoid per-frame reflow). */
   private lastBarQ = -1;
   /** Active Living-UI peel pose for hit-testing. */
-  private hudPeel: HudPeelState | null = null;
+  hudPeel: HudPeelState | null = null;
   /** Page emit plan (lazy-built per doc). */
   private pagePlan: PlanPage[] | null = null;
   /** Static grid replay cache. */
@@ -95,7 +76,7 @@ export class SceneRuntime {
   private layoutRev = 0;
   /** FrameState memo (evalScene results by t, dropped on any param write). */
   private fsMemo = new Map<number, FrameState>();
-  private paramVersion = 0;
+  paramVersion = 0;
   chrome: ChromeController;
   /** DOM-free cinematic HUD (letterbox + scrubber + controls + caption). */
   cinematicHud: CinematicHud | null = null;
@@ -126,11 +107,11 @@ export class SceneRuntime {
     });
   }
 
-  private invalidateLayout() { this.layoutDirty = true; this.layoutRev++; }
+  invalidateLayout() { this.layoutDirty = true; this.layoutRev++; }
 
   /** evalScene memoized per t — emit/hover/drag used to run the full evaluation
    *  several times per frame (and with different t's while paused). */
-  private frameState(t: number): FrameState {
+  frameState(t: number): FrameState {
     let fs = this.fsMemo.get(t);
     if (!fs) {
       fs = evalScene(this.doc, t, this.liveParams);
@@ -219,7 +200,7 @@ export class SceneRuntime {
    *  2) Re-measure text that got a narrower assigned width (wrap height).
    *  3) Re-solve so siblings reflow below taller wrapped text.
    */
-  private ensureLayout(): void {
+  ensureLayout(): void {
     if (!this.layoutDirty || !this.layoutReady) return;
 
     // Apply live page sizes into the doc for the solver
@@ -292,6 +273,13 @@ export class SceneRuntime {
 
   setParam(name: string, value: any) { this.liveParams.set(name, value); this.paramVersion++; }
   getDoc(): SceneDoc { return this.doc; }
+  /** MathTex cache accessor for the extracted object-emit module. */
+  texFor(oid: string, latex: string): MathTex {
+    let tex = this.texCache.get(oid);
+    if (!tex) { tex = new MathTex(latex); this.texCache.set(oid, tex); }
+    return tex;
+  }
+  grabbedHandleName(): string | null { return this.grabbed?.kind === 'island' ? this.grabbed.handleName : null; }
   chapterWindows(): ChapterWindow[] {
     if (!this._chapterWindows) this._chapterWindows = chapterWindows(this.doc);
     return this._chapterWindows;
@@ -492,7 +480,7 @@ export class SceneRuntime {
       const isCurrent = !chId || chId === fs.currentChapterId;
       const effOp = frame.opacityMult * (isCurrent ? chAlpha : Math.min(chAlpha, 0.55));
       if (effOp <= 0.001) continue;
-      this.emitObject(oid, spec, frame, draw, fs, ctx.buff, view, now, effOp);
+      emitObject(this, oid, spec, frame, draw, fs, ctx.buff, view, now, effOp);
     }
     if (this.showChrome) this.chrome.emit(draw, view, now);
     draw.setOrigin(0, 0);
@@ -512,7 +500,7 @@ export class SceneRuntime {
     const Cw = this._s?.tCanvas?.width ?? 0;
     const Ch = this._s?.tCanvas?.height ?? 0;
     if (hudDetach > 0.001 && this.cinematicHud && this._s && Cw > 0 && Ch > 0) {
-      const slotBox = this.layoutWorldBox('sm-slot');
+      const slotBox = layoutWorldBox(this, 'sm-slot');
       if (slotBox) {
         const cx = (rv as any).cx ?? (rv.left + rv.right) / 2;
         const cy = (rv as any).cy ?? (rv.top + rv.bottom) / 2;
@@ -596,7 +584,7 @@ export class SceneRuntime {
       if (!frame || !frame.visible) continue;
       const effOp = frame.opacityMult;
       if (effOp <= 0.001) continue;
-      this.emitObjectAt(oid, spec, frame, draw, fs, ctx.buff, view, now, effOp, wBox.x + layoutBox.x, wBox.y + layoutBox.y, layoutBox.w, layoutBox.h);
+      emitObjectAt(this, oid, spec, frame, draw, fs, ctx.buff, view, now, effOp, wBox.x + layoutBox.x, wBox.y + layoutBox.y, layoutBox.w, layoutBox.h);
     }
   }
 
@@ -615,7 +603,7 @@ export class SceneRuntime {
   /** Returns the topmost page ancestor (or null if `id` is not under a page).
    *  For a child of a nested page, returns the outermost page (not the
    *  immediate one) so world coordinates are top-page-local. */
-  private findPageParent(id: string): string | null {
+  findPageParent(id: string): string | null {
     if (this.topPageCache.has(id)) return this.topPageCache.get(id)!;
     const pm = this.getParentMap();
     let cur = id;
@@ -634,288 +622,10 @@ export class SceneRuntime {
   }
 
   /** True if `id` is itself a page nested inside another page. */
-  private isNestedPage(id: string): boolean {
+  isNestedPage(id: string): boolean {
     const spec = this.doc.objects[id] as any;
     if (!spec?.page) return false;
     return this.findPageParent(id) !== null;
-  }
-
-  /** Recursively compute the minimum content footprint of a page (padding + children's
-   *  minimum sizes in the primary axis), so the drag handle can't shrink past it. */
-  private pageContentMin(pageId: string): { w: number; h: number } {
-    const spec = this.doc.objects[pageId] as any;
-    if (!spec || spec.kind !== 'group' || !spec.layout) return { w: 80, h: 60 };
-    const layout = spec.layout;
-    const dir: 'row' | 'column' = layout.direction ?? 'column';
-    const gap = layout.gap ?? 0;
-    const padding = layout.padding ?? 0;
-    const padT = typeof padding === 'number' ? padding : (padding[0] ?? 0);
-    const padB = typeof padding === 'number' ? padding : (padding[2] ?? padding[0] ?? 0);
-    const padL = typeof padding === 'number' ? padding : (padding[3] ?? padding[1] ?? padding[0] ?? 0);
-    const padR = typeof padding === 'number' ? padding : (padding[1] ?? padding[0] ?? 0);
-    const children = (spec.children as string[]) ?? [];
-    if (children.length === 0) return { w: padL + padR + 40, h: padT + padB + 40 };
-
-    let main = 0;
-    let cross = 0;
-    let count = 0;
-    for (const cid of children) {
-      const cSpec = this.doc.objects[cid] as any;
-      if (!cSpec) continue;
-      const item = cSpec.item;
-      let cw = 0, ch = 0;
-
-      if (cSpec.kind === 'group' && cSpec.layout) {
-        // Nested layout (including sub-page): recurse.
-        const sub = this.pageContentMin(cid);
-        cw = sub.w; ch = sub.h;
-      } else if (cSpec.kind === 'text') {
-        const sz = cSpec.size ?? 14;
-        cw = Math.min(tw(cSpec.content, this.font, sz), (item?.maxWidth as number | undefined) ?? Infinity);
-        ch = sz * 1.25;
-      } else if (cSpec.kind === 'rect') {
-        cw = (cSpec.size?.[0] ?? 40);
-        ch = (cSpec.size?.[1] ?? 40);
-      } else if (cSpec.kind === 'island') {
-        const islSize = this.islandDefaultSize(cSpec.island);
-        cw = islSize.w; ch = islSize.h;
-      } else {
-        cw = 60; ch = 40;
-      }
-
-      // Item sizing overrides / mins
-      if (typeof item?.width === 'number') cw = item.width;
-      if (typeof item?.height === 'number') ch = item.height;
-      if (typeof item?.minWidth === 'number') cw = Math.max(cw, item.minWidth);
-      if (typeof item?.minHeight === 'number') ch = Math.max(ch, item.minHeight);
-      if (typeof item?.maxWidth === 'number') cw = Math.min(cw, item.maxWidth);
-      if (typeof item?.maxHeight === 'number') ch = Math.min(ch, item.maxHeight);
-
-      if (dir === 'row') { main += cw; cross = Math.max(cross, ch); }
-      else               { main += ch; cross = Math.max(cross, cw); }
-      count++;
-    }
-    main += (count - 1) * gap;
-    if (dir === 'row') return { w: padL + main + padR, h: padT + cross + padB };
-    return { w: padL + cross + padR, h: padT + main + padB };
-  }
-
-  private islandDefaultSize(islandId: string): { w: number; h: number } {
-    try { const d = getIsland(islandId); return d.defaultSize ? { w: d.defaultSize[0], h: d.defaultSize[1] } : { w: 480, h: 360 }; }
-    catch { return { w: 480, h: 360 }; }
-  }
-
-  private emitGlow(spec: any, draw: DrawHelpers, x: number, y: number, w: number, h: number, _frame: any, op: number) {
-    const gl = spec.item?.glow;
-    if (!gl) return;
-    const layers = typeof gl === 'object' ? (gl as any).layers ?? 3 : 3;
-    const spread = typeof gl === 'object' ? (gl as any).spread ?? 18 : 18;
-    const ga = typeof gl === 'object' ? (gl as any).alpha ?? 1 : 1;
-    const color = spec.fill ?? spec.color ?? [1, 1, 1, 1];
-    const effAlpha = op * ga;
-    if (spec.kind === 'rect') {
-      draw.glowRect(x, y, x + w, y + h, color, layers, spread, effAlpha);
-    } else if (spec.kind === 'circle') {
-      const r = spec.radius * (_frame.scaleX ?? 1);
-      draw.glowCircle(x, y, r, color, layers, spread, effAlpha);
-    }
-  }
-
-  private emitObjectAt(oid: string, spec: ObjectSpec, frame: ObjFrame, draw: DrawHelpers, fs: FrameState, buff: EmitBuffers, view: { zoom: number; left: number; right: number; top: number; bottom: number }, now: number, op: number, worldX: number, worldY: number, boxW: number, boxH: number) {
-    const alignMap = { left: 'start' as const, center: 'middle' as const, right: 'end' as const };
-    switch (spec.kind) {
-      case 'text': {
-        const s = spec;
-        const content = frame.chars > 0 ? s.content.slice(0, frame.chars) : s.content;
-        if (!content) break;
-        const fontSize = s.size * frame.scaleX;
-        const textW = tw(content, this.font, fontSize);
-        // Glow
-        const gl = (spec as any).item?.glow;
-        if (gl) {
-          const layers = typeof gl === 'object' ? (gl as any).layers ?? 2 : 2;
-          const spread = typeof gl === 'object' ? (gl as any).spread ?? 4 : 4;
-          const ga = typeof gl === 'object' ? (gl as any).alpha ?? 1 : 1;
-          draw.glowText(content, worldX + frame.dx, worldY + frame.dy, fontSize, s.color, layers, spread, op * ga);
-        }
-        // Use word-wrap if box is narrower than text
-        if (boxW > 0 && boxW < textW) {
-          draw.textBlock(content, worldX + frame.dx, worldY + frame.dy, fontSize, s.color, op, boxW);
-        } else {
-          draw.text(content, worldX + frame.dx, worldY + frame.dy, fontSize, s.color, op, s.align ? alignMap[s.align] : 'start');
-        }
-        break;
-      }
-      case 'glyph': {
-        this.emitGlyph(spec.char, worldX + frame.dx, worldY + frame.dy, spec.size * frame.scaleX, spec.color, op, buff);
-        break;
-      }
-      case 'rect': {
-        const s = spec;
-        const useW = (boxW > 0 ? boxW : s.size[0]) * frame.scaleX;
-        const useH = (boxH > 0 ? boxH : s.size[1]) * frame.scaleY;
-        this.emitGlow(spec, draw, worldX + frame.dx, worldY + frame.dy, useW, useH, frame, op);
-        if (s.fill) draw.rect(worldX + frame.dx, worldY + frame.dy, worldX + frame.dx + useW, worldY + frame.dy + useH, s.fill, op * (s.fill?.[3] ?? 1));
-        if (s.stroke) draw.rectStroke(worldX + frame.dx, worldY + frame.dy, worldX + frame.dx + useW, worldY + frame.dy + useH, s.stroke.color, s.stroke.width, op);
-        break;
-      }
-      case 'circle': {
-        const cx = spec.center[0] + frame.dx + worldX, cy = spec.center[1] + frame.dy + worldY;
-        this.emitGlow(spec, draw, cx, cy, 0, 0, frame, op);
-        if (spec.fill) draw.fillCircle(cx, cy, spec.radius * frame.scaleX, spec.fill, op);
-        if (spec.stroke) draw.strokeCircle(cx, cy, spec.radius * frame.scaleX, spec.stroke.color, spec.stroke.width, op);
-        break;
-      }
-      case 'polygon': {
-        const pts = spec.points.map((p) => [p[0] + frame.dx + worldX, p[1] + frame.dy + worldY] as Pt);
-        if (spec.fill) draw.fillPoly(pts, spec.fill, op * frame.reveal);
-        if (spec.stroke) draw.line(pts, spec.stroke.color, spec.stroke.width, op);
-        break;
-      }
-      case 'line': {
-        let pts: Pt[] = spec.points.map((p) => [p[0] + frame.dx + worldX, p[1] + frame.dy + worldY] as Pt);
-        if (frame.reveal < 1) pts = this.trimPolyline(pts, frame.reveal);
-        draw.line(pts, spec.color, spec.width * frame.scaleX, op, spec.dash);
-        break;
-      }
-      case 'math': {
-        const s = spec;
-        let tex = this.texCache.get(oid);
-        if (!tex) { tex = new MathTex(s.latex); this.texCache.set(oid, tex); }
-        const size = s.size * frame.scaleX;
-        // MathTex emits on the BASELINE; the Taffy box is sized (h+d)×size, so
-        // the baseline sits h×size below the box top — the formula fills its
-        // layout slot exactly instead of drifting up into the previous sibling.
-        const asc = tex.measure(this.atlas).h * size;
-        tex.emit(this.atlas, buff.inst, buff.crv, buff.rws, {
-          x: worldX + frame.dx, y: worldY + frame.dy + asc,
-          size, color: s.color, opacity: op, reveal: frame.reveal,
-        });
-        break;
-      }
-      case 'island': {
-        const s = spec;
-        const def = getIsland(s.island);
-        const resolvedParams = this.resolveIslandParams(def, s.params ?? {}, fs);
-        const defW = def.defaultSize?.[0] ?? 480;
-        const defH = def.defaultSize?.[1] ?? 360;
-        const fill = (s as any).item?.fill === true;
-        // fill=true → scale content to fill the slot (reactive).
-        // fill=false → keep intrinsic default size, centered in the slot (fixed).
-        const scale = fill ? Math.min(boxW / defW, boxH / defH) : 1;
-        const ox = worldX + (boxW - defW * scale) / 2;
-        const oy = worldY + (boxH - defH * scale) / 2;
-        draw.setTransform(ox, oy, scale, scale);
-        const grabbedHandle = this.grabbed?.kind === 'island' ? this.grabbed.handleName : null;
-        const iCtx: IslandEmitCtx = { font: this.font, atlas: this.atlas, inst: buff.inst, crv: buff.crv, rws: buff.rws, view, now, draw, hoveredHandle: this.hoveredHandle, grabbedHandle };
-        const iTime: IslandTime = { local: 0, now: now / 1000, playing: this.playing, alpha: op, build: frame.reveal };
-        def.emit(iCtx, resolvedParams, iTime);
-        draw.setOrigin(0, 0);
-        break;
-      }
-    }
-  }
-
-  private emitObject(oid: string, spec: ObjectSpec, frame: ObjFrame, draw: DrawHelpers, fs: FrameState, buff: EmitBuffers, view: { zoom: number; left: number; right: number; top: number; bottom: number }, now: number, op: number) {
-    const alignMap = { left: 'start' as const, center: 'middle' as const, right: 'end' as const };
-    switch (spec.kind) {
-      case 'text': {
-        const s = spec;
-        const content = frame.chars > 0 ? s.content.slice(0, frame.chars) : s.content;
-        if (!content) break;
-        draw.text(content, s.at[0] + frame.dx, s.at[1] + frame.dy, s.size * frame.scaleX, s.color, op, s.align ? alignMap[s.align] : 'start');
-        break;
-      }
-      case 'glyph': {
-        const s = spec;
-        this.emitGlyph(s.char, s.at[0] + frame.dx, s.at[1] + frame.dy, s.size * frame.scaleX, s.color, op, buff);
-        break;
-      }
-      case 'rect': {
-        const s = spec;
-        this.emitGlow(spec, draw, s.at[0] + frame.dx, s.at[1] + frame.dy, s.size[0] * frame.scaleX, s.size[1] * frame.scaleY, frame, op);
-        if (s.fill) draw.rect(s.at[0] + frame.dx, s.at[1] + frame.dy, s.at[0] + frame.dx + s.size[0] * frame.scaleX, s.at[1] + frame.dy + s.size[1] * frame.scaleY, s.fill, op * (s.fill?.[3] ?? 1));
-        if (s.stroke) draw.rectStroke(s.at[0] + frame.dx, s.at[1] + frame.dy, s.at[0] + frame.dx + s.size[0] * frame.scaleX, s.at[1] + frame.dy + s.size[1] * frame.scaleY, s.stroke.color, s.stroke.width, op);
-        break;
-      }
-      case 'circle': {
-        const s = spec;
-        const cx = s.center[0] + frame.dx, cy = s.center[1] + frame.dy;
-        if (s.fill) draw.fillCircle(cx, cy, s.radius * frame.scaleX, s.fill, op);
-        if (s.stroke) draw.strokeCircle(cx, cy, s.radius * frame.scaleX, s.stroke.color, s.stroke.width, op);
-        break;
-      }
-      case 'polygon': {
-        const s = spec;
-        const pts = s.points.map((p) => [p[0] + frame.dx, p[1] + frame.dy] as Pt);
-        if (s.fill) draw.fillPoly(pts, s.fill, op * frame.reveal);
-        if (s.stroke) draw.line(pts, s.stroke.color, s.stroke.width, op);
-        break;
-      }
-      case 'line': {
-        const s = spec;
-        let pts: Pt[] = s.points.map((p) => [p[0] + frame.dx, p[1] + frame.dy] as Pt);
-        if (frame.reveal < 1) pts = this.trimPolyline(pts, frame.reveal);
-        draw.line(pts, s.color, s.width * frame.scaleX, op, s.dash);
-        break;
-      }
-      case 'math': {
-        const s = spec;
-        const key = oid;
-        let tex = this.texCache.get(key);
-        if (!tex) { tex = new MathTex(s.latex); this.texCache.set(key, tex); }
-        tex.emit(this.atlas, buff.inst, buff.crv, buff.rws, {
-          x: s.at[0] + frame.dx, y: s.at[1] + frame.dy,
-          size: s.size * frame.scaleX, color: s.color, opacity: op, reveal: frame.reveal,
-        });
-        break;
-      }
-      case 'island': {
-        const s = spec;
-        const def = getIsland(s.island);
-        const resolvedParams = this.resolveIslandParams(def, s.params ?? {}, fs);
-        const cullRadius = def.defaultSize?.[0] ?? 200;
-        if (view.left > -1e11 && (s.at[0] + cullRadius < view.left || s.at[0] - cullRadius > view.right || s.at[1] + cullRadius < view.top || s.at[1] - cullRadius > view.bottom)) break;
-        const origX = s.at[0] + frame.dx, origY = s.at[1] + frame.dy;
-        const defW = def.defaultSize?.[0] ?? 480, defH = def.defaultSize?.[1] ?? 360;
-        const specW = (s as any).size?.[0] ?? defW, specH = (s as any).size?.[1] ?? defH;
-        const scale = Math.min(specW / defW, specH / defH);
-        draw.setTransform(origX, origY, scale, scale);
-        const grabbedHandle = this.grabbed?.kind === 'island' ? this.grabbed.handleName : null;
-        const iCtx: IslandEmitCtx = { font: this.font, atlas: this.atlas, inst: buff.inst, crv: buff.crv, rws: buff.rws, view, now, draw, hoveredHandle: this.hoveredHandle, grabbedHandle };
-        const iTime: IslandTime = { local: 0, now: now / 1000, playing: this.playing, alpha: op, build: frame.reveal };
-        def.emit(iCtx, resolvedParams, iTime);
-        draw.setOrigin(0, 0);
-        break;
-      }
-    }
-  }
-
-  private emitGlyph(char: string, x: number, y: number, size: number, color: number[], alpha: number, buff: EmitBuffers) {
-    const g = glyphQuads(this.font, char);
-    if (!g) return;
-    const [minx, miny, maxx, maxy] = g.bbox;
-    const w = maxx - minx, h = maxy - miny;
-    const sc = h > 0 ? size / h : 1;
-    const q = g.quads.map((v, i) => (i % 2 === 0 ? x + (v - minx) * sc : y + (v - miny) * sc));
-    const c = color.length === 4 ? [color[0], color[1], color[2], color[3] * alpha] : [...color, alpha];
-    fillQuads(q, c, buff.inst, buff.crv, buff.rws);
-  }
-
-  private resolveIslandParams(def: IslandDef, overrideParams: Record<string, any>, fs: FrameState): Record<string, any> {
-    const result: Record<string, any> = {};
-    for (const [k, pDef] of Object.entries(def.params)) {
-      const ov = overrideParams?.[k];
-      if (ov && typeof ov === 'object' && '$param' in ov) {
-        const refName = (ov as any).$param;
-        result[k] = fs.params.get(refName) ?? (ov as any).default;
-      } else if (ov !== undefined) {
-        result[k] = ov;
-      } else {
-        result[k] = (pDef as any).default;
-      }
-    }
-    return result;
   }
 
   // ── Camera driving (mirrors ExplainerBoard.update) ──────────────────────
@@ -974,7 +684,7 @@ export class SceneRuntime {
    *  tracks its card through reflow/resize and stays centered. */
   private makeResolveFitObj(canvasW: number, canvasH: number) {
     return (oid: string): { center: Vec2; zoom: number; box?: { x: number; y: number; w: number; h: number } } | null => {
-      const box = this.layoutWorldBox(oid);
+      const box = layoutWorldBox(this, oid);
       if (!box || box.w <= 0 || box.h <= 0) return null;
       // Contain fit with zero margin — the slot is canvas-aspect (cover page),
       // so this fills the screen exactly at zoomMul=1.
@@ -1007,305 +717,11 @@ export class SceneRuntime {
   replay(s: AppState) { this.play(s, 0); }
   resume(s: AppState) { this.play(s, this.tourT); }
 
-  // ── Drag handling (pages, items, island handles) ──────────────────────────
-  /** Island world transform (matches emitObjectAt). */
-  private islandWorldTransform(oid: string, box: { x: number; y: number; w: number; h: number }): { origin: Vec2; scale: number } | null {
-    const spec = this.doc.objects[oid] as any;
-    if (!spec || spec.kind !== 'island') return null;
-    const def = getIsland(spec.island);
-    const defW = def.defaultSize?.[0] ?? 480;
-    const defH = def.defaultSize?.[1] ?? 360;
-    const fill = spec.item?.fill === true;
-    const scale = fill ? Math.min(box.w / defW, box.h / defH) : 1;
-    return { origin: [box.x + (box.w - defW * scale) / 2, box.y + (box.h - defH * scale) / 2], scale };
-  }
-
-  /** World box for any object under a page layout (page-local coords → world) */
-  private layoutWorldBox(oid: string): { x: number; y: number; w: number; h: number } | null {
-    this.ensureLayout();
-    const local = this.layoutMap.get(oid);
-    if (!local) return null;
-    const pageId = this.findPageParent(oid);
-    if (!pageId) return null;
-    const pageSpec = this.doc.objects[pageId] as any;
-    const isSafe = !!pageSpec.page?.safe;
-    const pageW = (this.livePageSize.get(pageId) ?? pageSpec.size)?.[0] ?? 1260;
-    const pageH = (this.livePageSize.get(pageId) ?? pageSpec.size)?.[1] ?? 820;
-    // Layout boxes are already top-page-local — do not add the page's own layout box.
-    const ox = isSafe ? pageSpec.at[0] - pageW / 2 : pageSpec.at[0];
-    const oy = isSafe ? pageSpec.at[1] - pageH / 2 : pageSpec.at[1];
-    return { x: ox + local.x, y: oy + local.y, w: local.w, h: local.h };
-  }
-
-  private buildWorldBoxes(): Map<string, { x: number; y: number; w: number; h: number }> {
-    this.ensureLayout();
-    const boxMap = new Map<string, { x: number; y: number; w: number; h: number }>();
-    // Walk all objects that have a layout position
-    const pageIds = new Set<string>();
-    for (const [id, spec] of Object.entries(this.doc.objects)) {
-      if (spec.kind === 'group' && (spec as any).page) pageIds.add(id);
-    }
-    for (const [oid] of Object.entries(this.doc.objects)) {
-      const wb = this.layoutWorldBox(oid);
-      if (wb) boxMap.set(oid, wb);
-    }
-    // For pages themselves, also add from livePageSize
-    for (const pid of pageIds) {
-      if (!boxMap.has(pid)) {
-        const pageSpec = this.doc.objects[pid] as any;
-        const isSafe = !!pageSpec.page?.safe;
-        const w = (this.livePageSize.get(pid) ?? pageSpec.size)?.[0] ?? 1260;
-        const h = (this.livePageSize.get(pid) ?? pageSpec.size)?.[1] ?? 820;
-        const ox = isSafe ? pageSpec.at[0] - w / 2 : pageSpec.at[0];
-        const oy = isSafe ? pageSpec.at[1] - h / 2 : pageSpec.at[1];
-        boxMap.set(pid, { x: ox, y: oy, w, h });
-      }
-    }
-    return boxMap;
-  }
-
-  /** Current evaluated `hudDetach` (0 = screen overlay, 1 = world card). */
-  private currentHudDetach(): number {
-    if (!this.cinematic) return 0;
-    // Always use tourT — paused mid-chapter must keep the in-card hit path.
-    return this.frameState(this.tourT).params.get('hudDetach') ?? 0;
-  }
-
-  /** Map a world point into HUD-local virtual px for hit-testing: through the
-   *  world-card transform while detached (so the in-card timeline stays live and
-   *  scrubbable, even mid-dive), else through the screen projection. */
-  private hudPoint(wx: number, wy: number): [number, number] | null {
-    if (!this.cinematicHud) return null;
-    if (this.currentHudDetach() > 0.5 && this.hudPeel) {
-      return hudWorldToScreen(wx, wy, this.hudPeel);
-    }
-    return this.cinematicHud.worldToScreen(wx, wy);
-  }
-
-  tryBeginDrag(wx: number, wy: number, scale: number): boolean {
-    // Chrome panel clicks first — consume without starting a drag.
-    if (this.showChrome && this.lastView && this.chrome.handleClick(wx, wy, this.lastView)) {
-      return true;
-    }
-    // Cinematic HUD (controls + scrubber): screen-space while attached, world-space
-    // (inverse card transform) while detached — so it stays interactive in the card.
-    if (this.cinematicHud) {
-      const pt = this.hudPoint(wx, wy);
-      if (pt && this.cinematicHud.pointerDownScreen(pt[0], pt[1])) { this.grabbed = { kind: 'hud' }; return true; }
-    }
-    const r = Math.max(12, 18 / Math.max(scale, 0.05));
-    const boxMap = this.buildWorldBoxes();
-
-    // 1) Item resize handles — most specific, try first
-    for (const [oid, spec] of Object.entries(this.doc.objects)) {
-      if (spec.kind === 'group') continue;
-      const box = boxMap.get(oid);
-      if (!box) continue;
-      const item = (spec as any).item;
-      if (!item?.resizable) continue;
-      const sx = box.x + box.w, sy = box.y + box.h;
-      if (Math.hypot(wx - sx, wy - sy) <= r) {
-        this.grabbed = { kind: 'item', id: oid, startWx: wx, startWy: wy, startW: box.w, startH: box.h };
-        return true;
-      }
-    }
-
-    // 2) Page resize handles (SE corner) — top-level & nested
-    for (const [oid, spec] of Object.entries(this.doc.objects)) {
-      if (spec.kind !== 'group' || !(spec as any).page?.resizable) continue;
-      const box = boxMap.get(oid);
-      if (!box) continue;
-      const sx = box.x + box.w, sy = box.y + box.h;
-      if (Math.hypot(wx - sx, wy - sy) <= r) {
-        // Start size = current rendered size (works for both top-level & nested).
-        this.grabbed = { kind: 'page', id: oid, startWx: wx, startWy: wy, startSize: [box.w, box.h] };
-        return true;
-      }
-    }
-
-    // 3) Island handles (use layout position if available, else spec.at)
-    const objMap = this.doc.objects as Record<string, ObjectSpec>;
-    const t = this.playing ? this.tourT : this.totalDuration();
-    const fs = this.frameState(t);
-    for (const [oid, spec] of Object.entries(objMap)) {
-      if (spec.kind !== 'island') continue;
-      const s = spec;
-      const def = getIsland(s.island);
-      if (!def.handles) continue;
-      const params = this.resolveIslandParams(def, s.params ?? {}, fs);
-      // Compute island world origin from layout if available
-      const layoutBox = boxMap.get(oid);
-      const tf = layoutBox ? this.islandWorldTransform(oid, layoutBox) : null;
-      const origin: Vec2 = tf ? tf.origin : (s.at as Vec2);
-      const iscale = tf ? tf.scale : 1;
-      for (const hDef of def.handles) {
-        const lp = hDef.at(params);
-        const hPos: Vec2 = [origin[0] + lp[0] * iscale, origin[1] + lp[1] * iscale];
-        if (Math.hypot(wx - hPos[0], wy - hPos[1]) <= r) {
-          this.grabbed = { kind: 'island', islandId: s.island, instId: oid, handleName: hDef.param };
-          return true;
-        }
-      }
-    }
-    return false;
-  }
-
-  dragTo(wx: number, wy: number) {
-    if (!this.grabbed) return;
-    const g = this.grabbed;
-
-    if (g.kind === 'hud') {
-      if (this.cinematicHud) { const pt = this.hudPoint(wx, wy); if (pt) this.cinematicHud.dragToScreen(pt[0]); }
-      return;
-    }
-
-    if (g.kind === 'page') {
-      const spec = this.doc.objects[g.id] as any;
-      if (!spec) return;
-      const declaredMin = spec.page?.minSize ?? [200, 150];
-      const contentMin = this.pageContentMin(g.id);
-      const minSize: Vec2 = [Math.max(declaredMin[0], contentMin.w), Math.max(declaredMin[1], contentMin.h)];
-      const maxSize = spec.page?.maxSize ?? [3000, 2000];
-      const newW = Math.max(minSize[0], Math.min(maxSize[0], g.startSize[0] + (wx - g.startWx)));
-      const newH = Math.max(minSize[1], Math.min(maxSize[1], g.startSize[1] + (wy - g.startWy)));
-      if (this.isNestedPage(g.id)) {
-        // Nested page: pin via the parent's flex slot (item), so siblings reflow.
-        this.liveItemWH.set(g.id, { w: newW, h: newH });
-      } else {
-        // Top-level page: drive size directly.
-        spec.size = [newW, newH];
-        this.livePageSize.set(g.id, [newW, newH]);
-      }
-      this.invalidateLayout();
-      this.ensureLayout();
-      return;
-    }
-
-    if (g.kind === 'item') {
-      const spec = this.doc.objects[g.id] as any;
-      if (!spec) return;
-      const newW = Math.max(60, Math.min(2000, g.startW + (wx - g.startWx)));
-      const newH = Math.max(40, Math.min(2000, g.startH + (wy - g.startWy)));
-      this.liveItemWH.set(g.id, { w: newW, h: newH });
-      this.invalidateLayout();
-      this.ensureLayout();
-      return;
-    }
-
-    if (g.kind === 'island') {
-      const { instId, handleName } = g;
-      const spec = this.doc.objects[instId] as any;
-      if (!spec) return;
-      const def = getIsland(spec.island);
-      if (!def.handles) return;
-      const t = this.playing ? this.tourT : this.totalDuration();
-      const fs = this.frameState(t);
-      const params = this.resolveIslandParams(def, spec.params ?? {}, fs);
-      // Compute handle origin from layout if available
-      const boxMap = this.buildWorldBoxes();
-      const layoutBox = boxMap.get(instId);
-      const tf = layoutBox ? this.islandWorldTransform(instId, layoutBox) : null;
-      const origin: Vec2 = tf ? tf.origin : (spec.at as Vec2);
-      const iscale = tf ? tf.scale : 1;
-      for (const hDef of def.handles) {
-        if (hDef.param === handleName) {
-          const relPos: Vec2 = [(wx - origin[0]) / iscale, (wy - origin[1]) / iscale];
-          hDef.set(params, relPos);
-          const ov = spec.params?.[handleName];
-          if (ov && typeof ov === 'object' && (ov as any).$param) {
-            this.liveParams.set((ov as any).$param, params[handleName]);
-          } else {
-            if (!spec.params) spec.params = {};
-            spec.params[handleName] = params[handleName].slice ? [...params[handleName]] : params[handleName];
-          }
-          this.paramVersion++;   // island geometry depends on the written value
-          break;
-        }
-      }
-    }
-  }
-  endDrag() { this.grabbed = null; this.cinematicHud?.endDrag(); }
-
-  /** True if the screen-space point lands on a cinematic HUD control (used by the
-   *  demo to avoid stopping the tour when the user presses a control). */
-  isHudControlScreen(sx: number, sy: number): boolean {
-    return !!(this.cinematicHud && this.cinematicHud.hitScreen(sx, sy));
-  }
-
-  updateHover(wx: number, wy: number, scale: number): boolean {
-    this.hoveredHandle = null;
-    if (this.cinematicHud) { const pt = this.hudPoint(wx, wy); if (pt && this.cinematicHud.hoverScreen(pt[0], pt[1])) return true; }
-    const r = Math.max(12, 18 / Math.max(scale, 0.05));
-    const boxMap = this.buildWorldBoxes();
-    // Check item resize handles first (most specific)
-    for (const [oid, spec] of Object.entries(this.doc.objects)) {
-      if (spec.kind === 'group') continue;
-      const box = boxMap.get(oid);
-      if (!box) continue;
-      if (!(spec as any).item?.resizable) continue;
-      if (Math.hypot(wx - (box.x + box.w), wy - (box.y + box.h)) <= r) return true;
-    }
-    // Check page resize handles
-    for (const [oid, spec] of Object.entries(this.doc.objects)) {
-      if (spec.kind !== 'group' || !(spec as any).page?.resizable) continue;
-      const box = boxMap.get(oid);
-      if (!box) continue;
-      if (Math.hypot(wx - (box.x + box.w), wy - (box.y + box.h)) <= r) return true;
-    }
-    for (const [oid, spec] of Object.entries(this.doc.objects)) {
-      if (spec.kind === 'group') continue;
-      const box = boxMap.get(oid);
-      if (!box) continue;
-      if (!(spec as any).item?.resizable) continue;
-      if (Math.hypot(wx - (box.x + box.w), wy - (box.y + box.h)) <= r) return true;
-    }
-    // Check island handles (uses layout box if available)
-    const objMap = this.doc.objects as Record<string, ObjectSpec>;
-    const t = this.playing ? this.tourT : this.totalDuration();
-    const fs = this.frameState(t);
-    for (const [oid, spec] of Object.entries(objMap)) {
-      if (spec.kind !== 'island') continue;
-      const s = spec;
-      const def = getIsland(s.island);
-      if (!def.handles) continue;
-      const params = this.resolveIslandParams(def, s.params ?? {}, fs);
-      const layoutBox = boxMap.get(oid);
-      const tf = layoutBox ? this.islandWorldTransform(oid, layoutBox) : null;
-      const origin: Vec2 = tf ? tf.origin : (s.at as Vec2);
-      const iscale = tf ? tf.scale : 1;
-      for (const hDef of def.handles) {
-        const lp = hDef.at(params);
-        const hPos: Vec2 = [origin[0] + lp[0] * iscale, origin[1] + lp[1] * iscale];
-        if (Math.hypot(wx - hPos[0], wy - hPos[1]) <= r) {
-          this.hoveredHandle = hDef.param;
-          return true;
-        }
-      }
-    }
-    return false;
-  }
+  // ── Drag handling — delegated to dragControl.ts (Phase 0.1 split) ─────────
+  tryBeginDrag(wx: number, wy: number, scale: number): boolean { return dragTryBegin(this, wx, wy, scale); }
+  dragTo(wx: number, wy: number) { dragMoveTo(this, wx, wy); }
+  endDrag() { dragEnd(this); }
+  isHudControlScreen(sx: number, sy: number): boolean { return dragIsHudControl(this, sx, sy); }
+  updateHover(wx: number, wy: number, scale: number): boolean { return dragUpdateHover(this, wx, wy, scale); }
   autoDrive() {}
-
-  // ── Polyline trim (from windgraph mobject.ts) ──────────────────────────
-  private trimPolyline(pts: Pt[], frac: number): Pt[] {
-    if (frac >= 1 || pts.length < 2) return pts;
-    if (frac <= 0) return [];
-    let total = 0;
-    const seg: number[] = [];
-    for (let i = 1; i < pts.length; i++) { const d = Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]); seg.push(d); total += d; }
-    if (total < 1e-12) return pts;
-    const target = total * frac;
-    const out: Pt[] = [pts[0]];
-    let acc = 0;
-    for (let i = 1; i < pts.length; i++) {
-      const d = seg[i - 1];
-      if (acc + d >= target) {
-        const t = d < 1e-9 ? 0 : (target - acc) / d;
-        out.push([pts[i - 1][0] + (pts[i][0] - pts[i - 1][0]) * t, pts[i - 1][1] + (pts[i][1] - pts[i - 1][1]) * t]);
-        break;
-      }
-      out.push(pts[i]); acc += d;
-    }
-    return out;
-  }
 }

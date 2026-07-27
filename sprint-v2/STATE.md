@@ -5,11 +5,12 @@ If this file and the code disagree, investigate before trusting either.
 
 ## Current position
 
-- **Phase:** 0 — Substrate repair
-- **Next task:** 0.1 — split `src/authoring/runtime/runtime.ts` (see `phase-0-substrate.md`)
+- **Phase:** 0 — Substrate repair: **all 4 tasks done, awaiting CP1 verdict**
+- **Next task:** 🔍 **CP1** — user regression smoke (`checkpoints.md`); on
+  "clear", proceed to Phase 1 task 1.1
 - **Checkpoints passed:** none
 - **Blockers:** none
-- **Last updated:** 2026-07-27 (sprint docs created; no code work yet)
+- **Last updated:** 2026-07-27 (Phase 0 complete)
 
 ## Update protocol (every agent, every task)
 
@@ -29,3 +30,14 @@ If this file and the code disagree, investigate before trusting either.
 - 2026-07-27 — Sprint docs created (`sprint-v2/`, `SPRINT-windgraph-v2.md`,
   `WINDGRAPH.md`). Architecture settled: windgraph objects = IR primitives,
   islands = procedural/field content only. No code changed.
+- 2026-07-27 — **0.1 done.** runtime.ts split into shared.ts + emitObject.ts +
+  dragControl.ts (1311 → 677 lines); tsc clean; all 58 authoring tests green.
+  See NOTES.md D8.
+- 2026-07-27 — **0.2 done.** AGENTS.md active-sprint fixed (was stale: pointed
+  at completed Authoring v2); PROGRESS.md §0c added (IDE FX sprint + v2 pointer).
+- 2026-07-27 — **0.3 done.** WINDGRAPH.md §5 analytic-vs-sampled carve-out (D3);
+  implicit-surface/4D/volume/fractal items tagged "sampled content".
+- 2026-07-27 — **0.4 done.** `contracts.md` written: primitives-vs-islands
+  table, ObjectSpec kind sketches, clip→Animation mapping, board-adapter
+  contract. Phase 1 can execute from it.
+- 2026-07-27 — Phase 0 complete → stopped at CP1 for user regression smoke.

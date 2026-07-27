@@ -9,10 +9,10 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `~~struck~~` = culled b
 ---
 
 ## Phase 0 — Substrate repair (`phase-0-substrate.md`)
-- [ ] 0.1 Split `runtime/runtime.ts` (62KB) — behavior-identical, tests green
-- [ ] 0.2 Fix stale docs (AGENTS.md, PROGRESS.md)
-- [ ] 0.3 Fix `WINDGRAPH.md` §5 analytic-vs-sampled carve-out (D3)
-- [ ] 0.4 Integration contracts note (primitives vs islands, ObjectSpec kinds, adapter contract)
+- [x] 0.1 Split `runtime/runtime.ts` (62KB) — behavior-identical, tests green
+- [x] 0.2 Fix stale docs (AGENTS.md, PROGRESS.md)
+- [x] 0.3 Fix `WINDGRAPH.md` §5 analytic-vs-sampled carve-out (D3)
+- [x] 0.4 Integration contracts note (primitives vs islands, ObjectSpec kinds, adapter contract)
 - [ ] **CP1 passed** — regression smoke
 
 ## Phase 1 — Object model (`phase-1-object-model.md`)

@@ -1,6 +1,6 @@
 # Windfoil — Progress & Project State
 
-_Last updated: 2026-07-14_
+_Last updated: 2026-07-27_
 
 This document tracks the current state of the Windfoil codebase against the
 roadmap in `VISION.md`. It supersedes the "what's done" mental model — read this
@@ -102,6 +102,35 @@ Two supporting capabilities were added for fidelity:
 - **inline-block boxes** — `walk.ts` distinguishes pure `inline` (text spans, no
   box) from `inline-block` (buttons, badges, LEDs) so the latter get their
   background + border baked.
+
+---
+
+## 0c. IDE Effects v3 (Sprint Complete) + windgraph v2 (Active)
+
+**IDE Effects v3** (`SPRINT.md`, `SPRINT-TODO.md`) shipped the modular FX
+architecture the windgraph v2 moat builds on:
+
+- `src/ide/fx/` — one effect per file, central `registry.ts` (22 modes),
+  `Fx` contract (`preFrame`/`apply`/`postFrame`/`extras`); `ide.ts` holds zero
+  effect logic.
+- **Per-instance 3D transforms** — `fxXforms` storage buffer (rotX, rotY, z,
+  scale per instance) consumed by `windfoil.wgsl` when `fxActive`.
+- Effects: cloth, matrix, heartbeat, glitch, aurora, blackhole, earthquake,
+  fireworks (3D burst + spawned particles + orbit-camera tilt), supernova,
+  dissolve, logo (glyph-formation morph), ocean, dome, fan, tornado, standup,
+  curl, shatter (3D burst → eased reassembly), ripple, helix.
+- **box3d physics** (`physics.ts`, `physics2.ts`) — every glyph becomes a
+  box3d.js rigid body (shard) with clip polygons, sleep/dormancy pools,
+  broadphase grid, and home-transform reassembly.
+- GPU-rendered analytic toolbar + context menu replaced the DOM ones
+  (soft shadows, transform support); screen-space HUD integrated in frame.ts.
+
+**windgraph v2** is now the active sprint: expanding the windgraph math engine
+into a comprehensive plotting/geometry/animation system, leading with
+continuous 2D↔3D (true glyph height) and physics-driven graphs. Plan:
+`WINDGRAPH.md` (feature surface) · `SPRINT-windgraph-v2.md` (execution plan) ·
+`sprint-v2/` (live state, notes, phase TODOs, checkpoints). `AGENTS.md` has
+the read-order for continuing work.
 
 ---
 

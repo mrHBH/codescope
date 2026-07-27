@@ -7,50 +7,46 @@ fix stale docs, lock the integration contracts. Zero behavior change.
 
 ---
 
-## 0.1 — Split `src/authoring/runtime/runtime.ts` (62KB)
+## 0.1 — Split `src/authoring/runtime/runtime.ts` (62KB) ✅
 
-- [ ] Read the file fully first; confirm/refute the proposed seams in
-      `NOTES.md` §3 OQ-7 before cutting.
-- [ ] Extract focused modules (hypothesis: draw-emit, input/interactive
-      contract, object-tree + chrome hooks, orbit-camera driving). Keep
-      `runtime.ts` as the thin `SceneRuntime` wiring them.
-- [ ] No API changes visible to `demo.ts`, `frame.ts`, scenes, or islands.
-- **Acceptance:** `bunx tsc --noEmit` clean; `__test_timeline`, `__test_trace`,
-  `__test_safeArea` green; `#authoring` + `#explainer-v2` render identically.
+- [x] Read the file fully first; confirm/refute the proposed seams (→ D8).
+- [x] Extracted: `runtime/shared.ts` (state-free helpers), `runtime/emitObject.ts`
+      (object emit behind `ObjectEmitHost`), `runtime/dragControl.ts` (drag/hit
+      behind `DragHost`). Camera/playback/layout stayed on the class (too
+      state-entangled). 1311 → 677 lines.
+- [x] No API changes visible to `demo.ts`, `frame.ts`, scenes, or islands.
+- **Acceptance:** `bunx tsc --noEmit` clean ✅; all 58 authoring tests green ✅;
+  visual identity to be confirmed at CP1.
 
-## 0.2 — Fix stale docs
+## 0.2 — Fix stale docs ✅
 
-- [ ] `AGENTS.md`: active-sprint line → windgraph v2 + pointer to `sprint-v2/`
-      (handled with the AGENTS.md update that accompanies these docs — verify
-      nothing else in it is stale).
-- [ ] `PROGRESS.md`: add an IDE-FX-sprint section (registry, morph engine, 3D
-      effects, physics/fireworks substrate) and mark Authoring v2 as archived-complete.
+- [x] `AGENTS.md`: active-sprint line → windgraph v2 + `sprint-v2/` read-order;
+      §3 map updated (windgraph = active focus; authoring/fx/playground roles);
+      removed dead `memories/repo/codescope.md` reference (file doesn't exist).
+- [x] `PROGRESS.md`: §0c added (IDE FX sprint: registry, fxXforms, effects,
+      box3d physics, analytic chrome) + windgraph v2 pointer; date bumped.
 - **Acceptance:** a fresh reader of AGENTS.md → PROGRESS.md gets a true picture
-  of what's active, done, and where.
+  of what's active, done, and where. ✅
 
-## 0.3 — Fix `WINDGRAPH.md` §5 acceptance bar (decision D3)
+## 0.3 — Fix `WINDGRAPH.md` §5 acceptance bar (decision D3) ✅
 
-- [ ] Carve-out: analytic-AA contract covers 2D content (strokes, fills,
-      glyphs, math, chart chrome, shadow *edges*); sampled 3D (marching cubes,
-      raymarch, 4D projection) is labeled "sampled", gets adaptive tessellation
-      + silhouette refinement, and never claims the analytic guarantee.
-- [ ] Tag the affected §F items (implicit surfaces, volume, 4D) inline.
+- [x] Carve-out written: analytic-AA contract covers 2D content (strokes,
+      fills, glyphs, math, chart chrome, shadow *edges*); sampled content is
+      labeled, gets adaptive tessellation + silhouette refinement, never claims
+      the guarantee.
+- [x] Tagged affected items inline: implicit surfaces, 4D projection, volume
+      raymarch, fractal interiors (boundary stays analytic where feasible).
 - **Acceptance:** no internal contradiction remains between the headline pitch
-  and the 3D catalog.
+  and the 3D catalog. ✅
 
-## 0.4 — Integration contracts note
+## 0.4 — Integration contracts note ✅
 
-- [ ] Write the primitives-vs-islands table (D1), the full `ObjectSpec` kind
-      list for Phase 1 (point, segment, polyline, polygon, circle, arc,
-      ellipse, vector, conic, plot-fn, plot-parametric, plot-polar,
-      plot-implicit, field-vector, surface, curve3d, label, math, group,
-      constraint-* constructions), and the board-adapter contract (hosts a
-      `ConstraintGraph` scene; emits via `DrawHelpers`; routes pointer via
-      `s.interactive` → `DragController`; exposes spec parameters to sliders).
-- [ ] Place as `sprint-v2/contracts.md` (linked from NOTES.md) or as a header
-      doc in `src/authoring/ir/` — agent's call; link it in `STATE.md`.
+- [x] `sprint-v2/contracts.md` written: primitives-vs-islands table (D1),
+      ObjectSpec kind sketches (geometry, constraints, plots, surface),
+      clip→Animation mapping, board-adapter contract, ParamRef reuse note (D7).
+- [x] Linked from NOTES.md (D7) and README doc map.
 - **Acceptance:** Phase 1 tasks can be executed by an agent that reads only
-  this contract + `ir/types.ts`.
+  this contract + `ir/types.ts`. ✅
 
 ---
 
