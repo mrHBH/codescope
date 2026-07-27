@@ -41,9 +41,13 @@ const GUARD_PX = 3.7;
 // (coverage 0 or 1) and the full area integral is overkill. A single-point
 // winding test (one ray-cast through one band — no integrate_piece, no area
 // polynomial) replaces it, trading the 1 px AA skirt for a large ALU +
-// storage-bandwidth saving. At 64+ px/axis the lost AA is < 1.6 % of the
-// glyph and invisible. Overridable so the validation suite can disable it.
-override MAGNIFICATION_GUARD : bool = true;
+// storage-bandwidth saving. OFF by default: the point sample emits binary 0/1
+// coverage, so every edge pixel at >64 px/axis aliases — a visible staircase on
+// curves and diagonals (the regression vs. the always-integral path). The
+// "< 1.6 % of glyph area" figure counts HOW MANY pixels lose AA, not how visible
+// it is: those pixels ARE the outline, so hard edges show at any size. Enable
+// only as an opt-in deep-zoom perf hack where edge quality does not matter.
+override MAGNIFICATION_GUARD : bool = false;
 const MAG_GUARD_PX = 64.0;
 
 override EXACT_MODE : bool = false; // offline: point-sample the true fill rule, no fold (ALGORITHM.md §4)
