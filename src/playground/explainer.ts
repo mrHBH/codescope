@@ -174,7 +174,6 @@ export class ExplainerBoard {
 
 export function bootExplainer(engine: Engine, onBack: () => void): () => void {
   const s = createBaseApp(engine, false); const board = new ExplainerBoard(); s.interactive = board; board.replay(s);
-  let playBtn: HTMLButtonElement | null = null;
   const chrome = document.createElement('div'); chrome.style.cssText = 'position:fixed;inset:0;z-index:50;pointer-events:none;overflow:hidden;font-family:"Inter","Segoe UI",system-ui,sans-serif';
   const barTop = document.createElement('div'), barBot = document.createElement('div'), barCSS = 'position:absolute;left:0;right:0;height:11vh;background:#0b0c10;transition:transform .8s cubic-bezier(.7,0,.2,1)'; barTop.style.cssText = barCSS + ';top:0;transform:translateY(-100%)'; barBot.style.cssText = barCSS + ';bottom:0;transform:translateY(100%)';
   const cap = document.createElement('div'); cap.style.cssText = 'display:none;position:absolute;left:7%;bottom:13.4vh;max-width:min(980px,84vw);opacity:0;will-change:opacity,transform;transition:opacity .35s ease,transform .35s ease;transform:translateY(8px)';
@@ -211,8 +210,8 @@ export function bootExplainer(engine: Engine, onBack: () => void): () => void {
   const addCancel = () => { addEventListener('pointerdown', cancelTour, true); addEventListener('wheel', cancelTour, { capture: true, passive: true }); addEventListener('keydown', cancelTour, true); };
   const removeCancel = () => { removeEventListener('pointerdown', cancelTour, true); removeEventListener('wheel', cancelTour, true); removeEventListener('keydown', cancelTour, true); };
   addCancel();
-  s.demo = { running: true, toggle() { this.running ? this.stop() : this.start(); }, start() { this.running = true; board.resume(s); updateCaption(); updateTimeline(); setChrome(true); clearTimeout(splashTimer); splash.style.opacity = '0'; addCancel(); if (playBtn) playBtn.textContent = '⏸'; }, stop() { this.running = false; board.stopTour(s); setChrome(false); removeCancel(); if (playBtn) playBtn.textContent = '▶'; }, update(now: number) { if (!this.running) return; board.update(now, s); updateCaption(); updateTimeline(); if (!board.playing) this.stop(); } };
-  const dispose = finishApp(s, onBack, [ { icon: '⏸', title: 'Pause / resume', onClick: () => s.demo?.toggle(), ref: (el) => { playBtn = el; } }, { icon: '↺', title: 'Replay from the start', onClick: () => { clearTimeout(splashTimer); splash.style.opacity = '1'; splashTimer = window.setTimeout(() => { splash.style.opacity = '0'; }, 4200); board.replay(s); s.demo?.start(); } } ]);
+  s.demo = { running: true, toggle() { this.running ? this.stop() : this.start(); }, start() { this.running = true; board.resume(s); updateCaption(); updateTimeline(); setChrome(true); clearTimeout(splashTimer); splash.style.opacity = '0'; addCancel(); }, stop() { this.running = false; board.stopTour(s); setChrome(false); removeCancel(); }, update(now: number) { if (!this.running) return; board.update(now, s); updateCaption(); updateTimeline(); if (!board.playing) this.stop(); } };
+  const dispose = finishApp(s, onBack, [ { id: 'play', icon: 'play', altIcon: 'pause', title: 'Pause / resume', active: () => !!s.demo?.running, onClick: () => s.demo?.toggle() }, { id: 'replay', icon: 'replay', title: 'Replay from the start', onClick: () => { clearTimeout(splashTimer); splash.style.opacity = '1'; splashTimer = window.setTimeout(() => { splash.style.opacity = '0'; }, 4200); board.replay(s); s.demo?.start(); } } ]);
   return () => { removeCancel(); clearTimeout(splashTimer); s.demo?.stop(); disableOrbit(); s.cam3d.active = false; s.cam3d.exiting = false; chrome.remove(); dispose(); };
 }
 

@@ -41,15 +41,18 @@ export interface AnalyticMenuTheme {
   disabled: number[];
 }
 
+// yasmineOS reference palette (src/css/theme.ts `dark`): surfaces #252526/#2d2d30,
+// border #333333, text #cccccc, dim #888888, accent #007acc. Shared by the IDE and
+// the playground so every analytic menu reads as the same design system.
 export const ANALYTIC_MENU_THEME: AnalyticMenuTheme = {
-  bg: [0.12, 0.12, 0.14, 0.97],
-  border: [0.25, 0.25, 0.28, 1],
-  hover: [1, 1, 1, 0.08],
-  text: [0.88, 0.90, 0.95, 1],
-  dim: [0.55, 0.58, 0.65, 1],
-  icon: [0.56, 0.66, 1, 1],
-  sep: [0.25, 0.25, 0.28, 1],
-  disabled: [0.35, 0.35, 0.40, 1],
+  bg: [0.145, 0.145, 0.149, 0.97],
+  border: [0.20, 0.20, 0.20, 1],
+  hover: [0.0, 0.478, 0.8, 0.22],
+  text: [0.80, 0.80, 0.80, 1],
+  dim: [0.533, 0.533, 0.533, 1],
+  icon: [0.0, 0.478, 0.8, 1],
+  sep: [0.20, 0.20, 0.20, 1],
+  disabled: [0.40, 0.40, 0.40, 1],
 };
 
 const ROW_H = 28;
@@ -70,17 +73,23 @@ export class AnalyticContextMenu {
   h = 0;
   items: AnalyticMenuItem[] = [];
   hovered = -1;
+  // Render scale: 1 = CSS-px space (a world-space document), dpr = backing-store
+  // px (a screen-space overlay drawn through the HUD renderer). Every layout
+  // constant is multiplied by it so the menu is crisp at any device pixel ratio.
+  scale = 1;
   private font: FontFace | null = null;
   private tw: ((text: string, size: number) => number) | null = null;
 
-  show(wx: number, wy: number, items: AnalyticMenuItem[], vpW: number, vpH: number, textW: (text: string, size: number) => number) {
+  show(wx: number, wy: number, items: AnalyticMenuItem[], vpW: number, vpH: number, textW: (text: string, size: number) => number, scale = 1) {
     this.items = items;
     this.tw = textW;
+    this.scale = scale;
     this.open = true;
     this.hovered = -1;
     this.measure();
-    this.x = Math.max(4, Math.min(wx, vpW - this.w - 4));
-    this.y = Math.max(4, Math.min(wy, vpH - this.h - 4));
+    const m = 4 * scale;
+    this.x = Math.max(m, Math.min(wx, vpW - this.w - m));
+    this.y = Math.max(m, Math.min(wy, vpH - this.h - m));
   }
 
   hide() {
@@ -91,9 +100,10 @@ export class AnalyticContextMenu {
   hitTest(wx: number, wy: number): number {
     if (!this.open) return -1;
     if (wx < this.x || wx > this.x + this.w || wy < this.y || wy > this.y + this.h) return -1;
-    let ry = this.y + PAD;
+    const k = this.scale;
+    let ry = this.y + PAD * k;
     for (let i = 0; i < this.items.length; i++) {
-      const rh = this.items[i].separator ? SEP_H : ROW_H;
+      const rh = (this.items[i].separator ? SEP_H : ROW_H) * k;
       if (wy >= ry && wy < ry + rh) return this.items[i].separator ? -1 : i;
       ry += rh;
     }
@@ -102,68 +112,72 @@ export class AnalyticContextMenu {
 
   private measure() {
     if (!this.tw) return;
-    let maxW = MIN_W;
+    const k = this.scale;
+    let maxW = MIN_W * k;
     for (const it of this.items) {
       if (it.separator) continue;
-      let rw = PAD * 2 + ICON_SZ + ICON_GAP;
-      rw += this.tw(it.label || '', FONT_SZ);
-      if (it.shortcut) rw += SHORT_GAP + this.tw(it.shortcut, FONT_SZ - 1);
-      rw += PAD;
+      let rw = (PAD * 2 + ICON_SZ + ICON_GAP) * k;
+      rw += this.tw(it.label || '', FONT_SZ * k);
+      if (it.shortcut) rw += SHORT_GAP * k + this.tw(it.shortcut, (FONT_SZ - 1) * k);
+      rw += PAD * k;
       if (rw > maxW) maxW = rw;
     }
     this.w = maxW;
-    let hh = PAD;
-    for (const it of this.items) hh += it.separator ? SEP_H : ROW_H;
-    hh += PAD;
+    let hh = PAD * k;
+    for (const it of this.items) hh += (it.separator ? SEP_H : ROW_H) * k;
+    hh += PAD * k;
     this.h = hh;
   }
 
   render(font: FontFace, atlas: any, inst: number[], crv: number[], rws: number[], th: AnalyticMenuTheme) {
     if (!this.open) return;
     if (!this.font) this.font = font;
+    const k = this.scale;
     const x0 = this.x, y0 = this.y, x1 = this.x + this.w, y1 = this.y + this.h;
 
     // Layered soft shadow — concentric dark rects at decreasing alpha. Impossible
     // in CSS without stacking-context hacks; here it's just addRect with alpha.
     const shadow = (ox: number, oy: number, a: number) =>
-      addRect(x0 + ox, y0 + oy, x1 + ox, y1 + oy, [0, 0, 0, a], crv, rws, inst);
+      addRect(x0 + ox * k, y0 + oy * k, x1 + ox * k, y1 + oy * k, [0, 0, 0, a], crv, rws, inst);
     shadow(8, 6, 0.12);
     shadow(5, 4, 0.10);
     shadow(3, 2, 0.08);
 
+    const bd = Math.max(1, k);
     addRect(x0, y0, x1, y1, th.bg, crv, rws, inst);
-    addRect(x0, y0, x1, y0 + 1, th.border, crv, rws, inst);
-    addRect(x0, y1 - 1, x1, y1, th.border, crv, rws, inst);
-    addRect(x0, y0, x0 + 1, y1, th.border, crv, rws, inst);
-    addRect(x1 - 1, y0, x1, y1, th.border, crv, rws, inst);
+    addRect(x0, y0, x1, y0 + bd, th.border, crv, rws, inst);
+    addRect(x0, y1 - bd, x1, y1, th.border, crv, rws, inst);
+    addRect(x0, y0, x0 + bd, y1, th.border, crv, rws, inst);
+    addRect(x1 - bd, y0, x1, y1, th.border, crv, rws, inst);
 
-    let ry = y0 + PAD;
+    const rowH = ROW_H * k, sepH = SEP_H * k, iconSz = ICON_SZ * k;
+    let ry = y0 + PAD * k;
     for (let i = 0; i < this.items.length; i++) {
       const it = this.items[i];
       if (it.separator) {
-        addRect(x0 + 8, ry + 4, x1 - 8, ry + 5, th.sep, crv, rws, inst);
-        ry += SEP_H;
+        addRect(x0 + 8 * k, ry + 4 * k, x1 - 8 * k, ry + 5 * k, th.sep, crv, rws, inst);
+        ry += sepH;
         continue;
       }
       const disabled = it.enabled ? !it.enabled() : false;
       if (i === this.hovered && !disabled) {
-        addRect(x0 + 3, ry + 2, x1 - 3, ry + ROW_H - 2, th.hover, crv, rws, inst);
+        addRect(x0 + 3 * k, ry + 2 * k, x1 - 3 * k, ry + rowH - 2 * k, th.hover, crv, rws, inst);
       }
-      const iconX = x0 + PAD + 4;
-      const iconY = ry + (ROW_H - ICON_SZ) / 2;
+      const iconX = x0 + (PAD + 4) * k;
+      const iconY = ry + (rowH - iconSz) / 2;
       if (it.icon) {
         const gl = atlas.table[it.icon];
-        if (gl) layoutIcon(inst, gl, { x: iconX, y: iconY, w: ICON_SZ, h: ICON_SZ }, disabled ? th.disabled : th.icon);
+        if (gl) layoutIcon(inst, gl, { x: iconX, y: iconY, w: iconSz, h: iconSz }, disabled ? th.disabled : th.icon);
       }
-      const labelX = iconX + ICON_SZ + ICON_GAP;
-      const labelY = ry + (ROW_H - FONT_SZ) / 2;
-      layoutStr(inst, it.label || '', disabled ? th.disabled : th.text, atlas.table, font, { x: labelX, y: labelY, size: FONT_SZ });
+      const labelX = iconX + iconSz + ICON_GAP * k;
+      const labelY = ry + (rowH - FONT_SZ * k) / 2;
+      layoutStr(inst, it.label || '', disabled ? th.disabled : th.text, atlas.table, font, { x: labelX, y: labelY, size: FONT_SZ * k });
       if (it.shortcut) {
-        const sw = this.tw ? this.tw(it.shortcut, FONT_SZ - 1) : 0;
-        const sx = x1 - PAD - sw - 4;
-        layoutStr(inst, it.shortcut, disabled ? th.disabled : th.dim, atlas.table, font, { x: sx, y: labelY + 1, size: FONT_SZ - 1 });
+        const sw = this.tw ? this.tw(it.shortcut, (FONT_SZ - 1) * k) : 0;
+        const sx = x1 - PAD * k - sw - 4 * k;
+        layoutStr(inst, it.shortcut, disabled ? th.disabled : th.dim, atlas.table, font, { x: sx, y: labelY + 1 * k, size: (FONT_SZ - 1) * k });
       }
-      ry += ROW_H;
+      ry += rowH;
     }
   }
 }

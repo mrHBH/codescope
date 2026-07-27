@@ -56,6 +56,17 @@ export interface AppState {
   // cinematic sets it; see frame.ts). Owns separate storage buffers so its draw
   // never aliases the scene draw in the same command buffer.
   hudRenderer: GlyphRenderer | null;
+  // Reusable screen-space HUD overlay (toolbar + menus + panels + readouts), drawn
+  // through its own renderer with a screen-ortho matrix so chrome stays fixed to
+  // the screen. The playground sets it and registers ScreenHud.onBuild; frame.ts
+  // calls frame() once per pass after the world draw (see ui/screenHud.ts).
+  screenHud: import('./ui/screenHud').ScreenHud | null;
+  // Analytic toolbar (screen-space button bar) rendered through screenHud. frame.ts
+  // lays it out + hover-tests it; input.ts routes clicks (see ui/analyticToolbar.ts).
+  toolbar: import('./ui/analyticToolbar').AnalyticToolbar | null;
+  // Analytic settings panel (screen-space sliders/toggles) rendered through
+  // screenHud; input.ts routes its clicks + slider drags (see ui/analyticPanel.ts).
+  panel: import('./ui/analyticPanel').AnalyticPanel | null;
   // Per-frame debug readout (fps · zoom · js · worst · ev) written by the frame
   // loop; the cinematic HUD draws it analytically (the DOM #fps is hidden there).
   hudDebugText: string;
@@ -150,8 +161,12 @@ export interface AppState {
   fileTree: FileTree | null;
   fileTreeMode: boolean;
 
-  // cinematic demo flight (optional controller; see ui/demo.ts)
-  demo: { running: boolean; toggle(): void; start(): void; stop(): void; update(now: number): void } | null;
+  // cinematic demo flight (optional controller; see playground/cinematic.ts)
+  demo: {
+    running: boolean; playing?: boolean;
+    toggle(): void; start(): void; stop(): void; update(now: number): void;
+    renderHud?(out: { inst: number[]; crv: number[]; rws: number[] }, Cw: number, Ch: number, now: number): void;
+  } | null;
 
   // windgraph Phase-0/1/2 demo (world-space board; see windgraph/demo.ts)
   windgraph: Board | null;
@@ -190,7 +205,9 @@ export interface AppState {
   perf: {
     x0: number; y0: number; width: number; height: number;
     running: boolean; showResults: boolean; version: number;
-    toggle(): void; status(): string; update(now: number): void;
+    copyVisible: boolean; copyLabel: string;
+    copyRect: { x0: number; y0: number; x1: number; y1: number } | null;
+    toggle(): void; status(): string; update(now: number): void; copy(): void;
     sample(dt: number, jsMs: number, instCount: number, seg?: Record<string, number> | null, ev?: number, evCoal?: number, evMs?: number): void;
     emit(font: FontFace, atlas: GlyphAtlas, inst: number[], crv: number[], rws: number[]): void;
   } | null;
@@ -203,7 +220,7 @@ export function createAppState(partial: Partial<AppState>): AppState {
     device: null as any, renderer: null, font: null as any, atlas: null,
     renderScale: 1,
     upscaler: null, lowResSharpen: false, integralScale: 0.6, sharpenAmount: 0.6,
-    postfx: null, hudRenderer: null, hudDebugText: '',
+    postfx: null, hudRenderer: null, screenHud: null, toolbar: null, panel: null, hudDebugText: '',
     container: null as any,
     styledEls: [], pageRoots: [], editableEls: [], dynamicEls: [], marqueeEls: [], pages: [], docH: 0, docRoot: null as any,
     cssRules: [], isDark: false, themeMode: 'light', themeCol: {

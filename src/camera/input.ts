@@ -4,7 +4,7 @@
 
 import type { AppState } from '../state';
 import type { StyledEl } from '../layout/types';
-import { bufCoords, scrToWorld, scrToDoc, goToPage, fitDocument, cameraScale } from './camera';
+import { bufCoords, scrToWorld, scrToDoc, goToPage, fitDocument, cameraScale, uiScale } from './camera';
 import { setOrbitEnabled, setOrbitPanChord, orbitTruck, orbitZoomToRect } from './orbit';
 import { hitTest, findEditableAncestor } from '../layout/walk';
 import { layoutEditable, placeCaretAtPoint, caretIndexAtPoint } from '../layout/editable';
@@ -109,9 +109,31 @@ export function attachInput(s: AppState): () => void {
   on(rCanvas, 'pointerdown', (e) => {
     if (e.button !== 0) return;
     if (menu.open) {
+      // The menu is a screen-space overlay: hit-test in backing-store px.
       const b = bufCoords(s, e.clientX, e.clientY);
-      const w = s.cam3d.active ? scrToDoc(s, b.x, b.y) : scrToWorld(s, b.x, b.y);
-      if (gate.consumeClick(w.x, w.y)) return;
+      if (gate.consumeClick(b.x, b.y)) return;
+    }
+    // Analytic toolbar is screen-space chrome: hit-test in backing-store px and
+    // fire the button regardless of the pointer/camera input kill-switches.
+    if (s.toolbar) {
+      const b = bufCoords(s, e.clientX, e.clientY);
+      const tb = s.toolbar.hitTest(b.x, b.y);
+      if (tb) { tb.onClick(); return; }
+    }
+    // Analytic settings panel (screen-space): consume clicks on it (toggles +
+    // slider drags), and dismiss on a click outside — standard popup behaviour.
+    if (s.panel?.open) {
+      const b = bufCoords(s, e.clientX, e.clientY);
+      rCanvas.setPointerCapture(e.pointerId);
+      if (s.panel.pointerDown(b.x, b.y)) return;
+      s.panel.hide();
+      return;
+    }
+    // Analytic benchmark "copy results" button (screen-space, top-center).
+    if (s.perf?.copyVisible && s.perf.copyRect) {
+      const r = s.perf.copyRect;
+      const b = bufCoords(s, e.clientX, e.clientY);
+      if (b.x >= r.x0 && b.x <= r.x1 && b.y >= r.y0 && b.y <= r.y1) { s.perf.copy(); return; }
     }
     // 3D free camera: the camera-controls library owns pointer input on the
     // canvas, except draggable world-space board handles, which are ray-cast to
@@ -236,8 +258,14 @@ export function attachInput(s: AppState): () => void {
     rg.move(e.clientX, e.clientY);
     if (menu.open) {
       const b = bufCoords(s, e.clientX, e.clientY);
-      const w = s.cam3d.active ? scrToDoc(s, b.x, b.y) : scrToWorld(s, b.x, b.y);
-      gate.updateHover(w.x, w.y);
+      gate.updateHover(b.x, b.y);
+    }
+    // Analytic settings panel: drive an active slider drag (screen-space), else
+    // update hover so rows highlight. A drag returns early so the camera doesn't pan.
+    if (s.panel?.open) {
+      const b = bufCoords(s, e.clientX, e.clientY);
+      if (s.panel.isDragging) { s.panel.drag(b.x, b.y); return; }
+      s.panel.updateHover(b.x, b.y);
     }
     // 3D left-click-vs-truck gesture tracking (folded in from the old 3D-pick
     // move listener). Cheap guard; does nothing unless a 3D press is active.
@@ -351,6 +379,7 @@ export function attachInput(s: AppState): () => void {
     s.editorSelecting = false;
     if (s.interactive && !(s.interactive as any).guiMode) s.interactive.endDrag();
     if (s.cam3d.active) setOrbitEnabled(true);
+    s.panel?.endDrag();
     sliding = null; slidingPct = -1;
     midDown = false;
     s.pointers.clear(); s.dragging = false; s.pressed = null; if (performance.now() - s.lastMoveT > 80) s.velX = s.velY = 0;
@@ -373,10 +402,12 @@ export function attachInput(s: AppState): () => void {
     const wasShort = rg.release();
     s.rightDown = rg.down;
     if (wasShort && s.pointerInput) {
+      // Screen-space overlay: anchor at the cursor in backing-store px, scaled by
+      // uiScale (backing px per CSS px) so the menu's px constants land at true
+      // CSS size on the overlay regardless of the render-resolution dial.
       const b = bufCoords(s, e.clientX, e.clientY);
-      const w = s.cam3d.active ? scrToDoc(s, b.x, b.y) : scrToWorld(s, b.x, b.y);
-      gate.setViewport(s.tCanvas.width / s.dpr, s.tCanvas.height / s.dpr);
-      gate.show(w.x, w.y, buildMenuItems());
+      gate.setViewport(s.tCanvas.width, s.tCanvas.height);
+      gate.show(b.x, b.y, buildMenuItems(), uiScale(s));
     }
   });
   on(rCanvas, 'pointercancel', (e) => { if (e.button === 2) { rg.release(); s.rightDown = rg.down; setOrbitPanChord(false); } });

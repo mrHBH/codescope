@@ -10,13 +10,12 @@ import { layoutFlow } from './layout/flow';
 import { layoutEditable } from './layout/editable';
 import { hitTest } from './layout/walk';
 import { stepCamera } from './camera/camera';
-import { cameraViewProj, cameraScale, scrToDoc } from './camera/camera';
+import { cameraViewProj, cameraScale, scrToDoc, uiScale } from './camera/camera';
 import type { EditorTheme } from './editor/editor';
 import type { TerminalTheme } from './editor/terminal';
 import type { FileTreeTheme } from './editor/fileTree';
 import { DEPTH_FORMAT } from './windfoil/mesh3d';
 import { EmitCache } from './windfoil/emitCache';
-import { ANALYTIC_MENU_THEME } from './ui/analyticMenu';
 
 const _hoveredSet = new Set<StyledEl>();
 const _tmpColor: number[] = [0, 0, 0, 0];
@@ -244,6 +243,17 @@ export function runFrame(s: AppState): () => void {
     mark('staticCopy');
 
     const k = 1 - Math.pow(0.0015, dt / 1000);
+    // Analytic toolbar (screen-space chrome): lay it out at the top-right and
+    // hover-test it in backing-store px so buttons highlight + the cursor resolves
+    // regardless of the world camera or the pointer-input kill-switch. Sizes track
+    // uiScale (backing px per CSS px) so the buttons keep their apparent size when
+    // the render-resolution dial resizes the swapchain.
+    if (s.toolbar) {
+      const ui = uiScale(s);
+      s.toolbar.setScreen(Cw, Ch, 8 * ui, 5 * ui, 26 * ui);
+      s.toolbar.updateHover(s.mx, s.my);
+    }
+    if (s.panel?.open && !s.panel.isDragging) s.panel.updateHover(s.mx, s.my);
     let cursor = 'default';
     // Layer 2: dynamic backgrounds (hover, bounce, heartbeat, progress, pulse) — BEFORE text.
     // Only elements flagged `dynamic` in walkDOM reach this loop; static text/boxes
@@ -477,11 +487,15 @@ export function runFrame(s: AppState): () => void {
     }
     mark('bench');
 
-    if (s.analyticMenu?.open) s.analyticMenu.render(s.font, s.atlas, inst, crv, rws, ANALYTIC_MENU_THEME);
+    // The analytic context menu now renders as a screen-space overlay through
+    // s.screenHud (below), not into the world instance buffer — so it stays fixed
+    // to the screen instead of panning/zooming with the document.
 
     // Deferred cursor write: mutating style.cursor every frame dirties style and
     // makes each incoming pointer event pay a synchronous style-recalc — a classic
     // mouse-move FPS killer. Only touch the DOM when the cursor actually changes.
+    if (s.toolbar?.cursor) cursor = s.toolbar.cursor;
+    if (s.panel?.cursor) cursor = s.panel.cursor;
     if (s.analyticMenu?.open) {
       cursor = s.analyticMenu.hovered >= 0 ? 'pointer' : 'default';
     }
@@ -567,19 +581,28 @@ export function runFrame(s: AppState): () => void {
     s.renderer.setUniforms({ width: renderW, height: renderH, camScale: [camScale, camScale], camCenter: [0, 0], viewProj });
     s.renderer.draw(pass, s.crvFA.subarray(0, crv.length), s.rwsUA.subarray(0, rws.length), s.instFA.subarray(0, inst.length), inst.length / 16);
     // Screen-space cinematic HUD overlay (letterbox + sleek timeline + controls +
-    // caption), drawn through a dedicated renderer with a screen-ortho matrix so
-    // its backing-store-px geometry lands 1:1 on screen, on top of the 3D scene.
-    // This composites correctly in the same pass because the cinematic has no
-    // depth-writing mesh (depth stays cleared to 1 → the overlay's less-equal test
-    // passes), and the dedicated renderer owns separate storage buffers (no hazard
-    // with the scene draw that already referenced its own buffers). renderW/H equal
-    // the canvas backing store here (postfx target is full-res; sharpen is off).
+    // caption), drawn through a dedicated renderer with a screen-ortho matrix, on
+    // top of the 3D scene. This composites correctly in the same pass because the
+    // cinematic has no depth-writing mesh (depth stays cleared to 1 → the overlay's
+    // less-equal test passes), and the dedicated renderer owns separate storage
+    // buffers (no hazard with the scene draw that already referenced its own
+    // buffers). The geometry is emitted in FULL backing-store px (Cw/Ch), so the
+    // ortho must span Cw/Ch even when the pass targets the low-res sharpen texture
+    // (renderW/H): the HUD then scales down into the target and the CAS upscale
+    // restores it — apparent size invariant, only quality moves.
     const inter = s.interactive as any;
     if (s.hudRenderer && inter && inter.hudCount) {
-      const so = [2 / renderW, 0, 0, 0, 0, -2 / renderH, 0, 0, 0, 0, 0, 0, -1, 1, 0, 1];
-      s.hudRenderer.setUniforms({ width: renderW, height: renderH, camScale: [1, 1], camCenter: [0, 0], viewProj: so });
+      const so = [2 / Cw, 0, 0, 0, 0, -2 / Ch, 0, 0, 0, 0, 0, 0, -1, 1, 0, 1];
+      s.hudRenderer.setUniforms({ width: Cw, height: Ch, camScale: [1, 1], camCenter: [0, 0], viewProj: so });
       s.hudRenderer.draw(pass, inter.hudCrvFA.subarray(0, inter.hudCrvLen), inter.hudRwsUA.subarray(0, inter.hudRwsLen), inter.hudInstFA.subarray(0, inter.hudInstLen), inter.hudCount);
     }
+    // Screen-space HUD overlay (toolbar + analytic menus + panels + readouts):
+    // emitted in backing-store px and drawn through its own renderer with a
+    // screen-ortho matrix, so chrome never moves with the world camera. Uses the
+    // FULL backing size (Cw/Ch, not the low-res renderW/H) so chrome stays correctly
+    // positioned even when low-res render + sharpen upscales the scene target.
+    // Seeded with the atlas base band tables so menu/toolbar glyphs resolve.
+    s.screenHud?.frame(pass, Cw, Ch, now, s.baseCrv, s.baseRws);
     pass.end();
     // Resolve the offscreen render to the full-res swapchain: cinematic grade
     // (postfx) or contrast-adaptive sharpen (upscale), else already on swapchain.

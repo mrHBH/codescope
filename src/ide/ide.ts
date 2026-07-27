@@ -5,8 +5,9 @@ import { CodeEditor, type EditorTheme } from '../editor/editor';
 import { Terminal, type TerminalTheme } from '../editor/terminal';
 import { FileTree, type FileTreeTheme, type TreeNode } from '../editor/fileTree';
 import { DEPTH_FORMAT } from '../windfoil/mesh3d';
-import { createGlyphRenderer } from '../windfoil/gpu';
+import { ScreenHud } from '../ui/screenHud';
 import { AnalyticToolbar, type ToolbarButton } from '../ui/analyticToolbar';
+import { AnalyticPanel, ANALYTIC_PANEL_THEME } from '../ui/analyticPanel';
 import { enterOrbit, orbitViewProj, orbitScale, setOrbitEnabled, updateOrbit, screenToDocLocal, setOrbitNear, setOrbitPanChord, orbitTruck, orbitZoomToRect, orbitPolar, orbitAzimuth, orbitSetAngles } from '../camera/orbit';
 import { ANALYTIC_MENU_THEME } from '../ui/analyticMenu';
 import { MenuGate, MultiClickTracker, RightGesture, routeScroll, resolveCursor } from '../ui/inputRouter';
@@ -352,9 +353,22 @@ const terminalTh: TerminalTheme = {
 };
 
 export function bootIDE(engine: Engine, onBack: () => void): () => void {
-  const { device, font, atlas, renderer, tCanvas, gpuCtx, dpr, rCanvas, shaderCode } = engine;
-  // Separate HUD renderer — same pattern as explainer v2's CinematicHud
-  const hudRenderer = createGlyphRenderer(device, { code: shaderCode, format: 'rgba8unorm' });
+  const { device, font, atlas, renderer, tCanvas, gpuCtx, dpr: dpr0, rCanvas, shaderCode, upscaler } = engine;
+  // Effective backing px per CSS px (dpr0 × renderScale). Every CSS↔backing
+  // conversion and every chrome size in this file runs through it, so the quality
+  // panel's display-resolution dial resizes the swapchain without moving the UI:
+  // the 2D ortho (dpr/Cw) and the 3D on-axis orbit scale (∝ Ch) both divide it
+  // back out — only sharpness changes, never apparent size.
+  let dpr = dpr0;
+  let renderScale = 1;
+  let lowResSharpen = false;
+  let integralScale = 0.6;
+  let sharpenAmount = 0.6;
+  // Reusable screen-space HUD overlay (toolbar + menus) — same ScreenHud the
+  // playground uses. Seeded each frame with the atlas base band tables so menu
+  // glyphs resolve, and drawn with a screen-ortho matrix so chrome stays fixed to
+  // the screen (this is what makes the FX menu a true overlay, not world-space).
+  const screenHud = new ScreenHud(device, shaderCode);
   const fpsEl = engine.fpsEl;
   const prevFpsDisplay = fpsEl.style.display;
   fpsEl.style.display = 'none';
@@ -577,18 +591,9 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
   const crv: number[] = [];
   const rws: number[] = [];
   let instFA = new Float32Array(65536);
-  // Separate screen-space buffers for the toolbar overlay (CinematicHud pattern)
-  const toolInst: number[] = [];
-  const toolCrv: number[] = [];
-  const toolRws: number[] = [];
-  let toolFA = new Float32Array(4096);
-  let toolCrvFA = new Float32Array(4096);
-  let toolRwsUA = new Uint32Array(1024);
-  const toolVP = new Float32Array(16);
   const vp2d = new Float32Array(16);
   const uCamScale: number[] = [1, 1];
   const uCamCenter: number[] = [0, 0];
-  const uHudScale: number[] = [1, 1];
   let crvFA = new Float32Array(65536);
   let rwsUA = new Uint32Array(16384);
 
@@ -604,6 +609,20 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
 
   function cssW() { return tCanvas.width / dpr; }
   function cssH() { return tCanvas.height / dpr; }
+
+  // Backing store = CSS size × dpr (effective). Called on window resize and by the
+  // quality panel's display-resolution dial, which moves dpr itself (renderScale)
+  // so the swapchain resizes while every CSS-px conversion stays consistent.
+  function setSize() {
+    const w = innerWidth, h = innerHeight;
+    for (const c of [rCanvas, tCanvas]) { c.width = Math.round(w * dpr); c.height = Math.round(h * dpr); c.style.width = w + 'px'; c.style.height = h + 'px'; }
+  }
+  const applyRenderScale = (v: number) => {
+    if (v === renderScale) return;
+    renderScale = v;
+    dpr = dpr0 * renderScale;
+    setSize();
+  };
 
   function stepAnim(t: number, dir: number, dt: number): [number, number] {
     if (dir === 0) return [t, 0];
@@ -947,17 +966,11 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
     addRect(0, 1, 1, h - 1, T.separator, crv, rws, inst);
     addRect(w - 1, 1, w, h - 1, T.separator, crv, rws, inst);
 
-    // Toolbar overlay — backing-store coords + separate HUD renderer,
-    // identical to how CinematicHud works in the explainer v2.
-    toolInst.length = 0; toolCrv.length = 0; toolRws.length = 0;
+    // The toolbar + analytic menus render as a screen-space overlay through
+    // screenHud (built + drawn in the pass below). The menu viewport is backing-
+    // store px so gate.show() — called from event handlers — clamps correctly.
     const Cw = tCanvas.width, Ch = tCanvas.height;
-    toolbar.setScreen(Cw, Ch, 8 * dpr, 5 * dpr, 26 * dpr);
-    toolbar.render(toolInst, toolCrv, toolRws, now);
-
-    gate.setViewport(w, h);
-
-    gate.setViewport(w, h);
-    gate.menu.render(font, atlas, inst, crv, rws, ANALYTIC_MENU_THEME);
+    gate.setViewport(Cw, Ch);
 
     // ── Draw
     if (inst.length > instFA.length) instFA = new Float32Array(inst.length * 2);
@@ -1048,10 +1061,20 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
       fx3dActive = true;
     }
 
-    const dv = ensureDepth(Cw, Ch);
+    // Low-res render + sharpen (quality panel): the coverage integral runs into an
+    // offscreen target at integralScale × the swapchain and a CAS upscale resolves
+    // it onto the display (same path as frame.ts). The screen HUD below keeps its
+    // full Cw/Ch ortho, so chrome scales down into the target and the upscale
+    // restores it — apparent size invariant, only quality moves.
+    const iScale = lowResSharpen ? Math.min(Math.max(integralScale, 0.25), 1) : 1;
+    const renderW = lowResSharpen ? Math.max(1, Math.round(Cw * iScale)) : Cw;
+    const renderH = lowResSharpen ? Math.max(1, Math.round(Ch * iScale)) : Ch;
+    const dv = ensureDepth(renderW, renderH);
     const enc = device.createCommandEncoder();
+    const swapView = gpuCtx.getCurrentTexture().createView();
+    const colorView = lowResSharpen ? upscaler.target(renderW, renderH) : swapView;
     const pass = enc.beginRenderPass({
-      colorAttachments: [{ view: gpuCtx.getCurrentTexture().createView(), clearValue: { r: T.editorBg[0], g: T.editorBg[1], b: T.editorBg[2], a: 1 }, loadOp: 'clear', storeOp: 'store' }],
+      colorAttachments: [{ view: colorView, clearValue: { r: T.editorBg[0], g: T.editorBg[1], b: T.editorBg[2], a: 1 }, loadOp: 'clear', storeOp: 'store' }],
       depthStencilAttachment: { view: dv, depthClearValue: 1, depthLoadOp: 'clear', depthStoreOp: 'store' },
     });
     uCamScale[0] = cs; uCamScale[1] = cs;
@@ -1066,23 +1089,15 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
       }
       clipArg = clipFA.subarray(0, cNeed);
     }
-    renderer.setUniforms({ width: Cw, height: Ch, camScale: uCamScale, camCenter: uCamCenter, viewProj: vp, fxActive: fx3dActive ? 1 : 0 });
+    renderer.setUniforms({ width: renderW, height: renderH, camScale: uCamScale, camCenter: uCamCenter, viewProj: vp, fxActive: fx3dActive ? 1 : 0 });
     renderer.draw(pass, crvFA.subarray(0, crv.length), rwsUA.subarray(0, rws.length), instFA.subarray(0, totalInst), instCount, fx3dActive ? fxXforms.subarray(0, instCount * 8) : undefined, clipArg);
 
-    // Toolbar overlay — EXACT CinematicHud pattern (backing-store px + screen-ortho matrix)
-    if (toolInst.length > 0) {
-      if (toolInst.length > toolFA.length) toolFA = new Float32Array(toolInst.length * 2);
-      toolFA.set(toolInst);
-      if (toolCrv.length > toolCrvFA.length) toolCrvFA = new Float32Array(toolCrv.length * 2);
-      toolCrvFA.set(toolCrv);
-      if (toolRws.length > toolRwsUA.length) toolRwsUA = new Uint32Array(toolRws.length * 2);
-      toolRwsUA.set(toolRws);
-      toolVP[0] = 2 / Cw; toolVP[5] = -2 / Ch; toolVP[10] = 0; toolVP[12] = -1; toolVP[13] = 1; toolVP[15] = 1;
-      hudRenderer.setUniforms({ width: Cw, height: Ch, camScale: uHudScale, camCenter: uCamCenter, viewProj: toolVP });
-      hudRenderer.draw(pass, toolCrvFA.subarray(0, toolCrv.length), toolRwsUA.subarray(0, toolRws.length), toolFA.subarray(0, toolInst.length), toolInst.length / 16);
-    }
+    // Toolbar + analytic menus — screen-space overlay (backing-store px + screen-
+    // ortho matrix), seeded with the atlas base so menu glyphs resolve.
+    screenHud.frame(pass, Cw, Ch, now, atlas.curves, atlas.rows);
 
     pass.end();
+    if (lowResSharpen) upscaler.resolve(enc, swapView, renderW, renderH, Cw, Ch, sharpenAmount);
     device.queue.submit([enc.finish()]);
 
     jsMs = performance.now() - t0;
@@ -1180,11 +1195,14 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
 
     mx = rawMx; my = rawMy;
     toolbar.updateHover(scrMx * dpr, scrMy * dpr);
-    gate.updateHover(mx, my);
+    gate.updateHover(scrMx * dpr, scrMy * dpr);   // menu is a screen overlay: backing-store px
+    // Quality panel: a grabbed slider tracks the pointer; otherwise hover-test.
+    if (qualityPanel.isDragging) qualityPanel.drag(scrMx * dpr, scrMy * dpr);
+    else if (qualityPanel.open) qualityPanel.updateHover(scrMx * dpr, scrMy * dpr);
     const overChrome = hoverExplorer || hoverTerminal || hoverSearch || hoverSource >= 0 || hoverAction >= 0 || hoverTab >= 0;
     const overEditorBody = mx >= editorX && my >= TAB_BAR_H && my < TAB_BAR_H + editorH;
     rCanvas.style.cursor = resolveCursor({
-      menuCursor: gate.resolveCursor() ?? toolbar.cursor,
+      menuCursor: gate.resolveCursor() ?? qualityPanel.cursor ?? toolbar.cursor,
       overText: hoverSearch || overEditorBody,
       overChrome,
     });
@@ -1197,12 +1215,23 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
     if (e.button === 1) { fitted = false; return; }
     if (e.button !== 0) return;
 
-    // Toolbar uses backing-store coords (CinematicHud pattern).
-    // Use raw screen CSS px from this event, not potentially-transformed mx/my.
+    // Toolbar + analytic menu are screen-space overlays: hit-test in backing-store
+    // px (raw screen CSS px × dpr), before any world-space picking — so a click on
+    // an open menu never falls through to the scene behind it.
     {
       const [sx, sy] = toWorld(e);
-      const tbHit = toolbar.hitTest(sx * dpr, sy * dpr);
+      const sbx = sx * dpr, sby = sy * dpr;
+      const tbHit = toolbar.hitTest(sbx, sby);
       if (tbHit) { tbHit.onClick(); return; }
+      if (gate.consumeClick(sbx, sby)) return;
+      // Quality panel (screen-space): consume clicks on it (toggles + slider
+      // drags), dismiss on a click outside — standard popup behaviour.
+      if (qualityPanel.open) {
+        rCanvas.setPointerCapture(e.pointerId);
+        if (qualityPanel.pointerDown(sbx, sby)) return;
+        qualityPanel.hide();
+        return;
+      }
     }
 
     let [wx, wy] = toWorld(e);
@@ -1215,7 +1244,6 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
       const ph = physPick(wx, wy);
       if (ph) { wx = ph.x; wy = ph.y; viaShard = true; }
     }
-    if (gate.consumeClick(wx, wy)) return;
     const fxFn = REG[fxMode];
     if (fxFn?.onClick && !viaShard) {
       const clickNow = performance.now();
@@ -1382,6 +1410,7 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
     if (e.button === 2) { rg.release(); setOrbitPanChord(false); return; }
     if (e.button !== 0) return;
     dragSel = false;
+    qualityPanel.endDrag();
     if (cam3d && d3.active) {
       d3.active = false;
       if (d3.moved || performance.now() - d3.t > 400) return;
@@ -1483,8 +1512,11 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
   function onContextMenu(e: MouseEvent) {
     e.preventDefault();
     if (rg.suppressMenu) return;
-    gate.setViewport(cssW(), cssH());
-    let [wx, wy] = toWorld(e);
+    // Menus are screen overlays: anchor at the click in backing-store px (scale dpr).
+    // World coords (wx/wy) still decide WHICH menu opens; scx/scy decide WHERE.
+    gate.setViewport(tCanvas.width, tCanvas.height);
+    const [scx, scy] = toWorld(e);
+    let [wx, wy] = [scx, scy];
     if (cam3d) {
       const p = screenToDocLocal(wx * dpr, wy * dpr, tCanvas.width, tCanvas.height);
       wx = p.x; wy = p.y;
@@ -1507,7 +1539,7 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
       if (idx >= 0) {
         switchToTab(idx);
         focus = 'editor';
-        gate.show(wx, wy, tabMenu(actions, idx, tabs.length));
+        gate.show(scx * dpr, scy * dpr, tabMenu(actions, idx, tabs.length), dpr);
       }
       return;
     }
@@ -1519,7 +1551,7 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
         searchFocused = true;
         tabs[activeTab].editor.focused = false;
         searchCaretPhase = 0;
-        gate.show(wx, wy, searchMenu(actions));
+        gate.show(scx * dpr, scy * dpr, searchMenu(actions), dpr);
         return;
       }
     }
@@ -1529,9 +1561,9 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
       const row = fileTree.rowAtY(wy);
       if (row) {
         fileTree.select(row.node.path);
-        gate.show(wx, wy, row.node.type === 'folder'
+        gate.show(scx * dpr, scy * dpr, row.node.type === 'folder'
           ? folderMenu(actions, row.node, fileTree.isExpanded(row.node.path))
-          : fileMenu(actions, row.node));
+          : fileMenu(actions, row.node), dpr);
       }
       return;
     }
@@ -1543,7 +1575,7 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
         focus = 'terminal';
         terminal.focused = true;
         tabs[activeTab].editor.focused = false;
-        gate.show(wx, wy, terminalMenu(actions));
+        gate.show(scx * dpr, scy * dpr, terminalMenu(actions), dpr);
         return;
       }
     }
@@ -1552,7 +1584,7 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
     if (wx >= editorX && wy >= TAB_BAR_H && wy < h - STATUS_H) {
       focus = 'editor';
       tabs[activeTab].editor.focused = true;
-      gate.show(wx, wy, editorMenu(actions));
+      gate.show(scx * dpr, scy * dpr, editorMenu(actions), dpr);
     }
   }
 
@@ -1564,12 +1596,35 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
   }
   requestAnimationFrame(frame);
 
+  // Own the backing-store size from here on (the launcher sized it before us):
+  // window resizes and the quality panel's display-resolution dial both go through
+  // setSize(). While fitted, the per-frame re-fit in render() keeps the framing.
+  setSize();
+  const onResize = () => setSize();
+  addEventListener('resize', onResize);
+
   rCanvas.addEventListener('pointermove', onPointerMove);
   rCanvas.addEventListener('pointerdown', onPointerDown);
   rCanvas.addEventListener('pointerup', onPointerUp);
   rCanvas.addEventListener('wheel', onWheel, { passive: false, capture: true });
   rCanvas.addEventListener('contextmenu', onContextMenu);
   addEventListener('keydown', onKeyDown);
+
+  // ── Quality panel (analytic, yasmineOS) — bundled behind the 🎛️ button ─────
+  // The same reusable AnalyticPanel + sliders the playground uses. Display
+  // resolution drives applyRenderScale (swapchain resize via the effective dpr);
+  // the integral + sharpen rows drive the low-res render + CAS-upscale path above.
+  const qualityPanel = new AnalyticPanel([
+    { kind: 'header', id: 'q', label: 'Quality' },
+    { kind: 'slider', id: 'res', label: 'Display resolution', min: 0.25, max: 2, step: 0.05,
+      get: () => renderScale, set: applyRenderScale, fmt: (v) => v.toFixed(2) + '×' },
+    { kind: 'toggle', id: 'sharpenOn', label: 'Low-res render + sharpen',
+      get: () => lowResSharpen, set: (v) => { lowResSharpen = v; } },
+    { kind: 'slider', id: 'integral', label: 'Integral resolution', min: 0.25, max: 1, step: 0.05,
+      get: () => integralScale, set: (v) => { integralScale = v; }, fmt: (v) => v.toFixed(2) + '×', enabled: () => lowResSharpen },
+    { kind: 'slider', id: 'sharpen', label: 'Sharpen', min: 0, max: 1, step: 0.05,
+      get: () => sharpenAmount, set: (v) => { sharpenAmount = v; }, fmt: (v) => v.toFixed(2), enabled: () => lowResSharpen },
+  ]);
 
   const toolbar = new AnalyticToolbar([
     { id: 'back', icon: 'home', title: 'Back to launcher', onClick: onBack },
@@ -1586,10 +1641,32 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
           icon: name === fxMode ? 'icon:check' : undefined,
           action: () => { fxMode = name; },
         }));
-        gate.show(mx, my, items);
+        // Screen overlay anchored just below the FX button (backing-store px).
+        const fb = toolbar.buttons.find((b) => b.btn.id === 'fx');
+        gate.setViewport(tCanvas.width, tCanvas.height);
+        gate.show(fb ? fb.x : mx * dpr, fb ? fb.y + fb.s + 4 * dpr : my * dpr, items, dpr);
       }},
+    { id: 'quality', icon: 'sliders', title: 'Quality settings: display resolution, low-res render + sharpen upscale', onClick: () => {
+      const qb = toolbar.buttons.find((b) => b.btn.id === 'quality');
+      qualityPanel.toggle(qb ? qb.x : tCanvas.width - 260 * dpr, qb ? qb.y + qb.s + 4 * dpr : 60 * dpr, tCanvas.width, tCanvas.height, dpr);
+    }},
   ]);
-  toolbar.setScreen(cssW(), cssH(), 8, 5, 26);
+
+  // Build the screen-space overlay each frame: toolbar buttons first, then the
+  // open analytic menu on top. Both emit into the ScreenHud's buffers (seeded with
+  // the atlas base in frame()) and draw through one screen-ortho pass. The open
+  // quality panel re-anchors to its button each frame so it tracks live while its
+  // own resolution slider resizes the backing store (size stays apparent-fixed).
+  screenHud.onBuild = (hud, Cw, Ch, now) => {
+    toolbar.setScreen(Cw, Ch, 8 * dpr, 5 * dpr, 26 * dpr);
+    if (qualityPanel.open) {
+      const qb = toolbar.buttons.find((b) => b.btn.id === 'quality');
+      if (qb) qualityPanel.reposition(qb.x, qb.y + qb.s + 4 * dpr, Cw, Ch, dpr);
+    }
+    toolbar.render(hud.inst, hud.crv, hud.rws, now);
+    qualityPanel.render(font, atlas, hud.inst, hud.crv, hud.rws, ANALYTIC_PANEL_THEME);
+    if (gate.open) gate.menu.render(font, atlas, hud.inst, hud.crv, hud.rws, ANALYTIC_MENU_THEME);
+  };
 
   return () => {
     alive = false;
@@ -1601,6 +1678,7 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
     rCanvas.removeEventListener('wheel', onWheel, { capture: true });
     rCanvas.removeEventListener('contextmenu', onContextMenu);
     removeEventListener('keydown', onKeyDown);
+    removeEventListener('resize', onResize);
     fpsEl.style.display = prevFpsDisplay;
     depthTex?.destroy();
   };

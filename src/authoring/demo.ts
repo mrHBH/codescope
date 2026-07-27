@@ -150,8 +150,6 @@ function bootCinematic(s: AppState, runtime: SceneRuntime, engine: Engine, onBac
 
 // ── DOM chrome path (designer / authoring demo) ───────────────────────────────
 function bootDomChrome(s: AppState, runtime: SceneRuntime, font: FontFace, onBack: () => void): () => void {
-  let playBtn: HTMLButtonElement | null = null;
-
   const chrome = document.createElement('div');
   chrome.style.cssText = 'position:fixed;inset:0;z-index:50;pointer-events:none;overflow:hidden;font-family:"Inter","Segoe UI",system-ui,sans-serif';
 
@@ -200,9 +198,9 @@ function bootDomChrome(s: AppState, runtime: SceneRuntime, font: FontFace, onBac
   s.demo = {
     running: false,
     toggle() { this.running ? this.stop() : this.start(); },
-    start() { this.running = true; runtime.play(s, runtime.tourT); setChromeVisible(true); updateTimeline(); if (playBtn) playBtn.textContent = '⏸'; },
-    stop() { this.running = false; runtime.stopTour(s); if (playBtn) playBtn.textContent = '▶'; },
-    update(now: number) { if (!this.running) return; runtime.update(now, s); updateTimeline(); if (!runtime.playing) { this.running = false; if (playBtn) playBtn.textContent = '▶'; } },
+    start() { this.running = true; runtime.play(s, runtime.tourT); setChromeVisible(true); updateTimeline(); },
+    stop() { this.running = false; runtime.stopTour(s); },
+    update(now: number) { if (!this.running) return; runtime.update(now, s); updateTimeline(); if (!runtime.playing) this.running = false; },
   };
 
   // ── Terminal (REPL) ────────────────────────────────────────────────────
@@ -220,8 +218,8 @@ function bootDomChrome(s: AppState, runtime: SceneRuntime, font: FontFace, onBac
   terminal.setCommandHandler((raw, term) => handleSceneCommand(raw, term, runtime));
 
   const dispose = finishApp(s, onBack, [
-    { icon: '▶', title: 'Play / Pause', onClick: () => s.demo?.toggle(), ref: (el) => { playBtn = el; } },
-    { icon: '↺', title: 'Replay from start', onClick: () => { runtime.replay(s); s.demo?.start(); } },
+    { id: 'play', icon: 'play', altIcon: 'pause', title: 'Play / Pause', active: () => !!s.demo?.running, onClick: () => s.demo?.toggle() },
+    { id: 'replay', icon: 'replay', title: 'Replay from start', onClick: () => { runtime.replay(s); s.demo?.start(); } },
   ]);
   s.demo.start();
 

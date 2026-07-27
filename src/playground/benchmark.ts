@@ -257,7 +257,12 @@ export class PerfBenchmark {
   private sEvCoal: number[] = []; // native coalesced events this frame
   private sEvMs: number[] = [];   // ms in the consolidated pointermove handler
   private stats: PhaseStat[] = [];
-  private copyBtn: HTMLButtonElement;
+  // Analytic "copy bench results" button (drawn through the playground screen HUD,
+  // zero DOM). `copyRect` is laid out each frame by the HUD and read back here for
+  // hit-testing; `copyLabel` flashes confirmation after a copy.
+  copyVisible = false;
+  copyLabel = 'copy bench results';
+  copyRect: { x0: number; y0: number; x1: number; y1: number } | null = null;
   // Input kill-switch state captured at start() and restored in stop(), so the
   // isolation phases can flip pointerInput/cameraInput without leaking state.
   private savedPtr = true;
@@ -279,24 +284,20 @@ export class PerfBenchmark {
     const ch = new MessageChannel();
     ch.port1.onmessage = () => this.pump();
     this.pumpPort = ch.port2;
-    const b = document.createElement('button');
-    b.textContent = '📋 copy bench results';
-    b.style.cssText = 'position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:20;display:none;'
-      + 'padding:9px 16px;border-radius:10px;border:none;cursor:pointer;background:rgba(22,22,46,0.92);color:#fff;font:13px monospace;';
-    b.onclick = () => {
-      navigator.clipboard.writeText(this.markdown()).then(
-        () => { b.textContent = '✓ copied — paste it back'; setTimeout(() => { b.textContent = '📋 copy bench results'; }, 1500); },
-        () => { b.textContent = '✗ clipboard blocked (see console)'; console.log(this.markdown()); },
-      );
-    };
-    document.body.appendChild(b);
-    this.copyBtn = b;
   }
 
-  // Tear down: stop any run + remove the fixed DOM button (demo teardown).
+  // Copy the results markdown to the clipboard (analytic button action). Flashes
+  // the label to confirm; falls back to the console if the clipboard is blocked.
+  copy() {
+    navigator.clipboard.writeText(this.markdown()).then(
+      () => { this.copyLabel = 'copied — paste it back'; setTimeout(() => { this.copyLabel = 'copy bench results'; }, 1500); },
+      () => { this.copyLabel = 'clipboard blocked (see console)'; console.log(this.markdown()); },
+    );
+  }
+
+  // Tear down: stop any run (demo teardown).
   dispose() {
     if (this.running) this.stop(false);
-    this.copyBtn.remove();
   }
 
   toggle() {
@@ -358,7 +359,7 @@ export class PerfBenchmark {
     this.sEv.length = 0; this.sEvCoal.length = 0; this.sEvMs.length = 0;
     this.stats = [];
     this.showResults = false;
-    this.copyBtn.style.display = 'none';
+    this.copyVisible = false;
     this.running = true;
     this.startedAt = performance.now();
     this.phaseStart = performance.now();
@@ -385,7 +386,7 @@ export class PerfBenchmark {
     this.height = 210 + 620 + 110 + (this.stats.length + 1) * 48 + 200 + this.stats.length * 44 + 80;
     this.showResults = true;
     this.version++;
-    this.copyBtn.style.display = 'block';
+    this.copyVisible = true;
     this.exportResults();
     // Frame the camera onto the results board.
     snap(this.s, this.x0 + this.width / 2, this.y0 + this.height / 2, fitZoom(this.s, this.width + 200, this.height + 200));

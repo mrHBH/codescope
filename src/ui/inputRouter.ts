@@ -56,8 +56,8 @@ export class MenuGate {
 
   setViewport(w: number, h: number) { this.vpW = w; this.vpH = h; }
 
-  show(wx: number, wy: number, items: AnalyticMenuItem[]) {
-    this.menu.show(wx, wy, items, this.vpW, this.vpH, this.textW);
+  show(wx: number, wy: number, items: AnalyticMenuItem[], scale = 1) {
+    this.menu.show(wx, wy, items, this.vpW, this.vpH, this.textW, scale);
   }
 
   dismiss() { this.menu.hide(); }

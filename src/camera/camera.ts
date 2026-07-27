@@ -24,6 +24,14 @@ export function setSize(s: AppState) {
   refreshCanvasRect(s);
 }
 
+// Backing-store px per CSS px — the scale screen-space chrome must be emitted at
+// so its APPARENT size never moves when renderScale resizes the swapchain. The
+// world camera is compensated the same way (applyRenderScale scales camZ), so the
+// quality dials change sharpness only, never the size of the UI.
+export function uiScale(s: AppState): number {
+  return s.dpr * (s.renderScale || 1);
+}
+
 // Cached canvas bounding rect. getBoundingClientRect() forces a synchronous
 // layout reflow; calling it in every pointermove handler (several of them) is the
 // classic cause of mouse-move jank. The full-screen canvas only moves/resizes on

@@ -22,7 +22,9 @@ import { fillQuads, polygonQuads, type Pt } from '../windgraph/stroke/stroke';
 export type ToolbarIcon =
   | 'home' | 'stats' | 'close' | 'play' | 'pause' | 'replay'
   | 'folder' | 'code' | 'terminal' | 'cube' | 'settings' | 'moon'
-  | 'chart' | 'film';
+  | 'chart' | 'film'
+  | 'pointer' | 'compass' | 'sliders' | 'morph' | 'triangle'
+  | 'mountain' | 'ruler' | 'flask' | 'timer';
 
 export interface ToolbarButton {
   id: string;
@@ -223,6 +225,66 @@ export class AnalyticToolbar {
         bar(0.20, 0.36, 0.80, 0.38);
         bar(0.20, 0.62, 0.80, 0.64);
         break;
+      case 'pointer':
+        tri([[0.32, 0.22], [0.32, 0.68], [0.45, 0.55]]);
+        bar(0.44, 0.54, 0.52, 0.74);
+        break;
+      case 'compass': {
+        const cx = fx(0.50), cy = fy(0.52), r = s * 0.26;
+        for (let a = 0; a < Math.PI * 2; a += 0.22) {
+          addRect(cx + Math.cos(a) * r - 1, cy + Math.sin(a) * r - 1,
+                  cx + Math.cos(a) * r + 1, cy + Math.sin(a) * r + 1, ICON_COL, crv, rws, inst);
+        }
+        tri([[0.50, 0.34], [0.42, 0.56], [0.58, 0.56]]);
+        break;
+      }
+      case 'sliders':
+        bar(0.24, 0.32, 0.76, 0.34); bar(0.56, 0.27, 0.60, 0.39);
+        bar(0.24, 0.49, 0.76, 0.51); bar(0.36, 0.44, 0.40, 0.56);
+        bar(0.24, 0.66, 0.76, 0.68); bar(0.62, 0.61, 0.66, 0.73);
+        break;
+      case 'morph': {
+        for (let i = 0; i < 6; i++) {
+          const t = i / 5;
+          const px = fx(0.26 + 0.48 * t), py = fy(0.50 - 0.22 * Math.sin(t * Math.PI));
+          const d = s * (0.03 + 0.03 * t);
+          addRect(px - d, py - d, px + d, py + d, ICON_COL, crv, rws, inst);
+        }
+        break;
+      }
+      case 'triangle':
+        tri([[0.50, 0.26], [0.26, 0.70], [0.74, 0.70]]);
+        bar(0.48, 0.24, 0.52, 0.28);
+        bar(0.24, 0.68, 0.28, 0.72);
+        bar(0.72, 0.68, 0.76, 0.72);
+        break;
+      case 'mountain':
+        tri([[0.18, 0.72], [0.40, 0.32], [0.58, 0.72]]);
+        tri([[0.46, 0.72], [0.66, 0.42], [0.84, 0.72]]);
+        break;
+      case 'ruler':
+        bar(0.22, 0.42, 0.78, 0.58);
+        bar(0.32, 0.42, 0.335, 0.50);
+        bar(0.44, 0.42, 0.455, 0.50);
+        bar(0.56, 0.42, 0.575, 0.50);
+        bar(0.68, 0.42, 0.695, 0.50);
+        break;
+      case 'flask':
+        bar(0.44, 0.22, 0.56, 0.40);
+        tri([[0.30, 0.76], [0.50, 0.40], [0.70, 0.76]]);
+        bar(0.40, 0.64, 0.60, 0.74);
+        break;
+      case 'timer': {
+        const cx = fx(0.50), cy = fy(0.54), r = s * 0.22;
+        for (let a = 0; a < Math.PI * 2; a += 0.20) {
+          addRect(cx + Math.cos(a) * r - 1, cy + Math.sin(a) * r - 1,
+                  cx + Math.cos(a) * r + 1, cy + Math.sin(a) * r + 1, ICON_COL, crv, rws, inst);
+        }
+        bar(0.44, 0.20, 0.56, 0.26);
+        bar(0.49, 0.36, 0.51, 0.54);
+        bar(0.50, 0.53, 0.60, 0.55);
+        break;
+      }
     }
   }
 }

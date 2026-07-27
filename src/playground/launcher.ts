@@ -75,6 +75,10 @@ export function bootLauncher(engine: Engine, onPick: (demo: Demo) => void): () =
   };
   rCanvas.style.background = '#141416';
   s.upscaler = upscaler;
+  // The launcher is a static analytic menu; hide the shared DOM #fps overlay for a
+  // 0-DOM frame (restored on teardown).
+  const prevFpsDisplay = fpsEl.style.display;
+  fpsEl.style.display = 'none';
   buildStatic(s);
   s.pageVisible = new Array(pageRoots.length).fill(true);
   setSize(s);
@@ -146,6 +150,7 @@ export function bootLauncher(engine: Engine, onPick: (demo: Demo) => void): () =
   return () => {
     frameStop();
     ac.abort();
+    fpsEl.style.display = prevFpsDisplay;
     container.remove();
   };
 }

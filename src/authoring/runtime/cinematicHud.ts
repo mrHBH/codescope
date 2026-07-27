@@ -13,9 +13,17 @@ import { clamp01 } from '../../util/math';
 import type { FontFace } from '../../windfoil/font';
 import type { GlyphAtlas } from '../../windfoil/bands';
 import type { ChapterWindow } from './timeline';
-import type { SceneRuntime } from './runtime';
 import type { AppState } from '../../state';
-import { cameraViewProj } from '../../camera/camera';
+import { cameraViewProj, uiScale } from '../../camera/camera';
+
+// The slice of a tour driver the HUD needs to scrub/stop the timeline. SceneRuntime
+// satisfies this; the playground cinematic supplies a lightweight adapter over its
+// shot list (see playground/cinematic.ts), so the same analytic HUD drives both.
+export interface HudDriver {
+  totalDuration(): number;
+  seek(s: AppState, seconds: number, pause?: boolean): void;
+  stopTour(s: AppState): void;
+}
 
 export interface HudActions {
   toggle: () => void;
@@ -57,7 +65,7 @@ interface Geo {
 }
 
 export class CinematicHud {
-  private runtime: SceneRuntime;
+  private runtime: HudDriver;
   private s: AppState;
   private actions: HudActions;
   private barT = 0;
@@ -79,7 +87,7 @@ export class CinematicHud {
 
   toggleDebug() { this.debugDetail = this.debugDetail ? 0 : 1; }
 
-  constructor(runtime: SceneRuntime, s: AppState, actions: HudActions) {
+  constructor(runtime: HudDriver, s: AppState, actions: HudActions) {
     this.runtime = runtime;
     this.s = s;
     this.actions = actions;
@@ -103,7 +111,9 @@ export class CinematicHud {
   private computeGeo(W: number, H: number, dprOverride?: number): Geo {
     // World card is virtual design-px (1280×720) scaled by an affine xform — never
     // bake device DPR into that space or buttons/timeline blow past the slot.
-    const d = dprOverride ?? (this.s.dpr || 1);
+    // Screen mode sizes track uiScale (backing px per CSS px), not raw dpr, so the
+    // render-resolution dial resizes the backing store without resizing the HUD.
+    const d = dprOverride ?? uiScale(this.s);
     const marginLR = 0.07 * W;
     const timeW = 170 * d, gap = 14 * d;
     const trackL = marginLR, trackR = W - marginLR - timeW - gap, trackW = trackR - trackL;

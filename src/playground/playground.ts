@@ -8,7 +8,7 @@ import { createThemeController } from '../css/themeController';
 import { createAppState } from '../state';
 import { buildStatic } from '../precompute';
 import { setSize, goToPage } from '../camera/camera';
-import { toggle3D, enter3D } from '../camera/camera';
+import { toggle3D, enter3D, uiScale } from '../camera/camera';
 import { orbitSetPose, orbitDistForZoom, updateOrbit, disableOrbit } from '../camera/orbit';
 import { attachInput } from '../camera/input';
 import { runFrame } from '../frame';
@@ -16,8 +16,11 @@ import { CodeEditor } from '../editor/editor';
 import { SAMPLE_CODE } from '../editor/sample';
 import { Terminal } from '../editor/terminal';
 import { FileTree } from '../editor/fileTree';
-import { createToolbar } from './toolbar';
 import { AnalyticToolbar } from '../ui/analyticToolbar';
+import { ScreenHud } from '../ui/screenHud';
+import { ANALYTIC_MENU_THEME } from '../ui/analyticMenu';
+import { AnalyticPanel, ANALYTIC_PANEL_THEME } from '../ui/analyticPanel';
+import { addRect, layoutStr, tw } from '../layout/metrics';
 import { createDemo } from './cinematic';
 import { WindgraphDemo } from './boards/windgraphDemo';
 import { MorphDemo } from './boards/morphDemo';
@@ -50,6 +53,18 @@ export function bootPlayground(engine: Engine, onBack?: () => void): () => void 
   theme.apply('dark');
   s.cycleTheme = theme.cycle;
   s.upscaler = upscaler;
+
+  // The fps/debug readout is drawn analytically in the screen HUD (below), so hide
+  // the shared DOM #fps overlay for a 0-DOM frame (restored on teardown).
+  const prevFpsDisplay = fpsEl.style.display;
+  fpsEl.style.display = 'none';
+
+  // Screen-space HUD overlay (analytic toolbar + menus + panels + readout). Drawn
+  // through its own renderer with a screen-ortho matrix (see ui/screenHud.ts), so
+  // the chrome stays fixed to the screen and never pans/zooms with the document.
+  // The analytic context menu (created in attachInput) renders here too — that is
+  // what makes it a true overlay instead of living in world space.
+  s.screenHud = new ScreenHud(device, engine.shaderCode);
 
   buildStatic(s);
   s.pageVisible = new Array(s.pageRoots.length).fill(true);
@@ -215,39 +230,22 @@ export function bootPlayground(engine: Engine, onBack?: () => void): () => void 
     s.velX = s.velY = 0;
   }
 
-  let edBtn: HTMLButtonElement | null = null;
-  let tmBtn: HTMLButtonElement | null = null;
-  let ftBtn: HTMLButtonElement | null = null;
   function setEditorMode(on: boolean) {
     s.editorMode = on;
     if (on) { s.terminalMode = false; s.fileTreeMode = false; terminal.focused = false; fileTree.focused = false; editor.focused = true; s.activeEdit = null; frameEditor(); }
     else goToPage(s, 0);
-    if (edBtn) edBtn.textContent = on ? '📄' : '⌨️';
-    if (tmBtn) tmBtn.textContent = '❯_';
-    if (ftBtn) ftBtn.textContent = '📁';
   }
   function setTerminalMode(on: boolean) {
     s.terminalMode = on;
     if (on) { s.editorMode = false; s.fileTreeMode = false; editor.focused = false; fileTree.focused = false; terminal.focused = true; s.activeEdit = null; terminal.open(); frameTerminal(); }
     else goToPage(s, 0);
-    if (tmBtn) tmBtn.textContent = on ? '📄' : '❯_';
-    if (edBtn) edBtn.textContent = '⌨️';
-    if (ftBtn) ftBtn.textContent = '📁';
   }
   function setFileTreeMode(on: boolean) {
     s.fileTreeMode = on;
     if (on) { s.editorMode = false; s.terminalMode = false; editor.focused = false; terminal.focused = false; fileTree.focused = true; s.activeEdit = null; frameFileTree(); }
     else goToPage(s, 0);
-    if (ftBtn) ftBtn.textContent = on ? '📄' : '📁';
-    if (edBtn) edBtn.textContent = '⌨️';
-    if (tmBtn) tmBtn.textContent = '❯_';
   }
 
-  // Fixed toolbar (top-right): editor toggle + terminal toggle + theme cycle.
-  let ptrBtn: HTMLButtonElement | null = null;
-  let camBtn: HTMLButtonElement | null = null;
-  const stylePtrBtn = () => { if (ptrBtn) ptrBtn.style.opacity = s.pointerInput ? '1' : '0.4'; };
-  const styleCamBtn = () => { if (camBtn) camBtn.style.opacity = s.cameraInput ? '1' : '0.4'; };
   // ── Quality panel (bundled behind the 🎛️ toolbar button) ───────────────────
   // Groups every quality/performance dial. renderScale changes the SWAPCHAIN
   // (display) resolution — apparent zoom is preserved by scaling camZ so only
@@ -261,64 +259,103 @@ export function bootPlayground(engine: Engine, onBack?: () => void): () => void 
     s.renderScale = v; s.camZ *= f; s.viewZ *= f; s.tgtZ *= f;
     setSize(s);
   };
-  const qPanel = document.createElement('div');
-  qPanel.style.cssText = 'position:fixed;top:64px;right:14px;z-index:15;display:none;width:236px;padding:12px 14px;'
-    + 'border-radius:12px;background:rgba(18,18,32,0.95);color:#cdd2e0;font:12px/1.4 system-ui,sans-serif;box-shadow:0 8px 30px rgba(0,0,0,0.5);';
-  const mkRow = (label: string) => {
-    const row = document.createElement('div'); row.style.cssText = 'margin:10px 0;';
-    const lab = document.createElement('div'); lab.textContent = label;
-    lab.style.cssText = 'display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;color:#aeb4c6;';
-    row.appendChild(lab); return { row, lab };
-  };
-  const mkSlider = (min: number, max: number, step: number, val: number) => {
-    const el = document.createElement('input'); el.type = 'range';
-    el.min = String(min); el.max = String(max); el.step = String(step); el.value = String(val);
-    el.style.cssText = 'width:100%;accent-color:#6b7bd6;cursor:pointer;'; return el;
-  };
-  qPanel.innerHTML = '<div style="font-weight:600;margin-bottom:2px;color:#e6e9f2;">Quality</div>';
-  // Display resolution (swapchain).
-  const rRes = mkRow(''); const sRes = mkSlider(0.25, 2, 0.05, 1); rRes.row.appendChild(sRes); qPanel.appendChild(rRes.row);
-  const updResLbl = () => { rRes.lab.innerHTML = `<span>Display resolution</span><b>${(s.renderScale || 1).toFixed(2)}×</b>`; };
-  sRes.oninput = () => { applyRenderScale(parseFloat(sRes.value)); updResLbl(); };
-  updResLbl();
-  // Low-res render + sharpen toggle.
-  const rTog = mkRow('Low-res render + sharpen');
-  const cTog = document.createElement('input'); cTog.type = 'checkbox'; cTog.checked = s.lowResSharpen; cTog.style.cursor = 'pointer';
-  rTog.lab.appendChild(cTog); qPanel.appendChild(rTog.row);
-  // Integral (offscreen) resolution.
-  const rInt = mkRow(''); const sInt = mkSlider(0.25, 1, 0.05, s.integralScale); rInt.row.appendChild(sInt); qPanel.appendChild(rInt.row);
-  const updIntLbl = () => { rInt.lab.innerHTML = `<span>Integral resolution</span><b>${s.integralScale.toFixed(2)}×</b>`; };
-  sInt.oninput = () => { s.integralScale = parseFloat(sInt.value); updIntLbl(); };
-  updIntLbl();
-  // Sharpen strength.
-  const rShp = mkRow(''); const sShp = mkSlider(0, 1, 0.05, s.sharpenAmount); rShp.row.appendChild(sShp); qPanel.appendChild(rShp.row);
-  const updShpLbl = () => { rShp.lab.innerHTML = `<span>Sharpen</span><b>${s.sharpenAmount.toFixed(2)}</b>`; };
-  sShp.oninput = () => { s.sharpenAmount = parseFloat(sShp.value); updShpLbl(); };
-  updShpLbl();
-  const syncSharpEnable = () => { const on = s.lowResSharpen; sInt.disabled = sShp.disabled = !on; rInt.row.style.opacity = rShp.row.style.opacity = on ? '1' : '0.4'; };
-  cTog.onchange = () => { s.lowResSharpen = cTog.checked; syncSharpEnable(); };
-  syncSharpEnable();
-  document.body.appendChild(qPanel);
-  const toggleQualityPanel = () => { qPanel.style.display = qPanel.style.display === 'none' ? 'block' : 'none'; };
-  const toolbarDestroy = createToolbar([
-    ...(onBack ? [{ icon: '🏠', title: 'Back to launcher', onClick: onBack }] : []),
-    { icon: '📁', title: 'Toggle file tree', onClick: () => setFileTreeMode(!s.fileTreeMode), ref: (el) => { ftBtn = el; } },
-    { icon: '⌨️', title: 'Toggle code editor', onClick: () => setEditorMode(!s.editorMode), ref: (el) => { edBtn = el; } },
-    { icon: '❯_', title: 'Toggle terminal', onClick: () => setTerminalMode(!s.terminalMode), ref: (el) => { tmBtn = el; } },
-    { icon: '🧊', title: 'Toggle 3D free camera (drag = orbit, Shift+drag = pan, wheel = dolly)', onClick: () => toggle3D(s) },
-    { icon: '🖱️', title: 'Toggle pointer input (hover, clicks, drags) — perf isolation', onClick: () => { s.pointerInput = !s.pointerInput; stylePtrBtn(); }, ref: (el) => { ptrBtn = el; stylePtrBtn(); } },
-    { icon: '🧭', title: 'Toggle camera input (drag pan + wheel zoom) — perf isolation', onClick: () => { s.cameraInput = !s.cameraInput; styleCamBtn(); }, ref: (el) => { camBtn = el; styleCamBtn(); } },
-    { icon: '🎛️', title: 'Quality settings: display resolution, low-res render + sharpen upscale', onClick: toggleQualityPanel },
-    { icon: '🎬', title: 'Play cinematic demo flight (any interaction stops it)', onClick: () => s.demo?.toggle() },
-    { icon: '📈', title: 'windgraph stroke demo (Phase 0)', onClick: () => frameWindgraph() },
-    { icon: '🎞️', title: 'windgraph animation demo (Phase 4): morph, draw-on, riding point', onClick: () => frameMorph() },
-    { icon: '🔷', title: 'windgraph interactive demo (Phase 5): drag the triangle vertices', onClick: () => frameInteractive() },
-    { icon: '🗻', title: 'windgraph 3D graphing demo (Phase 7): drag to orbit the surface', onClick: () => frameGraph3d() },
-    { icon: '📐', title: 'windgraph math typesetting demo (Phase 6): analytic LaTeX', onClick: () => frameMath() },
-    { icon: '🧪', title: 'perf bench: click to cycle stress modes (watch FPS)', onClick: () => { s.bench!.cycle(); frameBench(); } },
-    { icon: '⏱️', title: 'run scripted perf benchmark (~20s tour of all items + quality A/B; results board + clipboard table)', onClick: () => s.perf!.toggle() },
-    { icon: '🌙', title: 'Cycle theme: light → dark → high contrast', onClick: () => s.cycleTheme!(), ref: (el) => { s.themeBtn = el; } },
+  // ── Quality panel (analytic, yasmineOS) — bundled behind the 🎛️ button ─────
+  // Reusable AnalyticPanel (src/ui/analyticPanel.ts): the same sliders/toggles the
+  // IDE settings menus use, drawn through the screen HUD with zero DOM. The
+  // integral + sharpen rows disable themselves while low-res sharpen is off.
+  const qualityPanel = new AnalyticPanel([
+    { kind: 'header', id: 'q', label: 'Quality' },
+    { kind: 'slider', id: 'res', label: 'Display resolution', min: 0.25, max: 2, step: 0.05,
+      get: () => s.renderScale || 1, set: applyRenderScale, fmt: (v) => v.toFixed(2) + '×' },
+    { kind: 'toggle', id: 'sharpenOn', label: 'Low-res render + sharpen',
+      get: () => s.lowResSharpen, set: (v) => { s.lowResSharpen = v; } },
+    { kind: 'slider', id: 'integral', label: 'Integral resolution', min: 0.25, max: 1, step: 0.05,
+      get: () => s.integralScale, set: (v) => { s.integralScale = v; }, fmt: (v) => v.toFixed(2) + '×', enabled: () => s.lowResSharpen },
+    { kind: 'slider', id: 'sharpen', label: 'Sharpen', min: 0, max: 1, step: 0.05,
+      get: () => s.sharpenAmount, set: (v) => { s.sharpenAmount = v; }, fmt: (v) => v.toFixed(2), enabled: () => s.lowResSharpen },
   ]);
+  s.panel = qualityPanel;
+
+  // ── Analytic toolbar (top-right, screen-space) ──────────────────────────────
+  // GPU-rendered button bar drawn through s.screenHud (see ui/analyticToolbar.ts)
+  // — zero DOM. Toggled state is read live via each button's `active` callback, so
+  // the bar highlights the active mode without any per-button DOM ref bookkeeping.
+  // frame.ts lays it out + hover-tests it; input.ts routes clicks.
+  const toolbar = new AnalyticToolbar([
+    ...(onBack ? [{ id: 'back', icon: 'home' as const, title: 'Back to launcher', onClick: onBack }] : []),
+    { id: 'fileTree', icon: 'folder', title: 'Toggle file tree', active: () => s.fileTreeMode, onClick: () => setFileTreeMode(!s.fileTreeMode) },
+    { id: 'editor', icon: 'code', title: 'Toggle code editor', active: () => s.editorMode, onClick: () => setEditorMode(!s.editorMode) },
+    { id: 'terminal', icon: 'terminal', title: 'Toggle terminal', active: () => s.terminalMode, onClick: () => setTerminalMode(!s.terminalMode) },
+    { id: 'cam3d', icon: 'cube', title: 'Toggle 3D free camera (drag = orbit, Shift+drag = pan, wheel = dolly)', active: () => s.cam3d.active, onClick: () => toggle3D(s) },
+    { id: 'pointer', icon: 'pointer', title: 'Toggle pointer input (hover, clicks, drags) — perf isolation', active: () => s.pointerInput, onClick: () => { s.pointerInput = !s.pointerInput; } },
+    { id: 'camera', icon: 'compass', title: 'Toggle camera input (drag pan + wheel zoom) — perf isolation', active: () => s.cameraInput, onClick: () => { s.cameraInput = !s.cameraInput; } },
+    { id: 'quality', icon: 'sliders', title: 'Quality settings: display resolution, low-res render + sharpen upscale', onClick: () => {
+      const qb = toolbar.buttons.find((b) => b.btn.id === 'quality');
+      const ui = uiScale(s);
+      qualityPanel.toggle(qb ? qb.x : s.tCanvas.width - 260 * ui, qb ? qb.y + qb.s + 4 * ui : 60 * ui, s.tCanvas.width, s.tCanvas.height, ui);
+    } },
+    { id: 'cinematic', icon: 'film', title: 'Play cinematic demo flight (any interaction stops it)', active: () => !!s.demo?.running, onClick: () => s.demo?.toggle() },
+    { id: 'stroke', icon: 'chart', title: 'windgraph stroke demo (Phase 0)', onClick: () => frameWindgraph() },
+    { id: 'anim', icon: 'morph', title: 'windgraph animation demo (Phase 4): morph, draw-on, riding point', onClick: () => frameMorph() },
+    { id: 'interact', icon: 'triangle', title: 'windgraph interactive demo (Phase 5): drag the triangle vertices', onClick: () => frameInteractive() },
+    { id: 'graph3d', icon: 'mountain', title: 'windgraph 3D graphing demo (Phase 7): drag to orbit the surface', onClick: () => frameGraph3d() },
+    { id: 'math', icon: 'ruler', title: 'windgraph math typesetting demo (Phase 6): analytic LaTeX', onClick: () => frameMath() },
+    { id: 'bench', icon: 'flask', title: 'perf bench: click to cycle stress modes (watch FPS)', onClick: () => { s.bench!.cycle(); frameBench(); } },
+    { id: 'benchmark', icon: 'timer', title: 'run scripted perf benchmark (~20s tour of all items + quality A/B; results board + clipboard table)', onClick: () => s.perf!.toggle() },
+    { id: 'theme', icon: 'moon', title: 'Cycle theme: light → dark → high contrast', onClick: () => s.cycleTheme!() },
+  ]);
+  s.toolbar = toolbar;
+  // Build the screen overlay each frame: toolbar buttons first, then the open
+  // analytic context menu on top. frame.ts lays the toolbar out (setScreen) and
+  // hover-tests it before the pass; here we just emit geometry into the HUD buffer
+  // (already seeded with the atlas base so menu/toolbar glyphs resolve).
+  s.screenHud.onBuild = (hud, Cw, Ch, now) => {
+    // While the cinematic flight runs, its analytic HUD (letterbox + timeline +
+    // controls + caption) takes over the screen; otherwise show the toolbar/panel.
+    if (s.demo?.running && s.demo.renderHud) {
+      s.demo.renderHud(hud, Cw, Ch, now);
+    } else {
+      // Chrome is emitted in backing-store px but sized by uiScale (backing px per
+      // CSS px), so the render-resolution dial changes sharpness only — the panel,
+      // toolbar and readouts keep their apparent size like the world UI does. The
+      // open panel re-anchors to the quality button every frame so it tracks the
+      // button live while its own resolution slider resizes the backing store.
+      const ui = uiScale(s);
+      if (qualityPanel.open) {
+        const qb = toolbar.buttons.find((b) => b.btn.id === 'quality');
+        if (qb) qualityPanel.reposition(qb.x, qb.y + qb.s + 4 * ui, Cw, Ch, ui);
+      }
+      toolbar.render(hud.inst, hud.crv, hud.rws, now);
+      qualityPanel.render(font, atlas, hud.inst, hud.crv, hud.rws, ANALYTIC_PANEL_THEME);
+      // Analytic fps/debug readout (top-left) — replaces the DOM #fps overlay.
+      const dbg = s.hudDebugText;
+      if (dbg) {
+        const ds = 12 * ui, m = 10 * ui, padX = 10 * ui, padY = 6 * ui;
+        const rw = tw(dbg, font, ds) + padX * 2;
+        const rh = ds * 1.2 + padY * 2;
+        addRect(m, m, m + rw, m + rh, [0.055, 0.055, 0.071, 0.9], hud.crv, hud.rws, hud.inst);
+        layoutStr(hud.inst, dbg, [0.69, 0.706, 0.753, 1], atlas.table, font, { x: m + padX, y: m + padY, size: ds });
+      }
+      // Analytic "copy bench results" button (top-center) — replaces a DOM button.
+      // Its rect is stored on s.perf.copyRect so input.ts can hit-test it.
+      if (s.perf?.copyVisible) {
+        const label = s.perf.copyLabel;
+        const bs = 13 * ui, padX = 16 * ui, bh = 34 * ui;
+        const bw = tw(label, font, bs) + padX * 2;
+        const bx0 = (Cw - bw) / 2, by0 = 14 * ui;
+        s.perf.copyRect = { x0: bx0, y0: by0, x1: bx0 + bw, y1: by0 + bh };
+        addRect(bx0, by0, bx0 + bw, by0 + bh, [0.086, 0.086, 0.18, 0.92], hud.crv, hud.rws, hud.inst);
+        addRect(bx0, by0, bx0 + bw, by0 + 1, [0.30, 0.33, 0.42, 0.6], hud.crv, hud.rws, hud.inst);
+        addRect(bx0, by0 + bh - 1, bx0 + bw, by0 + bh, [0.30, 0.33, 0.42, 0.6], hud.crv, hud.rws, hud.inst);
+        addRect(bx0, by0, bx0 + 1, by0 + bh, [0.30, 0.33, 0.42, 0.6], hud.crv, hud.rws, hud.inst);
+        addRect(bx0 + bw - 1, by0, bx0 + bw, by0 + bh, [0.30, 0.33, 0.42, 0.6], hud.crv, hud.rws, hud.inst);
+        layoutStr(hud.inst, label, [1, 1, 1, 1], atlas.table, font, { x: bx0 + padX, y: by0 + (bh - bs) / 2, size: bs });
+      } else if (s.perf) {
+        s.perf.copyRect = null;
+      }
+    }
+    if (s.analyticMenu?.open) s.analyticMenu.render(font, atlas, hud.inst, hud.crv, hud.rws, ANALYTIC_MENU_THEME);
+  };
 
   const onResize = () => setSize(s);
   addEventListener('resize', onResize);
@@ -333,9 +370,8 @@ export function bootPlayground(engine: Engine, onBack?: () => void): () => void 
   return () => {
     frameStop();
     inputDispose();
-    toolbarDestroy();
     removeEventListener('resize', onResize);
-    qPanel.remove();
+    fpsEl.style.display = prevFpsDisplay;
     perfBenchmark.dispose();
   };
 }
