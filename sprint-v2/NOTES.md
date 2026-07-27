@@ -142,6 +142,20 @@ from the code lives here. Newest entries at the bottom of each section.
   Interim: playground buttons. Revisit at CP6 with the full board count.
 - **OQ-6 — Naming.** "windgraph" is a working title (sprint/README.md:3).
   Settle before Phase 6 export/branding work.
+- **OQ-8 — IDE frame-time drift (user-reported 2026-07-27).** Idle IDE js time
+  ~4 ms now vs 0.8–1.4 ms in the bento era. NOT a current-sprint regression
+  (predates Phase 0; the runtime split is not in the IDE path). Part of the
+  delta is legitimate new workload: editor/terminal/file-tree panels (three
+  per-frame dynamic emitters), screenHud pass, analytic toolbar/menus, depth
+  buffer — none existed in the bento era. But 4 ms needs a section breakdown
+  to judge. Diagnosis plan: the `mark()` sections in `frame.ts` exist but only
+  collect while `s.perf.running` (🧪 bench) — enable always-on collection (~14
+  `performance.now()`/frame, negligible) + expose via `window.__frameMarks` or
+  overlay second line, read the numbers, then fix the hot section or accept it.
+  Candidate hot spots to check first: editor/terminal/tree emit (uncached by
+  design), instance-buffer upload size, hover hitTest/resolveStyle (regressed
+  once before — sprint/TODO.md), per-frame FX plumbing with FX off. **Deferred
+  unless user calls it — lands naturally in Lane N perf gates.**
 - ~~**OQ-7 — runtime.ts split seams (0.1).**~~ **Resolved 2026-07-27 → D8.**
   Seams confirmed as hypothesized, minus camera/playback/layout (too
   state-entangled to separate cleanly; they stay on the class).
