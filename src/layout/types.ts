@@ -28,6 +28,10 @@ export interface StyledEl {
   // classes.includes() scans and DOM getAttribute() calls in the frame loop.
   pageIdx: number; hoverable: boolean; shadowable: boolean; anim: string; dynamic: boolean;
   ownerPage: number;
+  // Named hover effect (set once in walkDOM from a `hov-*` class). '' = the legacy
+  // background-wash + shadow hover; otherwise the frame loop renders the named
+  // analytic hover effect (lift/sweep/underline/glow/border/topbar/ring/corners).
+  hoverFx: string;
   // Vector art: atlas key (e.g. "icon:star" / "art:landscape"), else ''. When set
   // the element renders the shape scaled/centered into its box instead of text.
   icon: string;

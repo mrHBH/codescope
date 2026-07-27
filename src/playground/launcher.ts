@@ -72,6 +72,7 @@ export function bootLauncher(engine: Engine, onPick: (demo: Demo) => void): () =
     backdrop: parseColor('#141416'), pageBg: parseColor('#1b1b1c'),
     prog: [0, 0, 0, 0], pulse: [0, 0, 0, 0], shadow: parseColor('rgba(0,0,0,0.45)'),
     caret: [0, 0, 0, 0], sel: parseColor('#264f78'),
+    accent: parseColor('#3d7bc4'), accentHover: parseColor('#4a8fd8'),
   };
   rCanvas.style.background = '#141416';
   s.upscaler = upscaler;

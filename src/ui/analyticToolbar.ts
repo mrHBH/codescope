@@ -24,7 +24,7 @@ export type ToolbarIcon =
   | 'folder' | 'code' | 'terminal' | 'cube' | 'settings' | 'moon'
   | 'chart' | 'film'
   | 'pointer' | 'compass' | 'sliders' | 'morph' | 'triangle'
-  | 'mountain' | 'ruler' | 'flask' | 'timer';
+  | 'mountain' | 'ruler' | 'flask' | 'timer' | 'grid';
 
 export interface ToolbarButton {
   id: string;
@@ -242,6 +242,13 @@ export class AnalyticToolbar {
         bar(0.24, 0.32, 0.76, 0.34); bar(0.56, 0.27, 0.60, 0.39);
         bar(0.24, 0.49, 0.76, 0.51); bar(0.36, 0.44, 0.40, 0.56);
         bar(0.24, 0.66, 0.76, 0.68); bar(0.62, 0.61, 0.66, 0.73);
+        break;
+      case 'grid':
+        for (let gy = 0; gy < 3; gy++) {
+          for (let gx = 0; gx < 3; gx++) {
+            bar(0.28 + gx * 0.17, 0.28 + gy * 0.17, 0.38 + gx * 0.17, 0.38 + gy * 0.17);
+          }
+        }
         break;
       case 'morph': {
         for (let i = 0; i < 6; i++) {

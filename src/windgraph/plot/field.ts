@@ -66,7 +66,8 @@ export function plotVectorField(
       // Short arrow: just a segment if too small
       const headLen = Math.min((style.headLength ?? 0) || arrowLen * 0.3, arrowLen * 0.6);
       if (headLen < 2) {
-        strokeInto([a, b], { width: w, cap: 'round' }, color, ctx.inst, ctx.crv, ctx.rws);
+        // Butt caps: round caps cost two 24-quad discs per arrow shaft.
+        strokeInto([a, b], { width: w, cap: 'butt' }, color, ctx.inst, ctx.crv, ctx.rws);
       } else {
         // Draw shaft + arrowhead as two strokes
         const hl = headLen;

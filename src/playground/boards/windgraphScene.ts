@@ -105,6 +105,10 @@ export class WindgraphSceneBoard {
     });
   }
 
+  /** Diagnostics — cumulative cache rebuilds (flat while idle = caches hold). */
+  get cacheMisses(): number { return this.cache.misses; }
+  get directMisses(): number { return this.built ? this.scene.directMisses : 0; }
+
   /** Slider binding entry point (task 1.5 wires UI to this). */
   setParam(name: string, value: any) {
     this.ensure();
@@ -156,17 +160,23 @@ export class WindgraphSceneBoard {
   }
   endDrag() { this.sliderDrag = null; this.scene.endDrag(); }
   get dragging(): boolean { return this.built && (this.sliderDrag !== null || this.scene.dragging); }
+  private hoverKey = '';
+  private hoverRes = false;
   updateHover(wx: number, wy: number, scale: number): boolean {
     this.ensure();
+    // Static-pointer guard (frame.ts calls this every frame).
+    const key = `${wx}|${wy}|${Math.round(scale * 50)}|${this.rev}`;
+    if (key === this.hoverKey) return this.hoverRes;
+    this.hoverKey = key;
     if (wx < this.x0 - 40 || wx > this.x0 + this.width + 40 || wy < this.y0 - 40 || wy > this.y0 + this.height + 40) {
       this.scene.drag.hover = null;
-      return false;
+      return (this.hoverRes = false);
     }
     const k = 1 / Math.max(this.lastZoom, 1e-6);
     for (const g of this.sliderGeom(k)) {
-      if (Math.hypot(wx - g.knobX, wy - g.y) <= 14 * k) return true;
+      if (Math.hypot(wx - g.knobX, wy - g.y) <= 14 * k) return (this.hoverRes = true);
     }
-    return this.scene.updateHover(wx, wy, scale);
+    return (this.hoverRes = this.scene.updateHover(wx, wy, scale));
   }
 
   /** Cinematic-flight auto-drive: vertex B on a smooth wall-clock path, so the
@@ -186,18 +196,28 @@ export class WindgraphSceneBoard {
   emit(font: FontFace, atlas: any, inst: number[], crv: number[], rws: number[], now: number, view: PlaneView) {
     this.ensure();
     this.lastZoom = view.zoom;
-    // Quantize the view∩board clip to a coarse tile so panning replays the cache
-    // instead of re-resolving plots (same trick as frame.ts's windgraph cache).
+    // Zoom LOD for plots: sample density follows √zoom in 10% steps — the
+    // overview decimates (chords are subpixel there), deep zoom refines.
+    // A change bumps rev so the cache rebuilds once at the new density.
+    const lod = Math.max(0.3, Math.min(3, Math.round(Math.sqrt(Math.max(view.zoom, 1e-6)) * 10) / 10));
+    if (this.scene.setLodScale(lod)) this.rev++;
+    // Cache key quantizes BOTH axes of camera motion: the view∩board clip snaps
+    // to a coarse tile (panning replays within a tile), and zoom snaps to ~9%
+    // relative bands (log2-rounded) — so zooming replays the cache instead of
+    // re-running marching squares / plot resampling every frame (raw-zoom keys
+    // missed on every frame of a zoom). Screen-px elements (ticks, sliders)
+    // carry ≤9% size variance between rebuilds — imperceptible.
+    const zq = Math.pow(2, Math.round(Math.log2(Math.max(view.zoom, 1e-6)) * 8) / 8);
     let sig: string;
     if (view.left < -1e11) {
-      sig = `3d|${this.rev}|${this.scene.hoveredId ?? ''}|${view.zoom.toPrecision(5)}`;
+      sig = `3d|${this.rev}|${this.scene.hoveredId ?? ''}|${zq}`;
     } else {
       const TILE = 1200;
       const eL = Math.floor(Math.max(view.left, this.x0) / TILE) * TILE;
       const eT = Math.floor(Math.max(view.top, this.y0) / TILE) * TILE;
       const eR = Math.ceil(Math.min(view.right, this.x0 + this.width) / TILE) * TILE;
       const eB = Math.ceil(Math.min(view.bottom, this.y0 + this.height) / TILE) * TILE;
-      sig = `${this.rev}|${this.scene.hoveredId ?? ''}|${view.zoom.toPrecision(5)}|${eL},${eT},${eR},${eB}`;
+      sig = `${this.rev}|${this.scene.hoveredId ?? ''}|${zq}|${eL},${eT},${eR},${eB}`;
     }
     this.cache.run(sig, inst, crv, rws, () => {
       // Board chrome: border + title.

@@ -148,6 +148,12 @@ export function attachInput(s: AppState): () => void {
       const tb = s.toolbar.hitTest(b.x, b.y);
       if (tb) { tb.onClick(); return; }
     }
+    // Analytic fps chip: a press starts click-vs-long-press detection (resolved
+    // in pointerup / the frame tick); consume it so the camera doesn't pan.
+    if (s.fpsChip) {
+      const b = bufCoords(s, e.clientX, e.clientY);
+      if (s.fpsChip.pointerDown(b.x, b.y, performance.now())) return;
+    }
     // Analytic settings panel (screen-space): consume clicks on it (toggles +
     // slider drags), and dismiss on a click outside — standard popup behaviour.
     if (s.panel?.open) {
@@ -403,6 +409,7 @@ export function attachInput(s: AppState): () => void {
   }, { passive: true });
 
   const rel = () => {
+    s.fpsChip?.pointerUp(performance.now());
     if (s.selecting && s.activeEdit && s.activeEdit.selAnchor === s.activeEdit.caret) s.activeEdit.selAnchor = -1;
     s.selecting = false;
     s.editorSelecting = false;

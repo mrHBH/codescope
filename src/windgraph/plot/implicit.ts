@@ -198,7 +198,10 @@ export function plotImplicit(F: (x: number, y: number) => number, plane: NumberP
     }
     if (polyline.length >= 2) {
       const wpts = polyline.map(([dx, dy]) => [plane.dToWx(dx), plane.dToWy(dy)] as Pt);
-      strokeInto(wpts, { width: w, cap: 'round', join: 'round' }, style.color, ctx.inst, ctx.crv, ctx.rws);
+      // Miter joins — round joins would spend a 24-quad disc on every contour
+      // vertex (the instance-count dominator); miter is identical at contour
+      // widths and the engine's miter limit guards sharp corners.
+      strokeInto(wpts, { width: w, cap: 'round', join: 'miter' }, style.color, ctx.inst, ctx.crv, ctx.rws);
     }
   }
   void view;

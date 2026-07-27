@@ -18,6 +18,8 @@ function ref(over: Partial<Record<string,string>> = {}): Palette {
     accent: '#007acc', accentHover: '#0098ff', accent2: '#9d4edd',
     success: '#3fb950', danger: '#d9534f', dangerHover: '#e06560', warn: '#f0ad4e',
     cardBg: 'rgba(255,255,255,0.08)', codeBg: 'rgba(255,255,255,0.06)',
+    // Button face colour the analytic hover effects lerp toward (frame.ts renderHoverFx).
+    hovFace: '#3a3d43',
     // Backdrop behind the page(s)
     backdrop: '#1a1a1b',
     // Keys the theme controller / renderer read directly:
@@ -34,7 +36,7 @@ export const palettes: Record<string,Palette> = {
   highContrast: ref({
     bg: '#1b1b1c', bgAlt: '#232326', border: '#4a4a4a',
     text: '#ffffff', textDim: '#a0a0a0', backdrop: '#0e0e0f', pageBg: '#1b1b1c',
-    fg: '#ffffff', caret: '#ffffff',
+    fg: '#ffffff', caret: '#ffffff', hovFace: '#34343b',
   }),
   // "light" slot: a warm-grey take that keeps the same structure (still dark-on
   // surfaces — a true light variant for daytime readability.
@@ -45,7 +47,7 @@ export const palettes: Record<string,Palette> = {
     success: '#1f9d55', danger: '#c0392b', dangerHover: '#d64a3a', warn: '#bf8b00',
     cardBg: 'rgba(17,24,39,0.06)', codeBg: 'rgba(17,24,39,0.08)',
     backdrop: '#e7ebf2', pageBg: '#f5f6f8', fg: '#1f2430', caret: '#1f2430', sel: '#b8d3f6',
-    shadow: 'rgba(15,23,42,0.22)', progFill: '#0b66d1', pulse: '#1f9d55',
+    shadow: 'rgba(15,23,42,0.22)', progFill: '#0b66d1', pulse: '#1f9d55', hovFace: '#ffffff',
   }),
 };
 
@@ -91,6 +93,12 @@ export function buildCSS(p: Palette): string {
 .reference-btn-secondary:hover { background: ${p.cardBg}; border-color: ${p.textDim}; color: ${p.text}; }
 .reference-btn-ghost { background: transparent; border-color: transparent; color: ${p.textDim}; }
 .reference-btn-ghost:hover { background: ${p.cardBg}; color: ${p.text}; }
+
+/* Named analytic hover effects — the distinguishing accent geometry is drawn in
+   frame.ts (renderHoverFx); the face colour below is what the frame loop lerps the
+   button toward on hover. Placed after .reference-btn:hover so it wins the cascade. */
+.hov-lift:hover, .hov-sweep:hover, .hov-underline:hover, .hov-glow:hover,
+.hov-border:hover, .hov-topbar:hover, .hov-ring:hover, .hov-corners:hover { background: ${p.hovFace}; }
 
 /* Inputs */
 .reference-input { width: 100%; padding: 7px 10px; font-size: 12px; color: ${p.text}; background: ${p.bg}; border: 1px solid ${p.border}; }

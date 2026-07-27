@@ -18,6 +18,7 @@ import { Terminal } from '../editor/terminal';
 import { FileTree } from '../editor/fileTree';
 import { AnalyticToolbar } from '../ui/analyticToolbar';
 import { ScreenHud } from '../ui/screenHud';
+import { FpsChip } from '../ui/fpsChip';
 import { ANALYTIC_MENU_THEME } from '../ui/analyticMenu';
 import { AnalyticPanel, ANALYTIC_PANEL_THEME } from '../ui/analyticPanel';
 import { addRect, layoutStr, tw } from '../layout/metrics';
@@ -65,6 +66,7 @@ export function bootPlayground(engine: Engine, onBack?: () => void): () => void 
   // The analytic context menu (created in attachInput) renders here too — that is
   // what makes it a true overlay instead of living in world space.
   s.screenHud = new ScreenHud(device, engine.shaderCode);
+  s.fpsChip = new FpsChip();
 
   buildStatic(s);
   s.pageVisible = new Array(s.pageRoots.length).fill(true);
@@ -328,15 +330,9 @@ export function bootPlayground(engine: Engine, onBack?: () => void): () => void 
       }
       toolbar.render(hud.inst, hud.crv, hud.rws, now);
       qualityPanel.render(font, atlas, hud.inst, hud.crv, hud.rws, ANALYTIC_PANEL_THEME);
-      // Analytic fps/debug readout (top-left) — replaces the DOM #fps overlay.
-      const dbg = s.hudDebugText;
-      if (dbg) {
-        const ds = 12 * ui, m = 10 * ui, padX = 10 * ui, padY = 6 * ui;
-        const rw = tw(dbg, font, ds) + padX * 2;
-        const rh = ds * 1.2 + padY * 2;
-        addRect(m, m, m + rw, m + rh, [0.055, 0.055, 0.071, 0.9], hud.crv, hud.rws, hud.inst);
-        layoutStr(hud.inst, dbg, [0.69, 0.706, 0.753, 1], atlas.table, font, { x: m + padX, y: m + padY, size: ds });
-      }
+      // Analytic fps chip (top-left): click cycles fps → full → full + demo
+      // diagnostics; long press copies. Zero DOM.
+      s.fpsChip?.render(hud.inst, hud.crv, hud.rws, font, atlas, ui);
       // Analytic "copy bench results" button (top-center) — replaces a DOM button.
       // Its rect is stored on s.perf.copyRect so input.ts can hit-test it.
       if (s.perf?.copyVisible) {

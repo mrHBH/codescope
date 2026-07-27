@@ -15,6 +15,7 @@ import type { AnalyticContextMenu } from './ui/analyticMenu';
 export interface ThemeCol {
   backdrop: number[]; pageBg: number[]; prog: number[]; pulse: number[];
   shadow: number[]; caret: number[]; sel: number[];
+  accent: number[]; accentHover: number[];
 }
 
 export interface BoardView { zoom: number; left: number; right: number; top: number; bottom: number; }
@@ -70,6 +71,11 @@ export interface AppState {
   // Per-frame debug readout (fps · zoom · js · worst · ev) written by the frame
   // loop; the cinematic HUD draws it analytically (the DOM #fps is hidden there).
   hudDebugText: string;
+  /** Analytic fps/perf chip (screen HUD) — zero-DOM replacement for #fps.
+   *  Click cycles fps → full → full+diagnostics; long press copies. */
+  fpsChip: import('./ui/fpsChip').FpsChip | null;
+  /** Extra diagnostic line the active demo feeds the chip's third mode. */
+  hudDebugExtra: string;
 
   // DOM + layout tree
   container: HTMLElement;
@@ -225,11 +231,13 @@ export function createAppState(partial: Partial<AppState>): AppState {
     renderScale: 1,
     upscaler: null, lowResSharpen: false, integralScale: 0.6, sharpenAmount: 0.6,
     postfx: null, hudRenderer: null, screenHud: null, toolbar: null, panel: null, hudDebugText: '',
+    fpsChip: null, hudDebugExtra: '',
     container: null as any,
     styledEls: [], pageRoots: [], editableEls: [], dynamicEls: [], marqueeEls: [], pages: [], docH: 0, docRoot: null as any,
     cssRules: [], isDark: false, themeMode: 'light', themeCol: {
       backdrop: [0,0,0,0], pageBg: [0,0,0,0], prog: [0,0,0,0], pulse: [0,0,0,0],
       shadow: [0,0,0,0], caret: [0,0,0,0], sel: [0,0,0,0],
+      accent: [0,0,0,0], accentHover: [0,0,0,0],
     }, themeBtn: null, fpsEl: null as any,
     camX: 0, camY: 0, camZ: 0.5, viewX: 0, viewY: 0, viewZ: 0.5,
     tgtX: 0, tgtY: 0, tgtZ: 0.5, velX: 0, velY: 0,

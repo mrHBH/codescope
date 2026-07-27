@@ -16,6 +16,8 @@ import { runFrame } from '../frame';
 import { AnalyticToolbar, type ToolbarButton } from '../ui/analyticToolbar';
 import { ScreenHud } from '../ui/screenHud';
 import { ANALYTIC_MENU_THEME } from '../ui/analyticMenu';
+import { FpsChip } from '../ui/fpsChip';
+import { uiScale } from '../camera/camera';
 
 // An AppState (optionally with the shared reference document), dark theme, baked
 // static buffers, sized canvas. `useDoc=false` yields an empty document — the
@@ -38,6 +40,8 @@ export function createBaseApp(engine: Engine, useDoc: boolean): AppState {
   // Reusable screen-space HUD overlay for the analytic toolbar/menus finishApp wires
   // up (drawn through its own renderer with a screen-ortho matrix — see ui/screenHud.ts).
   s.screenHud = new ScreenHud(device, engine.shaderCode);
+  // Analytic fps chip — the zero-DOM readout (the DOM #fps stays hidden).
+  s.fpsChip = new FpsChip();
   buildStatic(s);
   s.pageVisible = new Array(s.pageRoots.length).fill(true);
   setSize(s); // sizing must precede any framing (which reads tCanvas dimensions)
@@ -48,6 +52,9 @@ export function createBaseApp(engine: Engine, useDoc: boolean): AppState {
 export function finishApp(s: AppState, onBack: () => void, extras: ToolbarButton[] = [], opts: { toolbar?: boolean } = {}): () => void {
   const onResize = () => setSize(s);
   addEventListener('resize', onResize);
+  // The readout is analytic now (fps chip in the screen HUD) — hide the DOM #fps.
+  const prevFpsDisplay = s.fpsEl ? s.fpsEl.style.display : '';
+  if (s.fpsEl) s.fpsEl.style.display = 'none';
   if (opts.toolbar !== false && s.screenHud) {
     // Analytic toolbar (zero DOM) rendered through the screen HUD; frame.ts lays it
     // out + hover-tests it and input.ts routes clicks (same path as the playground).
@@ -59,6 +66,7 @@ export function finishApp(s: AppState, onBack: () => void, extras: ToolbarButton
     s.toolbar = toolbar;
     s.screenHud.onBuild = (hud, _Cw, _Ch, now) => {
       toolbar.render(hud.inst, hud.crv, hud.rws, now);
+      s.fpsChip?.render(hud.inst, hud.crv, hud.rws, s.font, s.atlas, uiScale(s));
       if (s.analyticMenu?.open) s.analyticMenu.render(s.font, s.atlas, hud.inst, hud.crv, hud.rws, ANALYTIC_MENU_THEME);
     };
   }
@@ -68,6 +76,7 @@ export function finishApp(s: AppState, onBack: () => void, extras: ToolbarButton
     frameStop(); inputDispose();
     s.toolbar = null;
     if (s.screenHud) s.screenHud.onBuild = null;
+    if (s.fpsEl) s.fpsEl.style.display = prevFpsDisplay;
     removeEventListener('resize', onResize);
   };
 }

@@ -34,6 +34,7 @@ export function createThemeController(
     s.themeCol = {
       backdrop: parseColor(p.backdrop), pageBg: parseColor(p.pageBg), prog: parseColor(p.progFill),
       pulse: parseColor(p.pulse), shadow: parseColor(p.shadow), caret: parseColor(p.caret), sel: parseColor(p.sel),
+      accent: parseColor(p.accent), accentHover: parseColor(p.accentHover),
     };
     // Backdrop as a static CSS background (the WebGPU canvas is transparent where
     // nothing is drawn, so this shows through) — avoids a per-frame full-screen 2D

@@ -14,6 +14,7 @@ import { bootExplainer } from './explainer';
 import { bootAuthoring, bootExplainerV2, bootPages, bootLearning } from '../authoring/demo';
 import { bootIDE } from '../ide/ide';
 import { bootWindgraphWorld } from './windgraphWorld';
+import { ReferenceHudBoard } from './boards/referenceHud';
 import { IslandGallery } from '../authoring/islands/gallery';
 // Island registrations (side-effect import — ensures builtins register)
 import '../authoring/islands';
@@ -26,9 +27,17 @@ export interface Demo {
   boot(engine: Engine, onBack: () => void): () => void;
 }
 
-// Design reference: just the yasmineOS document, framed on page 0.
+// Design reference: the yasmineOS document, framed on page 0, plus a live
+// world-space analytic HUD board hosted in the #hud-stage slot on the HUD page.
 function bootReference(engine: Engine, onBack: () => void): () => void {
   const s = createBaseApp(engine, true);
+  const stage = engine.ref.styledEls.find((e) => e.id === 'hud-stage');
+  if (stage) {
+    s.interactive = new ReferenceHudBoard(
+      { x: stage.x, y: stage.y, w: stage.w, h: stage.h },
+      () => s.cycleTheme?.(),
+    );
+  }
   goToPage(s, 0);
   snapTo(s, s.tgtX, s.tgtY, s.tgtZ);
   return finishApp(s, onBack);

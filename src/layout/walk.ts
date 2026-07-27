@@ -49,10 +49,14 @@ export function walkDOM(el: Element, parent: StyledEl | null, styledEls: StyledE
   const interactive = has('btn') || has('tab') || has('toggle') || has('slider') || has('dropdown') || has('model-type-selector');
   const hoverable = interactive || has('card') || has('feature') || pageIdx >= 0 || el.tagName === 'A';
   const shadowable = has('card') || has('btn') || has('feature');
+  // Named analytic hover effect from a `hov-*` class (e.g. `hov-sweep` → 'sweep').
+  // The frame loop renders the named effect instead of the legacy bg-wash hover.
+  const hovMatch = cn.match(/\bhov-([\w-]+)/);
+  const hoverFx = hovMatch ? hovMatch[1] : '';
   // An element only needs per-frame dynamic-background work if it can hover,
   // cast a shadow, or run an animation. Everything else is baked into the static
   // buffers and skipped entirely by the frame loop.
-  const dynamic = hoverable || shadowable || anim !== '';
+  const dynamic = hoverable || shadowable || anim !== '' || hoverFx !== '';
   const iconName = el.getAttribute('data-icon');
   const artName = el.getAttribute('data-art');
   const icon = iconName ? 'icon:' + iconName : artName ? 'art:' + artName : '';
@@ -72,7 +76,7 @@ export function walkDOM(el: Element, parent: StyledEl | null, styledEls: StyledE
     inlineText,
     editable, editText: editable?text.trim():'', caret: editable?text.trim().length:0, selAnchor: -1, originText: editable?text.trim():'',
     caretXs: null, caretLines: null, lineTops: null,
-    pageIdx, hoverable, shadowable, anim, dynamic, ownerPage: -1, icon,
+    pageIdx, hoverable, shadowable, anim, dynamic, ownerPage: -1, icon, hoverFx,
   };
   styledEls.push(se);
   for(const child of Array.from(el.children)) {

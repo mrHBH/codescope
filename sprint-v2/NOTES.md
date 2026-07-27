@@ -103,6 +103,26 @@ from the code lives here. Newest entries at the bottom of each section.
 - `src/windgraph/space3d/project3d.ts` — `colormap`, `LIGHT_DIR`, `faceNormal`
   — the shading vocabulary for extrusion (2.2) and surfaces.
 
+**Perf facts (measured reasoning, not vibes):**
+- Idle-frame cost is dominated by `EmitCache` replay: every cached board
+  re-appends its slice to the shared `inst/crv/rws` JS arrays each frame
+  (frame.ts clears them per frame — appending is mandatory, skipping is not
+  possible at board level). Replay was 16 conditional pushes per instance;
+  now native bulk pushes + in-place rowBase patches (`emitCache.ts`; contract
+  tests in `src/windfoil/__test_emitCache.ts` — extend those before touching
+  the rebase logic).
+- `frame.ts` then converts `instJS` (number[]) → `instFA` (Float32Array):
+  `set()` in 2D (fast), per-instance camera-relative loop in 3D (the 3D toggle
+  costs — expected, opt-in).
+- Hover hit-testing runs every frame from `frame.ts`; world + board guard on
+  `wx|wy|scaleQ|revs` — keep that guard when adding new interactive layers.
+- Plot LOD: `WgScene.setLodScale` (√zoom, 10% steps, min 48 samples) — board
+  bumps `rev` on LOD change so the cache rebuilds once. Marching-squares
+  implicits do NOT LOD yet (gridRes fixed) — candidate for Lane N.
+- The structural fix for idle frames is instance-buffer diffing / persistent
+  static GPU buffers (Lane N): static boards should upload once, not replay
+  per frame. Everything above is a constant-factor win; that one is asymptotic.
+
 **Phase 1 architecture (as built — read before extending):**
 - `WgScene` (`runtime/object-resolver.ts`): constraint graph runs in WORLD
   space (free points store world coords; data→world via `plane.dToWx/dToWy` at

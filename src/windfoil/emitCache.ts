@@ -20,7 +20,10 @@ export class EmitCache {
   private cInst: number[] = [];
   private cCrv: number[] = [];
   private cRws: number[] = [];
-  private cRel: boolean[] = []; // per cached instance: rowBase is board-relative
+  // Offsets (into cInst) of board-relative rowBase fields — patched at replay.
+  private cRelIdxs: number[] = [];
+  /** Cumulative rebuild count — a cache that climbs while idle is thrashing. */
+  misses = 0;
 
   invalidate() { this.valid = false; this.sig = ''; }
 
@@ -39,34 +42,50 @@ export class EmitCache {
     this.capture(inst, crv, rws, inst0, crv0, rws0);
     this.sig = sig;
     this.valid = true;
+    this.misses++;
   }
 
   private capture(inst: number[], crv: number[], rws: number[], inst0: number, crv0: number, rws0: number) {
     const rowBase0 = rws0 / 5, quadBase0 = crv0 / 6;
-    this.cCrv.length = 0; this.cRws.length = 0; this.cInst.length = 0; this.cRel.length = 0;
+    this.cCrv.length = 0; this.cRws.length = 0; this.cInst.length = 0; this.cRelIdxs.length = 0;
     for (let i = crv0; i < crv.length; i++) this.cCrv.push(crv[i]);
     // Rows: store `start` relative to the board's own curve base.
     for (let i = rws0; i < rws.length; i += 5) {
       this.cRws.push(rws[i] - quadBase0, rws[i + 1], rws[i + 2], rws[i + 3], rws[i + 4]);
     }
     // Instances: rowBase >= rowBase0 means the board created the rows itself
-    // (store relative); smaller values reference the immutable atlas prefix.
+    // (store relative + remember the offset to patch); smaller values reference
+    // the immutable atlas prefix and replay untouched.
     for (let i = inst0; i < inst.length; i += 16) {
-      const rel = inst[i + 12] >= rowBase0;
-      this.cRel.push(rel);
-      for (let j = 0; j < 16; j++) this.cInst.push(j === 12 && rel ? inst[i + 12] - rowBase0 : inst[i + j]);
+      const o = i - inst0;
+      if (inst[i + 12] >= rowBase0) {
+        this.cRelIdxs.push(o + 12);
+        for (let j = 0; j < 16; j++) this.cInst.push(j === 12 ? inst[i + 12] - rowBase0 : inst[i + j]);
+      } else {
+        for (let j = 0; j < 16; j++) this.cInst.push(inst[i + j]);
+      }
     }
   }
 
   private replay(inst: number[], crv: number[], rws: number[]) {
     const quadOfs = crv.length / 6, rowOfs = rws.length / 5;
-    for (let i = 0; i < this.cCrv.length; i++) crv.push(this.cCrv[i]);
+    // Bulk appends (native) instead of per-float push loops; only the relative
+    // rowBases get patched in place afterwards. This is the idle-frame hot path
+    // for every cached board — it used to run 16 conditional pushes per instance.
+    pushAll(crv, this.cCrv);
     for (let i = 0; i < this.cRws.length; i += 5) {
       rws.push(this.cRws[i] + quadOfs, this.cRws[i + 1], this.cRws[i + 2], this.cRws[i + 3], this.cRws[i + 4]);
     }
-    for (let k = 0, i = 0; i < this.cInst.length; i += 16, k++) {
-      const rel = this.cRel[k];
-      for (let j = 0; j < 16; j++) inst.push(j === 12 && rel ? this.cInst[i + 12] + rowOfs : this.cInst[i + j]);
-    }
+    const base = inst.length;
+    pushAll(inst, this.cInst);
+    for (let k = 0; k < this.cRelIdxs.length; k++) inst[base + this.cRelIdxs[k]] += rowOfs;
   }
+}
+
+// Argument-count-safe bulk push (engines cap call arguments well below very
+// large array lengths).
+const CHUNK = 32768;
+function pushAll(dst: number[], src: number[]) {
+  if (src.length <= CHUNK) { dst.push(...src); return; }
+  for (let i = 0; i < src.length; i += CHUNK) dst.push(...src.slice(i, i + CHUNK));
 }

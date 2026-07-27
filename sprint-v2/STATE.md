@@ -73,3 +73,44 @@ If this file and the code disagree, investigate before trusting either.
   `src/playground/windgraphWorld.ts` + demos.ts entry; pointer routes to the
   board under it, empty canvas pans. Playground untouched. 6 world tests;
   CP2 procedure updated to use `#windgraph`.
+- 2026-07-27 — World pass 2 (user feedback): boards spaced tighter (GAP 60,
+  row y 200), 3D free-camera toggle (cube button), and two zoom-perf fixes —
+  backdrop cache keyed on grid STEP not raw zoom, and board cache zoom
+  quantized to ~9% log2 bands (zooming no longer rebuilds dots/plots/marching
+  squares per frame).
+- 2026-07-27 — World pass 3: dot-grid toggle (new `grid` toolbar icon; state
+  in cache sig; masthead stays), then boards spaced much further apart
+  (GAP 60 → 500 both axes; overview framing auto-derives).
+- 2026-07-27 — **Perf pass (overview "abyssimal" report).** Root cause: idle
+  frames re-pushed every cached instance through JS conditionals (16 per
+  instance × ~8–10k instances × 4 caches). Fixes: (1) `EmitCache.replay`
+  rewritten — native bulk pushes + in-place rowBase patches (contract locked
+  by new `src/windfoil/__test_emitCache.ts`, 5 tests); (2) hover-static guards
+  (world + board) skip the per-frame hit-test walk when pointer/zoom/revs are
+  unchanged; (3) zoom-LOD plot sampling — density follows √zoom in 10% steps
+  (overview decimates to ~50%, deep zoom refines up to 3×). Remaining
+  structural cost = per-frame replay is still O(instances); the real fix is
+  instance-buffer diffing / persistent static GPU buffers (Lane N).
+- 2026-07-27 — **Perf pass 3 (diagnostic read: 4370 instances idle, caches
+  stable).** Root cause of the instance count: round joins cost a 24-quad
+  `discCW` disc PER POLYLINE VERTEX (plot curves, implicit contours) and round
+  caps two discs per field-arrow shaft. Fixes: plot strokes + implicit contours
+  → miter joins (identical at sample density; engine miter-limit guards
+  corners), arrow shafts → butt caps, dot grid target 44→60px screen spacing.
+  Expected ~3-4× instance cut. Debug line now shows instance count (was float
+  count). NOTE: concurrent external edits in the tree this session (frame.ts,
+  themeController, layout/*, engine.ts — not sprint work); fixed their missed
+  `accent/accentHover` in launcher.ts ThemeCol literal.
+- 2026-07-27 — **Analytic fps chip** (user: "absolutely no DOM"): new
+  `src/ui/fpsChip.ts` — screen-HUD chip, click cycles fps → full → full + demo
+  diagnostics, long press copies. DOM #fps hidden in all finishApp demos;
+  playground's inline readout replaced by the chip; windgraph world feeds its
+  perf line via `s.hudDebugExtra` (flickering analytic overlay removed).
+- 2026-07-27 — **Perf pass 2 (gallery "very poor fps").** The plots board
+  re-ran marching squares + vector field on EVERY slider-drag frame and every
+  pan tile-crossing, though neither depends on the sliders. Fix: direct draws
+  now have their own `EmitCache` inside `WgScene.emit` — signature = zoom band
+  + coarse 2400px tile superset + ONLY the param names each expression reads
+  (`exprDeps`). Unrelated sliders replay; marching squares re-runs a few times
+  per second while panning, not per frame. Regression test: unrelated param
+  change keeps emitted instance count identical (13 resolver tests).

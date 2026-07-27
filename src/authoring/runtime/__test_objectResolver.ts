@@ -167,5 +167,26 @@ test('mobjects are real Mobject instances (clip targets for 1.3)', () => {
   for (const m of scene.mobjects.values()) assert(m instanceof Mobject);
 });
 
+test('direct draws: unrelated slider leaves implicit/field geometry cached', () => {
+  const doc = mkDoc({
+    f: { kind: 'wg-plot-implicit', id: 'f', expr: 'x^2 + y^2 - 1' },
+    w: { kind: 'wg-plot-fn', id: 'w', expr: 'a*x', domain: [-2, 2], samples: 60 },
+  }, { a: { kind: 'number', label: 'a', default: 1 } });
+  const params = new Map<string, any>([['a', 1]]);
+  const scene = new WgScene(doc, params, new NumberPlane());
+  const view = { zoom: 1, left: -300, right: 300, top: -300, bottom: 300 };
+  const ctx1: any = { font: {}, atlas: {}, inst: [], crv: [], rws: [] };
+  scene.emit(ctx1, view);
+  const n1 = ctx1.inst.length;
+  assert(n1 > 0, 'emitted instances');
+  // Slider 'a' feeds only the wave (same sample count on resample); the
+  // implicit has no 'a' dependency → its cache replays, counts stay identical.
+  params.set('a', 2);
+  scene.update();
+  const ctx2: any = { font: {}, atlas: {}, inst: [], crv: [], rws: [] };
+  scene.emit(ctx2, view);
+  assert(ctx2.inst.length === n1, `instance count stable (${n1} -> ${ctx2.inst.length})`);
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) throw new Error(`${failed} tests failed`);

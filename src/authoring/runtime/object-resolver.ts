@@ -19,6 +19,7 @@ import { Dot, Segment, Polyline, Polygon, Vector, Circle, Arc, Ellipse, Label } 
 import type { NumberPlane, PlaneView, PlaneCtx } from '../../windgraph/coords/numberPlane';
 import { plotImplicit } from '../../windgraph/plot/implicit';
 import { plotVectorField, plotSlopeField } from '../../windgraph/plot/field';
+import { EmitCache } from '../../windfoil/emitCache';
 import { compileExpr } from '../../windgraph/expr';
 import { DragController } from '../../windgraph/interact/drag';
 import type { Pt } from '../../windgraph/stroke/stroke';
@@ -63,9 +64,15 @@ export class WgScene {
   private params: Map<string, any>;
   private plane: NumberPlane;
   private syncables: (() => void)[] = [];
-  private directDraws: ((ctx: PlaneCtx, view: PlaneView) => void)[] = [];
+  /** View-dependent draws (implicit contours, fields). Each carries the param
+   *  names its expression actually reads — the cache signature includes only
+   *  those, so an unrelated slider never re-runs marching squares. */
+  private directDraws: { draw: (ctx: PlaneCtx, view: PlaneView) => void; deps: string[] }[] = [];
+  private directCache = new EmitCache();
   private plotResamples: (() => void)[] = [];
   private lastParamSig = '';
+  /** Zoom-LOD sample density for plots (set by the hosting board each emit). */
+  private lodScale = 1;
 
   constructor(doc: SceneDoc, params: Map<string, any>, plane: NumberPlane, onChange: () => void = () => {}) {
     this.doc = doc;
@@ -403,11 +410,14 @@ export class WgScene {
         const fn = compileExpr(s.expr);
         const d0 = this.num((s.domain?.[0] ?? plane.xMin) as WgNum);
         const d1 = this.num((s.domain?.[1] ?? plane.xMax) as WgNum);
-        const n = s.samples ?? 240;
-        const props = this.strokeProps(s, COL_PLOT);
+        const base = s.samples ?? 240;
+        // Miter joins: round joins cost a 24-quad disc PER SAMPLE (the instance
+        // dominator); on dense smooth samples miter is visually identical.
+        const props = { ...this.strokeProps(s, COL_PLOT), join: 'miter' as const };
         const group = new Group();
         this.register(id, group, s);
         const resample = () => {
+          const n = Math.max(48, Math.round(base * this.lodScale));
           group.children.length = 0;
           for (const seg of this.sampleCurve(d0(), d1(), n, (x) => ({ y: fn(this.scope({ x })) }))) {
             group.add(new Polyline(seg, props));
@@ -420,11 +430,12 @@ export class WgScene {
       case 'wg-plot-parametric': {
         const fx = compileExpr(s.xExpr), fy = compileExpr(s.yExpr);
         const t0 = this.num(s.tRange[0] as WgNum), t1 = this.num(s.tRange[1] as WgNum);
-        const n = s.samples ?? 320;
-        const props = this.strokeProps(s, COL_PLOT);
+        const base = s.samples ?? 320;
+        const props = { ...this.strokeProps(s, COL_PLOT), join: 'miter' as const };
         const group = new Group();
         this.register(id, group, s);
         const resample = () => {
+          const n = Math.max(48, Math.round(base * this.lodScale));
           group.children.length = 0;
           for (const seg of this.sampleCurve(t0(), t1(), n, (t) => ({ x: fx(this.scope({ t })), y: fy(this.scope({ t })) }))) {
             group.add(new Polyline(seg, props));
@@ -437,11 +448,12 @@ export class WgScene {
       case 'wg-plot-polar': {
         const fr = compileExpr(s.rExpr);
         const t0 = this.num(s.tRange[0] as WgNum), t1 = this.num(s.tRange[1] as WgNum);
-        const n = s.samples ?? 320;
-        const props = this.strokeProps(s, COL_PLOT);
+        const base = s.samples ?? 320;
+        const props = { ...this.strokeProps(s, COL_PLOT), join: 'miter' as const };
         const group = new Group();
         this.register(id, group, s);
         const resample = () => {
+          const n = Math.max(48, Math.round(base * this.lodScale));
           group.children.length = 0;
           for (const seg of this.sampleCurve(t0(), t1(), n, (t) => {
             const r = fr(this.scope({ t }));
@@ -458,8 +470,10 @@ export class WgScene {
         const fn = compileExpr(s.expr);
         const color = s.stroke?.color ?? COL_PLOT;
         const widthPx = s.stroke?.width ?? 2;
-        this.directDraws.push((ctx, view) => {
-          plotImplicit((x, y) => fn(this.scope({ x, y })), plane, view, ctx, { color, widthPx });
+        const deps = this.exprDeps(s.expr);
+        this.directDraws.push({
+          deps,
+          draw: (ctx, view) => plotImplicit((x, y) => fn(this.scope({ x, y })), plane, view, ctx, { color, widthPx }),
         });
         break;
       }
@@ -469,13 +483,17 @@ export class WgScene {
         const gridRes = typeof s.density === 'number' ? s.density : undefined;
         if (s.field === 'vector') {
           const fx = compileExpr(s.xExpr), fy = compileExpr(s.yExpr);
-          this.directDraws.push((ctx, view) => {
-            plotVectorField((x, y) => [fx(this.scope({ x, y })), fy(this.scope({ x, y }))], plane, view, ctx, { color, gridRes });
+          const deps = this.exprDeps(s.xExpr + ' ' + s.yExpr);
+          this.directDraws.push({
+            deps,
+            draw: (ctx, view) => plotVectorField((x, y) => [fx(this.scope({ x, y })), fy(this.scope({ x, y }))], plane, view, ctx, { color, gridRes }),
           });
         } else {
           const fy = compileExpr(s.yExpr);
-          this.directDraws.push((ctx, view) => {
-            plotSlopeField((x, y) => fy(this.scope({ x, y })), plane, view, ctx, { color, gridRes });
+          const deps = this.exprDeps(s.yExpr);
+          this.directDraws.push({
+            deps,
+            draw: (ctx, view) => plotSlopeField((x, y) => fy(this.scope({ x, y })), plane, view, ctx, { color, gridRes }),
           });
         }
         break;
@@ -542,6 +560,28 @@ export class WgScene {
     }
   }
 
+  /** Cumulative direct-draw cache rebuilds (diagnostic — should be flat while idle). */
+  get directMisses(): number { return this.directCache.misses; }
+
+  /** Zoom LOD: scale plot sample counts (√zoom-ish, set by the board). Returns
+   *  true when the scale actually changed and plots were resampled. */
+  setLodScale(scale: number): boolean {
+    if (scale === this.lodScale) return false;
+    this.lodScale = scale;
+    for (const resample of this.plotResamples) resample();
+    return true;
+  }
+
+  /** Numeric scene-param names an expression references (substring heuristic —
+   *  a false positive only costs an occasional extra re-run, never correctness). */
+  private exprDeps(expr: string): string[] {
+    const deps: string[] = [];
+    for (const [name, def] of Object.entries((this.doc.params ?? {}) as Record<string, any>)) {
+      if (def.kind === 'number' && expr.includes(name)) deps.push(name);
+    }
+    return deps;
+  }
+
   emit(ctx: RenderCtx, view: PlaneView) {
     for (const id of this.order) {
       const m = this.mobjects.get(id);
@@ -549,7 +589,31 @@ export class WgScene {
     }
     if (this.directDraws.length) {
       const pctx: PlaneCtx = { font: ctx.font, atlas: ctx.atlas, inst: ctx.inst, crv: ctx.crv, rws: ctx.rws };
-      for (const d of this.directDraws) d(pctx, view);
+      const plane = this.plane;
+      // Cache key: zoom band (px widths tolerate ≤9% variance) + a COARSE tile
+      // quantization of the clip. The draws run against the widened superset
+      // view, so the captured contours/arrows stay valid while panning within
+      // a tile — marching squares re-runs a few times per second at most, not
+      // per frame, and never for sliders its expressions don't reference.
+      const z = Math.max(view.zoom, 1e-6);
+      const zq = Math.pow(2, Math.round(Math.log2(z) * 8) / 8);
+      const T = 2400;
+      let L: number, Tp: number, R: number, B: number;
+      if (view.left < -1e11) {
+        L = plane.dToWx(plane.xMin); R = plane.dToWx(plane.xMax);
+        Tp = plane.dToWy(plane.yMax); B = plane.dToWy(plane.yMin);
+      } else {
+        L = Math.floor(view.left / T) * T; Tp = Math.floor(view.top / T) * T;
+        R = Math.ceil(view.right / T) * T; B = Math.ceil(view.bottom / T) * T;
+      }
+      let sig = `${zq}|${L},${Tp},${R},${B}`;
+      for (const d of this.directDraws) {
+        for (const n of d.deps) sig += `|${n}=${this.params.get(n)}`;
+      }
+      const wideView: PlaneView = { zoom: view.zoom, left: L, right: R, top: Tp, bottom: B };
+      this.directCache.run(sig, ctx.inst, ctx.crv, ctx.rws, () => {
+        for (const d of this.directDraws) d.draw(pctx, wideView);
+      });
     }
   }
 

@@ -21,9 +21,111 @@ import { poseXform } from './camera/screenWorld';
 
 const _hoveredSet = new Set<StyledEl>();
 const _tmpColor: number[] = [0, 0, 0, 0];
+const _fxAc: number[] = [0, 0, 0, 0];
 const ZERO_COLOR: number[] = [0, 0, 0, 0];
 const SHIMMER_COLOR: number[] = [1, 1, 1, 0.12];
 const _boardView = { zoom: 1, left: 0, right: 0, top: 0, bottom: 0 };
+
+// ── Named analytic button hover effects ──────────────────────────────────────
+// A button tagged with a `hov-*` class (walkDOM → StyledEl.hoverFx) renders one of
+// these instead of the legacy background-wash + shadow hover. `t` is the hover
+// progress (el.curShadow, lerped 0→1 on hover, 1→0 off) so every effect eases in
+// AND out. Geometry is rect-only (the renderer has no rounded corners). The button
+// face is drawn inset by its border so the baked base border stays visible unless
+// an effect paints its own accent edge over it.
+function renderHoverFx(el: StyledEl, s: AppState, crv: number[], rws: number[], inst: number[], now: number) {
+  const t = el.curShadow;
+  if (t <= 0.004 && !_hoveredSet.has(el)) return;
+  const x0 = el.x, y0 = el.y, x1 = el.x + el.w, y1 = el.y + el.h;
+  const ac = s.themeCol.accent;
+  const A = (a: number) => { _fxAc[0] = ac[0]; _fxAc[1] = ac[1]; _fxAc[2] = ac[2]; _fxAc[3] = a; return _fxAc; };
+  const [bt, br, bb, bl] = el.borderW;
+  const face = () => { if (el.curBg[3] > 0.004) addRect(x0 + bl, y0 + bt, x1 - br, y1 - bb, el.curBg, crv, rws, inst); };
+  const e = 2; // accent edge thickness (world units — scales with zoom like the doc)
+
+  switch (el.hoverFx) {
+    case 'lift': {
+      // Accent-tinted glow shadow lifts the button, then an accent border fades in.
+      const g = 16 * t;
+      A(0.45 * t);
+      addRect(x0 - g, y0 - g, x1 + g, y1 + g, _fxAc, crv, rws, inst);
+      face();
+      addRect(x0, y0, x1, y0 + e, A(0.9 * t), crv, rws, inst);
+      addRect(x0, y1 - e, x1, y1, A(0.9 * t), crv, rws, inst);
+      addRect(x0, y0, x0 + e, y1, A(0.9 * t), crv, rws, inst);
+      addRect(x1 - e, y0, x1, y1, A(0.9 * t), crv, rws, inst);
+      break;
+    }
+    case 'sweep': {
+      // A translucent accent fill sweeps in from the left with a bright leading edge.
+      face();
+      const w = (x1 - x0) * t;
+      addRect(x0, y0, x0 + w, y1, A(0.26 * t), crv, rws, inst);
+      addRect(x0 + w - e, y0, x0 + w, y1, A(0.85 * t), crv, rws, inst);
+      break;
+    }
+    case 'underline': {
+      // An accent bar grows from the left along the bottom edge.
+      face();
+      const w = (x1 - x0) * t;
+      addRect(x0, y1 - 3, x0 + w, y1, A(0.95 * t), crv, rws, inst);
+      break;
+    }
+    case 'glow': {
+      // A pulsing accent halo breathes around the button.
+      const pulse = 0.55 + 0.45 * Math.sin(now / 360);
+      const g = (10 + 10 * pulse) * t;
+      A(0.28 * t * pulse);
+      addRect(x0 - g, y0 - g, x1 + g, y1 + g, _fxAc, crv, rws, inst);
+      const g2 = g * 0.5;
+      addRect(x0 - g2, y0 - g2, x1 + g2, y1 + g2, _fxAc, crv, rws, inst);
+      face();
+      break;
+    }
+    case 'border': {
+      // A crisp accent border fades in; the face barely changes.
+      face();
+      addRect(x0, y0, x1, y0 + e, A(0.95 * t), crv, rws, inst);
+      addRect(x0, y1 - e, x1, y1, A(0.95 * t), crv, rws, inst);
+      addRect(x0, y0, x0 + e, y1, A(0.95 * t), crv, rws, inst);
+      addRect(x1 - e, y0, x1, y1, A(0.95 * t), crv, rws, inst);
+      break;
+    }
+    case 'topbar': {
+      // An accent indicator bar slides in from the left along the top edge.
+      face();
+      const w = (x1 - x0) * t;
+      addRect(x0, y0, x0 + w, y0 + 3, A(0.95 * t), crv, rws, inst);
+      break;
+    }
+    case 'ring': {
+      // An offset accent outline ring appears around the button (halo with a gap).
+      const o = 5;
+      addRect(x0 - o, y0 - o, x1 + o, y0 - o + e, A(0.9 * t), crv, rws, inst);
+      addRect(x0 - o, y1 + o - e, x1 + o, y1 + o, A(0.9 * t), crv, rws, inst);
+      addRect(x0 - o, y0 - o, x0 - o + e, y1 + o, A(0.9 * t), crv, rws, inst);
+      addRect(x1 + o - e, y0 - o, x1 + o, y1 + o, A(0.9 * t), crv, rws, inst);
+      face();
+      break;
+    }
+    case 'corners': {
+      // Accent corner brackets (a targeting reticle) fade in over a slight brighten.
+      face();
+      const L = Math.min(el.w, el.h) * 0.30;
+      addRect(x0, y0, x0 + L, y0 + e, A(0.95 * t), crv, rws, inst);
+      addRect(x0, y0, x0 + e, y0 + L, A(0.95 * t), crv, rws, inst);
+      addRect(x1 - L, y0, x1, y0 + e, A(0.95 * t), crv, rws, inst);
+      addRect(x1 - e, y0, x1, y0 + L, A(0.95 * t), crv, rws, inst);
+      addRect(x0, y1 - e, x0 + L, y1, A(0.95 * t), crv, rws, inst);
+      addRect(x0, y1 - L, x0 + e, y1, A(0.95 * t), crv, rws, inst);
+      addRect(x1 - L, y1 - e, x1, y1, A(0.95 * t), crv, rws, inst);
+      addRect(x1 - e, y1 - L, x1, y1, A(0.95 * t), crv, rws, inst);
+      break;
+    }
+    default:
+      face();
+  }
+}
 
 // Shared depth texture for the 3D mesh pass, recreated when the canvas resizes.
 let _depthTex: GPUTexture | null = null;
@@ -160,8 +262,12 @@ export function runFrame(s: AppState): () => void {
       s.fpsEl.textContent = `${Math.round(1000 / fpsDt)} fps  ·  ${zoomStr}×  ·  js ${jsMs.toFixed(1)}ms  ·  worst ${worstDt.toFixed(0)}ms  ·  ev ${evPerS}/s${perfTag}`;
       // Mirror the readout for the DOM-free cinematic HUD (drawn analytically).
       s.hudDebugText = s.fpsEl.textContent ?? '';
+      // Analytic fps chip: short + full + demo diagnostics (3rd click mode).
+      s.fpsChip?.update(`${Math.round(1000 / fpsDt)} fps`, s.hudDebugText, s.hudDebugExtra);
       worstDt = 0;
     }
+
+    s.fpsChip?.tick(now); // long-press detection + transient status expiry
 
     if (s.demo && s.demo.running) s.demo.update(now);
     else if (s.perf && s.perf.running) s.perf.update(now);
@@ -302,7 +408,10 @@ export function runFrame(s: AppState): () => void {
         const shimX = el.x + ((now * 0.12) % (el.w + 60)) - 30;
         addRect(shimX, el.y, shimX + 30, el.y + el.h, SHIMMER_COLOR, crv, rws, inst);
       }
-      if ((isHov || isAct) && el.curShadow > 0.01) {
+      if (el.hoverFx) {
+        // Named analytic hover effect (replaces the legacy wash + shadow).
+        renderHoverFx(el, s, crv, rws, inst, now);
+      } else if ((isHov || isAct) && el.curShadow > 0.01) {
         const g = 14 * el.curShadow;
         const sh = s.themeCol.shadow;
         _tmpColor[0] = sh[0]; _tmpColor[1] = sh[1]; _tmpColor[2] = sh[2]; _tmpColor[3] = sh[3] * el.curShadow;

@@ -16,6 +16,7 @@
 import type { Engine } from './engine';
 import type { SceneDoc, Color } from '../authoring/ir/types';
 import { scene } from '../authoring/builder/scene';
+import { toggle3D } from '../camera/camera';
 import { createBaseApp, finishApp, snapTo } from './app';
 import { WindgraphSceneBoard, demoDoc } from './boards/windgraphScene';
 import { EmitCache } from '../windfoil/emitCache';
@@ -71,7 +72,7 @@ export function plotsDoc(): SceneDoc {
 
 // ── world ────────────────────────────────────────────────────────────────────
 
-const GAP = 140;
+const GAP = 500;
 const TILE = 800;
 
 function niceStep(rough: number): number {
@@ -86,23 +87,29 @@ export class WindgraphWorld {
   readonly overview: { x: number; y: number; w: number; h: number };
   /** Huge culling bounds centered on the content — the canvas feels infinite. */
   x0 = 0; y0 = 0; width = 0; height = 0;
+  /** Dot-grid backdrop on/off (toolbar toggle; masthead always stays). */
+  showGrid = true;
+  /** Live perf readout (fed to the fps chip's 3rd mode via onDebug): section
+   *  ms, instance delta, cumulative cache misses — climbing while idle = thrash. */
+  debug = '';
+  onDebug?: (line: string) => void;
 
   private active: WindgraphSceneBoard | null = null;
   private backdropCache = new EmitCache();
 
   constructor() {
     const tri = new WindgraphSceneBoard(demoDoc());
-    tri.x0 = 0; tri.y0 = 300;
+    tri.x0 = 0; tri.y0 = 200;
     const geom = new WindgraphSceneBoard(geometryDoc());
-    geom.x0 = tri.width + GAP; geom.y0 = 300;
+    geom.x0 = tri.width + GAP; geom.y0 = 200;
     const plots = new WindgraphSceneBoard(plotsDoc());
     plots.width = tri.width * 2 + GAP;
-    plots.x0 = 0; plots.y0 = 300 + tri.height + GAP;
+    plots.x0 = 0; plots.y0 = 200 + tri.height + GAP;
     this.boards = [tri, geom, plots];
 
     const contentW = tri.width * 2 + GAP;
     const contentH = plots.y0 + plots.height;
-    this.overview = { x: -80, y: -250, w: contentW + 160, h: contentH + 250 + 80 };
+    this.overview = { x: -60, y: -230, w: contentW + 120, h: contentH + 230 + 60 };
     const cx = contentW / 2, cy = contentH / 2, HALF = 30000;
     this.x0 = cx - HALF; this.y0 = cy - HALF;
     this.width = HALF * 2; this.height = HALF * 2;
@@ -128,9 +135,17 @@ export class WindgraphWorld {
   dragTo(wx: number, wy: number) { this.active?.dragTo(wx, wy); }
   endDrag() { this.active?.endDrag(); this.active = null; }
   get dragging(): boolean { return this.active?.dragging ?? false; }
+  private hoverKey = '';
+  private hoverRes = false;
   updateHover(wx: number, wy: number, scale: number): boolean {
+    // frame.ts hit-tests every frame; while pointer + zoom + board revs are
+    // unchanged the answer cannot change — skip the per-board walk.
+    const key = `${wx}|${wy}|${Math.round(scale * 50)}|${this.boards[0].rev},${this.boards[1].rev},${this.boards[2].rev}`;
+    if (key === this.hoverKey) return this.hoverRes;
+    this.hoverKey = key;
     const b = this.boardAt(wx, wy);
-    return b ? b.updateHover(wx, wy, scale) : false;
+    this.hoverRes = b ? b.updateHover(wx, wy, scale) : false;
+    return this.hoverRes;
   }
   /** Cinematic feed: the triangle board drives vertex B on a wall-clock path. */
   autoDrive() { this.boards[0].autoDrive(); }
@@ -138,6 +153,8 @@ export class WindgraphWorld {
   // ── emit ────────────────────────────────────────────────────────────────
 
   emit(font: FontFace, atlas: any, inst: number[], crv: number[], rws: number[], now: number, view: PlaneView) {
+    const t0 = performance.now();
+    const inst0 = inst.length;
     const z = Math.max(view.zoom, 1e-4);
     const sentinel = view.left < -1e11;
     const vL = sentinel ? this.overview.x - 2000 : view.left;
@@ -145,30 +162,48 @@ export class WindgraphWorld {
     const vR = sentinel ? this.overview.x + this.overview.w + 2000 : view.right;
     const vB = sentinel ? this.overview.y + this.overview.h + 2000 : view.bottom;
 
-    // Backdrop (LOD dot grid + masthead), cached per quantized view tile.
+    // Backdrop (LOD dot grid + masthead). Cache key = grid STEP + tile range,
+    // never raw zoom: niceStep is a step-function of zoom, so the grid geometry
+    // is constant across a zoom band — zooming replays the cache instead of
+    // rebuilding thousands of dots per frame (the old raw-zoom key missed every
+    // frame of a zoom). Dot size derives from `step` so screen size stays ~2-4px.
+    const step = niceStep(60 / z);
     const eL = Math.floor(vL / TILE) * TILE, eT = Math.floor(vT / TILE) * TILE;
     const eR = Math.ceil(vR / TILE) * TILE, eB = Math.ceil(vB / TILE) * TILE;
-    this.backdropCache.run(`g|${z.toPrecision(4)}|${eL},${eT},${eR},${eB}`, inst, crv, rws, () => {
-      const step = niceStep(44 / z);
-      const x0 = Math.ceil(eL / step) * step, y0 = Math.ceil(eT / step) * step;
-      let i = 0;
-      for (let x = x0; x <= eR; x += step, i++) {
-        let j = 0;
-        for (let y = y0; y <= eB; y += step, j++) {
-          const major = i % 5 === 0 && j % 5 === 0;
-          const r = major ? 3.2 : 2.0;
-          addRect(x - r, y - r, x + r, y + r, [1, 1, 1, major ? 0.10 : 0.045], crv, rws, inst);
+    const tg0 = performance.now();
+    this.backdropCache.run(`g|${this.showGrid ? 1 : 0}|${step}|${eL},${eT},${eR},${eB}`, inst, crv, rws, () => {
+      if (this.showGrid) {
+        const rMinor = step * 0.035, rMajor = step * 0.06;
+        const x0 = Math.ceil(eL / step) * step, y0 = Math.ceil(eT / step) * step;
+        let i = 0;
+        for (let x = x0; x <= eR; x += step, i++) {
+          let j = 0;
+          for (let y = y0; y <= eB; y += step, j++) {
+            const major = i % 5 === 0 && j % 5 === 0;
+            const r = major ? rMajor : rMinor;
+            addRect(x - r, y - r, x + r, y + r, [1, 1, 1, major ? 0.10 : 0.045], crv, rws, inst);
+          }
         }
       }
       this.drawMasthead(font, atlas, inst, crv, rws, eL, eT, eR, eB);
     });
 
+    const tGrid = performance.now() - tg0;
+
     // Boards (each carries its own rev/hover/tile cache).
+    const tB: number[] = [];
     for (const b of this.boards) {
+      const tb0 = performance.now();
       if (b.x0 <= vR && b.x0 + b.width >= vL && b.y0 <= vB && b.y0 + b.height >= vT) {
         b.emit(font, atlas, inst, crv, rws, now, view);
       }
+      tB.push(performance.now() - tb0);
     }
+    const [tri, geom, plots] = this.boards;
+    this.debug = `wg ${(performance.now() - t0).toFixed(1)}ms · inst ${Math.round((inst.length - inst0) / 16)}`
+      + ` · grid ${tGrid.toFixed(1)} · tri ${tB[0].toFixed(1)} · geom ${tB[1].toFixed(1)} · plots ${tB[2].toFixed(1)}`
+      + ` · miss g${this.backdropCache.misses} t${tri.cacheMisses}/${tri.directMisses} e${geom.cacheMisses} p${plots.cacheMisses}/${plots.directMisses}`;
+    this.onDebug?.(this.debug);
   }
 
   private drawMasthead(font: FontFace, atlas: any, inst: number[], crv: number[], rws: number[], cL: number, cT: number, cR: number, cB: number) {
@@ -188,6 +223,7 @@ export class WindgraphWorld {
 export function bootWindgraphWorld(engine: Engine, onBack: () => void): () => void {
   const s = createBaseApp(engine, false);
   const world = new WindgraphWorld();
+  world.onDebug = (line) => { s.hudDebugExtra = line; };
   s.interactive = world;
 
   const frameRect = (x: number, y: number, w: number, h: number) => {
@@ -199,10 +235,13 @@ export function bootWindgraphWorld(engine: Engine, onBack: () => void): () => vo
   snapTo(s, ov.x + ov.w / 2, ov.y + ov.h / 2,
     Math.min((s.tCanvas.width / (ov.w + 240)) * 0.9, (s.tCanvas.height / (ov.h + 240)) * 0.9));
 
-  return finishApp(s, onBack, [
+  const dispose = finishApp(s, onBack, [
+    { id: 'cam3d', icon: 'cube', title: 'Toggle 3D free camera (drag = orbit, Shift+drag = pan, wheel = dolly)', active: () => s.cam3d.active, onClick: () => toggle3D(s) },
+    { id: 'grid', icon: 'grid', title: 'Toggle dot grid', active: () => world.showGrid, onClick: () => { world.showGrid = !world.showGrid; } },
     { id: 'overview', icon: 'compass', title: 'Frame all boards', onClick: () => frameRect(ov.x, ov.y, ov.w, ov.h) },
     { id: 'wg-tri', icon: 'triangle', title: 'Interactive triangle: centroid, circumcircle, glider, measures — plus a slider-bound wave', onClick: () => { const b = world.boards[0]; frameRect(b.x0, b.y0, b.width, b.height); } },
     { id: 'wg-geom', icon: 'ruler', title: 'Constraint geometry: intersection, perpendicular foot, reflection, parallel, glider — all live', onClick: () => { const b = world.boards[1]; frameRect(b.x0, b.y0, b.width, b.height); } },
     { id: 'wg-plots', icon: 'chart', title: 'Plot gallery: functions, rose (petals slider), Lissajous, lemniscate, vector field', onClick: () => { const b = world.boards[2]; frameRect(b.x0, b.y0, b.width, b.height); } },
   ]);
+  return dispose;
 }
