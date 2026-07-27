@@ -1,0 +1,162 @@
+# windgraph v2 — Notes, decisions, tips, open questions
+
+Append-only working memory. Anything a fresh agent needs that isn't obvious
+from the code lives here. Newest entries at the bottom of each section.
+
+---
+
+## 1. Decisions log (locked — do not relitigate without user sign-off)
+
+- **D1 — Primitives vs islands (user decision, 2026-07-27).** Object-like
+  content (typed parameters, identity, draggable/measurable/serializable,
+  per-object animation) = **first-class IR primitives**: new `ObjectSpec`
+  kinds → windgraph `Mobject` instances. Field-like content (per-pixel,
+  procedural, no sub-object identity) = **islands / shader passes**. Islands
+  additionally provide the *hosting plumbing* (board slot, `DrawHelpers`,
+  `s.interactive` routing) that windgraph boards reuse. Consequence: math-ish
+  islands (`gdCurve`, `lineFit`, `lossContour`, `network`) are misfiled and
+  migrate to primitives in Phase 6. Full table in `../SPRINT-windgraph-v2.md` §1.
+- **D2 — Moat-first sequencing.** Continuous 2D↔3D (lane G) and physics (lane H)
+  ship before parity work. Nobody chooses this engine for a histogram; they
+  choose it for the contour→surface lift and the Galton board. Parity trails
+  behind, culled by actual taste verdicts at CP6.
+- **D3 — Acceptance-bar carve-out.** "Analytic, zero aliasing, any zoom" is the
+  contract for 2D content (strokes, fills, glyphs, math, chart chrome). Sampled
+  3D (marching cubes, volume raymarch, 4D projection) is explicitly labeled
+  "sampled", gets adaptive tessellation + silhouette refinement, and never
+  claims the analytic guarantee. (`WINDGRAPH.md` §5 fixed in task 0.3.)
+- **D4 — Chrome is not foundation.** Sidebar/inspector demoted out of the
+  foundation phase; moat demos run on hardcoded specs + sliders. Chrome is
+  Phase 6.
+- **D5 — Chrome is analytic-rendered, not DOM.** The repo already replaced the
+  DOM toolbar and context menu with GPU-rendered analytic ones (commits
+  `d83c839`, `1abc027`, `a4473e4`, plus soft shadows + transform support).
+  Track I (tooltips, sidebar, inspector) follows that pattern: rounded-rect
+  coverage + windfoil text, themed via the existing palette. No new DOM overlays.
+- **D6 — Execution contract.** Autonomous churn; stops only at the 8 🔍
+  checkpoints (`checkpoints.md`). Typecheck + tests after every task. No
+  commits unless asked; no new npm deps; targeted edits, never file overwrites.
+- **D7 — Phase 1 extends the existing IR, it does not fork it.** `ir/types.ts`
+  already has `ObjectSpec` kinds (text, glyph, rect, circle, polygon, line,
+  math, group, island), `ClipSpec` kinds (fadeIn/out, draw, write, …), and a
+  **parameter system** (`{kind:'number', min, max, step}`, boolean, point,
+  color — `ir/types.ts:209-212`). New windgraph kinds and the slider binding
+  plug into these existing mechanisms.
+
+## 2. Technical tips (file:line anchored)
+
+**The 3D substrate already exists — extend, don't rebuild:**
+- `src/windfoil/windfoil.wgsl:69` — `fxXforms` storage buffer, `vec4f` pair per
+  instance (`rotX, rotY, z, scale`), applied when `fxActive`. Task 2.1 promotes
+  this from FX-only to a Mobject-emitted property.
+- `SPRINT.md` decision D6 (IDE FX sprint): **depth write stays OFF** on the
+  windfoil pass; flying glyphs append last (painter order, z≥0). Extruded
+  side-walls routed through `mesh3d` are depth-tested in a *separate* pipeline
+  — the compositing boundary between the two is the risk in 2.2. See OQ-1.
+- `src/windfoil/mesh3d.ts` — true-3D triangles + lines, shared depth buffer,
+  Gouraud shading. v1 perf lesson (sprint/TODO.md): static vertex buffers
+  upload ONCE; depth-view cached; frustum culling exists — don't regress these.
+- `src/frame.ts:398-430` — windgraph board emit + `EmitCache` signature
+  pattern: `emit(font, atlas, inst, crv, rws, now, view)`. Match it exactly.
+- `src/camera/input.ts:143,169,321` — pointer routing already prioritizes
+  windgraph handle grabs over camera pan. The Phase-1 board adapter reuses
+  this; don't invent new input paths.
+
+**Physics + FX machinery to wrap, not rewrite:**
+- `src/ide/fx/physics.ts` — box3d.js rigid bodies per instance: clip planes,
+  home transforms (`homeX/homeY` + `homeCx…`), sleep/dormancy pools, broadphase
+  grid (`GRID_CELL=64`), reassembly-by-home. `PhysicsBoard` (H1) generalizes
+  this: bars→boxes, dots→circles, polylines→chains.
+- `src/ide/fx/fireworks.ts` — the `extras()` pattern (`extraFA`/`extraXF`
+  appended instances) is how spawned particles/clones join the draw. Reuse for
+  event bursts (H2) and shatter debris (H1).
+- `src/ide/fx/morph.ts` (if shipped) / `logo.ts` — glyph-correspondence morph
+  engine; strategies formation/collapse/explode/grid/stack.
+
+**windgraph v1 assets to reuse:**
+- `src/windgraph/interact/graph.ts` — `ConstraintGraph` (Kahn topo-sort, cycle
+  detection) is the dependency engine for BOTH the board adapter (Phase 1) and
+  the expression engine (Phase 5 lane L: expressions become `GObject`s).
+- `src/windgraph/plot/implicit.ts` — marching squares already exists. G5
+  (contour→surface) and A15 (labeled contours) build on `plotImplicit`; do not
+  re-derive contours.
+- `src/windgraph/anim/` — Scene/Timeline/ValueTracker/easing; `Transform` does
+  path-correspondence morph (`resample`, `pointAtFraction`). Representation
+  morphs (G1–G4) reuse this for the 2D side.
+- `src/windgraph/math/mathtex.ts` — `MathTex` with write-on; glyph morph is
+  crossfade-only today (v1 stretch item).
+- `src/windgraph/space3d/project3d.ts` — `colormap`, `LIGHT_DIR`, `faceNormal`
+  — the shading vocabulary for extrusion (2.2) and surfaces.
+
+**Authoring system facts:**
+- `src/authoring/runtime/runtime.ts` is 62KB in one file — task 0.1 splits it
+  before anything else piles on. Proposed seams: draw-emit, input/interactive
+  contract, object-tree/chrome, orbit-camera driving.
+- `src/authoring/builder/scene.ts` (30KB) has the builder's existing object
+  vocabulary — reconcile with new specs in 1.1/1.3 (extend, never fork).
+- `src/authoring/islands/draw.ts` — `DrawHelpers` (10+ GPU primitives) shared
+  by runtime + islands; windgraph boards get the same helpers.
+- `src/authoring/repl.ts` — 13 existing scene commands; windgraph commands
+  (1.6) follow that registration pattern.
+- Demo routing is hash-based: `#authoring`, `#explainer-v2`, `#islands`,
+  `#pages` (`src/authoring/demo.ts`). Playground boards get toolbar buttons
+  (`src/playground/playground.ts:298-302` pattern) — extend for windgraph v2
+  boards; see OQ-5.
+
+## 3. Open questions (answer → move to decisions log)
+
+- **OQ-1 — Extruded side-walls: mesh3d or analytic fills?** mesh3d triangles
+  get depth occlusion right but lose analytic AA on wall silhouette edges;
+  analytic fill quads with per-instance z keep AA but need painter ordering
+  against the depth-tested surface pass. Prototype both inside 2.2; CP3 verdict
+  decides. (Hybrid is possible: analytic walls for isolated extrusions, mesh3d
+  when interleaving with true-3D surfaces.)
+- **OQ-2 — Contact shadow technique (2.5).** Project elevated silhouette to the
+  ground plane as a blurred analytic fill (penumbra via widened coverage
+  falloff)? Needs a prototype; keep it one draw-call-friendly pass.
+- **OQ-3 — Expression engine vs authored specs (lane L).** Live calculator
+  expressions and static SceneDoc parameters must coexist: spec parameter
+  values should be allowed to *be* expressions evaluated per frame. Decide the
+  binding in L1; likely `ConstraintGraph` nodes owned by the board adapter.
+- **OQ-4 — Galton board scale (H4).** physics.ts shards UI glyphs (hundreds,
+  mostly dormant). Hundreds of *live* bouncing balls may need substep/grid
+  tuning (`SUBSTEPS=2`, `GRID_CELL=64` in physics.ts). Benchmark early in H4;
+  fallback: deterministic custom circle-packing sim if box3d chokes.
+- **OQ-5 — Board discovery UI.** Playground toolbar buttons (current pattern)
+  vs island gallery (`islands/gallery.ts`) vs a windgraph gallery board.
+  Interim: playground buttons. Revisit at CP6 with the full board count.
+- **OQ-6 — Naming.** "windgraph" is a working title (sprint/README.md:3).
+  Settle before Phase 6 export/branding work.
+- **OQ-7 — runtime.ts split seams (0.1).** Verify actual structure before
+  cutting; the seams listed in §2 are a hypothesis. Behavior-identical only —
+  tests (timeline, trace, safeArea) must stay green, no API changes.
+
+## 4. Lessons (digest of oldsprintplan/POSTMORTEM.md + v1 sprint)
+
+- **Static before interactive.** Prove a feature with one static board, then
+  add drag/animation. Most v1 pain came from building interactive demos on
+  unproven statics.
+- **Match the system's grain.** Reuse `s.interactive`, the `emit(...)` board
+  signature, `EmitCache`, existing input routing. New patterns need justification.
+- **Never overwrite a file; targeted edits only; grep for duplicates after
+  `replaceAll`.** A bad replaceAll once cost hours.
+- **Don't fight infrastructure.** Vite/WASM fights get a 30-minute timebox,
+  then the simplest alternative.
+- **Perf regressions hide in per-frame work.** v1 regressions: per-frame
+  `writeBuffer` of 1MB meshes, per-frame `createView()`, per-frame CSS selector
+  matching on hover, per-glyph cmap lookups. Rule: anything in `frame()` runs
+  60×/s — cache, dirty-track, or precompute.
+- **The user is the only visual test runner.** Agents can't see the browser —
+  that's exactly what the 🔍 checkpoints are for; never fake a visual verdict.
+
+## 5. Direction reminders (why, when tired)
+
+- The moat is §G/§H of `WINDGRAPH.md`: continuous 2D↔3D with glyph height, and
+  physics-driven graphs. If a task doesn't serve the moat or unblock something
+  that does, question whether it's in the right phase.
+- Sharpness is the brand. Every 2D element must survive 1000× zoom in every
+  board, including new chrome and shadows. Sampled 3D says so honestly (D3).
+- One draw call is the religion. New passes need justification; batch geometry;
+  keep per-frame CPU bounded.
+- Smooth by construction: no snapping anywhere — every mode change is an
+  animatable parameter (elevation, tilt, morph weight).

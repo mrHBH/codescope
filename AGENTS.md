@@ -2,14 +2,28 @@
 
 Ground rules for any AI agent working in this repository. Read this before doing
 anything. For deeper technical facts, also consult repo memory
-(`/memories/repo/codescope.md`), `VISION.md`, `PROGRESS.md`, `SPRINT.md`, and
-`SPRINT-TODO.md`.
+(`/memories/repo/codescope.md`), `VISION.md`, and `PROGRESS.md`.
 
-Active sprint: **Authoring System v2** — a document-centric JSON source of truth,
-declarative TS builder, procedural islands + gallery, analytic tool chrome, and
-REPL — all beating the Manim API. See `SPRINT.md` for full architecture and
-phase plan. See `SPRINT-TODO.md` for the granular task list with checkboxes.
+Active sprint: **windgraph v2** — expanding the windgraph math engine into the
+most comprehensive plotting/geometry/animation system anywhere, leading with
+the unique assets: continuous 2D↔3D with true glyph height, physics-driven
+graphs (box3d), and analytic sharpness at any zoom.
 
+**To continue work, read in this order** (all under `sprint-v2/`):
+1. `sprint-v2/STATE.md` — current phase, next task, passed checkpoints (ground truth).
+2. `sprint-v2/NOTES.md` — decisions log, technical tips (file:line anchored),
+   open questions, execution lessons.
+3. The current `sprint-v2/phase-N-*.md` — task list with acceptance criteria.
+4. `sprint-v2/checkpoints.md` — the only authorized stops (human feel-tests).
+
+Supporting docs: `WINDGRAPH.md` (full feature surface + competitor analysis),
+`SPRINT-windgraph-v2.md` (master execution plan + architecture decision),
+`sprint-v2/TODO.md` (master checklist).
+
+Completed sprints (context, not active): Authoring System v2 (archived in
+`oldsprintplan/`, status in `PROGRESS.md` §0), IDE Effects v3 (`SPRINT.md` +
+`SPRINT-TODO.md`, produced the FX/3D/physics substrate v2 builds on), windgraph
+v1 phases 0–8 (`sprint/`).
 
 ---
 
@@ -32,5 +46,14 @@ editor, terminal, and file tree entirely through a closed-form coverage integral
 - `src/css/` — CSS engine, themes, theme controller.
 - `src/editor/` — code editor, terminal, file tree.
 - `src/frame.ts` — the per-frame instance-buffer build + single draw call.
-- `src/authoring/` — **(active sprint)** Scene IR, declarative TS builder,
-  layout (Taffy WASM), runtime, analytic tool chrome, designer, REPL.
+- `src/windgraph/` — **(active sprint focus)** math engine v1: stroke engine,
+  Mobject primitives, coords, plotting, animation, constraint graph, LaTeX
+  math, 3D projection. v2 extends this + the authoring IR (see `sprint-v2/`).
+- `src/authoring/` — Scene IR, declarative TS builder, layout (Taffy WASM),
+  runtime, analytic chrome, REPL (sprint complete; v2 plugs windgraph objects
+  into its IR — decision D1 in `sprint-v2/NOTES.md`).
+- `src/ide/fx/` — modular FX architecture: per-instance 3D transforms
+  (`fxXforms`), morph engine, box3d physics, fireworks — the substrate for
+  windgraph v2's physics lane.
+- `src/playground/` — demo boards + toolbar buttons; windgraph v2 boards
+  register here.
