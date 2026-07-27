@@ -5,6 +5,7 @@ import type {
   SceneDoc, ObjectSpec, Vec2, Color, ClipSpec, CameraKeyframe,
   EasingName, ParamRef, ParamValue, GroupSpec, LayoutSpec,
 } from './types';
+import { checkExpr } from '../../windgraph/expr';
 
 export function validateSceneDoc(doc: unknown, knownIslandIds?: Set<string>): string[] {
   const errs: string[] = [];
@@ -30,7 +31,7 @@ export function validateSceneDoc(doc: unknown, knownIslandIds?: Set<string>): st
       validateSpec(key, s, errs);
     }
 
-    // referential integrity: children exist
+    // referential integrity: group children + windgraph object refs exist
     for (const [key, spec] of Object.entries(objMap)) {
       if (!spec || typeof spec !== 'object') continue;
       const s = spec as Record<string, unknown>;
@@ -42,9 +43,13 @@ export function validateSceneDoc(doc: unknown, knownIslandIds?: Set<string>): st
           }
         }
       }
+      for (const rid of wgObjectRefs(s)) {
+        if (!objMap[rid]) errs.push(`objects.${key}: reference "${rid}" not found in objects`);
+      }
     }
 
-    // no group cycles (DFS)
+    // no dependency cycles over group children + windgraph object refs (DFS
+    // from every node — catches wg cycles disconnected from any root)
     function hasCycle(nodeId: string, visited: Set<string>, stack: Set<string>): boolean {
       if (stack.has(nodeId)) return true;
       if (visited.has(nodeId)) return false;
@@ -53,18 +58,16 @@ export function validateSceneDoc(doc: unknown, knownIslandIds?: Set<string>): st
       if (n && n.kind === 'group' && Array.isArray(n.children)) {
         for (const c of n.children) { if (hasCycle(c, visited, stack)) return true; }
       }
+      if (n) {
+        for (const c of wgObjectRefs(n)) { if (hasCycle(c, visited, stack)) return true; }
+      }
       stack.delete(nodeId);
       return false;
     }
-    const rootIds = new Set(Object.keys(objMap));
-    for (const [k, v] of Object.entries(objMap)) {
-      if ((v as any).kind === 'group' && Array.isArray((v as any).children)) {
-        for (const c of (v as any).children) rootIds.delete(c);
-      }
-    }
     const visited = new Set<string>();
-    const toCheck = rootIds.size > 0 ? rootIds : new Set(Object.keys(objMap));
-    for (const rid of toCheck) { if (hasCycle(rid, visited, new Set())) { errs.push(`object "${rid}" is part of a cycle`); break; } }
+    for (const oid of Object.keys(objMap)) {
+      if (hasCycle(oid, visited, new Set())) { errs.push(`object "${oid}" is part of a cycle`); break; }
+    }
 
     // fit target must be chapter group with size
     if (d.camera && typeof d.camera === 'object' && !Array.isArray(d.camera)) {
@@ -82,16 +85,11 @@ export function validateSceneDoc(doc: unknown, knownIslandIds?: Set<string>): st
       }
     }
 
-    // deep-walk $param refs
+    // deep-walk $param refs in ANY spec (island params, windgraph numerics/points)
     for (const [key, spec] of Object.entries(objMap)) {
       if (!spec || typeof spec !== 'object') continue;
       const s = spec as Record<string, unknown>;
-      if ((s as any).kind === 'island') {
-        const params = (s as any).params as Record<string, unknown> | undefined;
-        if (params && typeof params === 'object' && !Array.isArray(params)) {
-          walkParamRefs(params, d.params as Record<string, unknown> | undefined, key, errs);
-        }
-      }
+      walkParamRefs(s, d.params as Record<string, unknown> | undefined, key, errs);
       // island id check
       if ((s as any).kind === 'island' && typeof (s as any).island === 'string' && knownIslandIds) {
         if (!knownIslandIds.has((s as any).island))
@@ -146,8 +144,13 @@ export function validateSceneDoc(doc: unknown, knownIslandIds?: Set<string>): st
       if (!c || typeof c !== 'object') { errs.push(`clips[${i}]: must be an object`); continue; }
       if (typeof c.id !== 'string' || !c.id) errs.push(`clips[${i}].id: required non-empty string`);
       if (typeof c.target !== 'string' || !c.target) errs.push(`clips[${i}].target: required non-empty string`);
-      if (!['fadeIn','fadeOut','draw','write','moveTo','scaleTo','rotateTo','morph','param'].includes(c.kind as string))
+      if (!['fadeIn','fadeOut','draw','write','moveTo','scaleTo','rotateTo','morph','param','moveAlongPath'].includes(c.kind as string))
         errs.push(`clips[${i}].kind: invalid "${c.kind}"`);
+      if (c.kind === 'moveAlongPath') {
+        const path = (c.props as Record<string, unknown> | undefined)?.path;
+        if (typeof path !== 'string' || !path) errs.push(`clips[${i}].props.path: required object id`);
+        else if (!objMap[path]) errs.push(`clips[${i}].props.path: "${path}" not found in objects`);
+      }
       if (typeof c.start !== 'number' || !isFinite(c.start as number) || (c.start as number) < 0)
         errs.push(`clips[${i}].start: must be finite >= 0`);
       if (typeof c.duration !== 'number' || !isFinite(c.duration as number) || (c.duration as number) <= 0)
@@ -241,9 +244,19 @@ function isColor(v: unknown): v is Color {
   return Array.isArray(v) && v.length === 4 && v.every((x) => typeof x === 'number' && x >= 0 && x <= 1);
 }
 
+const VALID_KINDS = new Set([
+  'text','glyph','rect','circle','polygon','line','math','group','island',
+  'wg-point','wg-segment','wg-vector','wg-polyline','wg-polygon',
+  'wg-circle','wg-arc','wg-ellipse','wg-conic',
+  'wg-midpoint','wg-centroid','wg-intersection','wg-glider','wg-reflection',
+  'wg-line-through','wg-perpendicular','wg-parallel','wg-circumcircle',
+  'wg-angle','wg-distance',
+  'wg-plot-fn','wg-plot-parametric','wg-plot-polar','wg-plot-implicit','wg-field',
+]);
+
 function validateSpec(key: string, s: Record<string, unknown>, errs: string[]) {
   if (typeof s.kind !== 'string') { errs.push(`objects.${key}.kind: must be a string`); return; }
-  if (!['text','glyph','rect','circle','polygon','line','math','group','island'].includes(s.kind as string)) {
+  if (!VALID_KINDS.has(s.kind as string)) {
     errs.push(`objects.${key}.kind: invalid "${s.kind}"`); return;
   }
   if (s.id !== undefined && typeof s.id !== 'string') errs.push(`objects.${key}.id: must be a string`);
@@ -312,9 +325,208 @@ function validateSpec(key: string, s: Record<string, unknown>, errs: string[]) {
     if (s.size !== undefined && !isVec2(s.size)) errs.push(`objects.${key}.size: invalid [x,y]`);
     if (s.params !== undefined && (typeof s.params !== 'object' || Array.isArray(s.params)))
       errs.push(`objects.${key}.params: must be an object`);
+  } else if (k.startsWith('wg-')) {
+    validateWgSpec(key, s, errs);
   }
   // common: item (all kinds)
   if (s.item !== undefined) validateItem(key, s.item, errs);
+}
+
+// ── windgraph spec validation ────────────────────────────────────────────────
+
+function isParamRef(v: unknown): boolean {
+  return !!v && typeof v === 'object' && !Array.isArray(v) && typeof (v as any).$param === 'string';
+}
+
+/** WgNum: finite number or $param ref. */
+function isWgNum(v: unknown): boolean {
+  return (typeof v === 'number' && isFinite(v as number)) || isParamRef(v);
+}
+
+/** WgPoint: [x,y], $param ref, or object id string (existence checked separately). */
+function isWgPoint(v: unknown): boolean {
+  return isVec2(v) || isParamRef(v) || (typeof v === 'string' && (v as string).length > 0);
+}
+
+/** Object-id references held by a spec (for referential integrity + cycle detection). */
+function wgObjectRefs(s: Record<string, unknown>): string[] {
+  const refs: string[] = [];
+  const one = (v: unknown) => { if (typeof v === 'string' && v) refs.push(v); };
+  const many = (v: unknown) => { if (Array.isArray(v)) for (const x of v) one(x); };
+  switch (s.kind) {
+    case 'wg-point': one(s.at); break;
+    case 'wg-segment': case 'wg-vector': one(s.from); one(s.to); break;
+    case 'wg-polyline': case 'wg-polygon': many(s.points); break;
+    case 'wg-circle': case 'wg-arc': case 'wg-ellipse': one(s.center); break;
+    case 'wg-conic': many(s.foci); one(s.directrix); one(s.through); break;
+    case 'wg-midpoint': case 'wg-intersection': one(s.a); one(s.b); break;
+    case 'wg-centroid': many(s.points); break;
+    case 'wg-glider': one(s.curve); break;
+    case 'wg-reflection': one(s.p); one(s.axis); break;
+    case 'wg-line-through': one(s.a); one(s.b); break;
+    case 'wg-perpendicular': case 'wg-parallel': one(s.line); one(s.point); break;
+    case 'wg-circumcircle': one(s.a); one(s.b); one(s.c); break;
+    case 'wg-angle': one(s.a); one(s.vertex); one(s.b); break;
+    case 'wg-distance': one(s.a); one(s.b); break;
+  }
+  return refs;
+}
+
+function validateWgSpec(key: string, s: Record<string, unknown>, errs: string[]) {
+  const k = s.kind as string;
+  const optPointLike = () => {
+    if (s.color !== undefined && !isColor(s.color)) errs.push(`objects.${key}.color: invalid color`);
+    if (s.radius !== undefined && (typeof s.radius !== 'number' || s.radius <= 0)) errs.push(`objects.${key}.radius: must be > 0`);
+    if (s.label !== undefined && typeof s.label !== 'string') errs.push(`objects.${key}.label: must be a string`);
+  };
+  const optStrokeFill = () => {
+    if (s.stroke !== undefined) validateStroke(key, s.stroke, errs);
+    if (s.fill !== undefined && !isColor(s.fill)) errs.push(`objects.${key}.fill: invalid color`);
+  };
+  const expr = (field: string) => {
+    const v = s[field];
+    if (typeof v !== 'string' || !v) { errs.push(`objects.${key}.${field}: required non-empty string`); return; }
+    const err = checkExpr(v);
+    if (err) errs.push(`objects.${key}.${field}: ${err}`);
+  };
+  const range = (field: string) => {
+    const r = s[field];
+    if (!Array.isArray(r) || r.length !== 2) { errs.push(`objects.${key}.${field}: required [min,max]`); return; }
+    if (!isWgNum(r[0]) || !isWgNum(r[1])) errs.push(`objects.${key}.${field}: entries must be numbers or $param refs`);
+  };
+  const idField = (field: string) => {
+    if (typeof s[field] !== 'string' || !(s[field] as string)) errs.push(`objects.${key}.${field}: required object id`);
+  };
+  const idArray = (field: string, min: number) => {
+    const arr = s[field];
+    if (!Array.isArray(arr) || arr.length < min) errs.push(`objects.${key}.${field}: array of object ids (>= ${min})`);
+    else arr.forEach((v, i) => { if (typeof v !== 'string' || !v) errs.push(`objects.${key}.${field}[${i}]: must be an object id`); });
+  };
+  const samples = () => {
+    if (s.samples !== undefined && (typeof s.samples !== 'number' || s.samples < 2))
+      errs.push(`objects.${key}.samples: must be a number >= 2`);
+  };
+
+  switch (k) {
+    case 'wg-point':
+      if (s.at === undefined || !isWgPoint(s.at)) errs.push(`objects.${key}.at: required [x,y], $param, or object id`);
+      if (s.free !== undefined && typeof s.free !== 'boolean') errs.push(`objects.${key}.free: must be boolean`);
+      optPointLike();
+      break;
+    case 'wg-segment':
+      if (s.from === undefined || !isWgPoint(s.from)) errs.push(`objects.${key}.from: required point`);
+      if (s.to === undefined || !isWgPoint(s.to)) errs.push(`objects.${key}.to: required point`);
+      optStrokeFill();
+      break;
+    case 'wg-vector':
+      if (s.from === undefined || !isWgPoint(s.from)) errs.push(`objects.${key}.from: required point`);
+      if (s.to === undefined || !isWgPoint(s.to)) errs.push(`objects.${key}.to: required point`);
+      if (s.color !== undefined && !isColor(s.color)) errs.push(`objects.${key}.color: invalid color`);
+      if (s.width !== undefined && (typeof s.width !== 'number' || s.width <= 0)) errs.push(`objects.${key}.width: must be > 0`);
+      break;
+    case 'wg-polyline':
+    case 'wg-polygon': {
+      const pts = s.points;
+      const min = k === 'wg-polygon' ? 3 : 2;
+      if (!Array.isArray(pts) || pts.length < min) errs.push(`objects.${key}.points: array of points (>= ${min})`);
+      else pts.forEach((p, i) => { if (!isWgPoint(p)) errs.push(`objects.${key}.points[${i}]: invalid point`); });
+      optStrokeFill();
+      break;
+    }
+    case 'wg-circle':
+      if (s.center === undefined || !isWgPoint(s.center)) errs.push(`objects.${key}.center: required point`);
+      if (!isWgNum(s.radius)) errs.push(`objects.${key}.radius: required number or $param`);
+      optStrokeFill();
+      break;
+    case 'wg-arc':
+      if (s.center === undefined || !isWgPoint(s.center)) errs.push(`objects.${key}.center: required point`);
+      if (!isWgNum(s.radius)) errs.push(`objects.${key}.radius: required number or $param`);
+      if (!isWgNum(s.a0)) errs.push(`objects.${key}.a0: required number or $param`);
+      if (!isWgNum(s.a1)) errs.push(`objects.${key}.a1: required number or $param`);
+      optStrokeFill();
+      break;
+    case 'wg-ellipse':
+      if (s.center === undefined || !isWgPoint(s.center)) errs.push(`objects.${key}.center: required point`);
+      if (!isWgNum(s.rx)) errs.push(`objects.${key}.rx: required number or $param`);
+      if (!isWgNum(s.ry)) errs.push(`objects.${key}.ry: required number or $param`);
+      if (s.rot !== undefined && !isWgNum(s.rot)) errs.push(`objects.${key}.rot: must be number or $param`);
+      optStrokeFill();
+      break;
+    case 'wg-conic':
+      if (!['ellipse','hyperbola','parabola'].includes(s.conic as string))
+        errs.push(`objects.${key}.conic: must be ellipse|hyperbola|parabola`);
+      if (s.foci !== undefined) idArray('foci', 1);
+      for (const f of ['directrix','through']) {
+        if (s[f] !== undefined && (typeof s[f] !== 'string' || !(s[f] as string)))
+          errs.push(`objects.${key}.${f}: must be an object id`);
+      }
+      optStrokeFill();
+      break;
+    case 'wg-midpoint':
+    case 'wg-intersection':
+      idField('a'); idField('b'); optPointLike();
+      break;
+    case 'wg-centroid':
+      idArray('points', 3); optPointLike();
+      break;
+    case 'wg-glider':
+      idField('curve');
+      if (!isWgNum(s.t)) errs.push(`objects.${key}.t: required number or $param`);
+      optPointLike();
+      break;
+    case 'wg-reflection':
+      idField('p'); idField('axis'); optPointLike();
+      break;
+    case 'wg-line-through':
+      idField('a'); idField('b'); optStrokeFill();
+      break;
+    case 'wg-perpendicular':
+    case 'wg-parallel':
+      idField('line'); idField('point'); optStrokeFill();
+      break;
+    case 'wg-circumcircle':
+      idField('a'); idField('b'); idField('c'); optStrokeFill();
+      break;
+    case 'wg-angle':
+      idField('a'); idField('vertex'); idField('b');
+      if (s.color !== undefined && !isColor(s.color)) errs.push(`objects.${key}.color: invalid color`);
+      break;
+    case 'wg-distance':
+      idField('a'); idField('b');
+      if (s.color !== undefined && !isColor(s.color)) errs.push(`objects.${key}.color: invalid color`);
+      break;
+    case 'wg-plot-fn':
+      expr('expr');
+      if (s.domain !== undefined) range('domain');
+      samples();
+      optStrokeFill();
+      break;
+    case 'wg-plot-parametric':
+      expr('xExpr'); expr('yExpr'); range('tRange');
+      samples();
+      optStrokeFill();
+      break;
+    case 'wg-plot-polar':
+      expr('rExpr'); range('tRange');
+      samples();
+      optStrokeFill();
+      break;
+    case 'wg-plot-implicit':
+      expr('expr');
+      optStrokeFill();
+      break;
+    case 'wg-field':
+      if (!['vector','slope'].includes(s.field as string)) errs.push(`objects.${key}.field: must be vector|slope`);
+      if (s.field === 'vector' && s.xExpr === undefined) errs.push(`objects.${key}.xExpr: required for vector fields`);
+      if (s.xExpr !== undefined) expr('xExpr');
+      expr('yExpr');
+      if (s.density !== undefined && (typeof s.density !== 'number' || s.density <= 0))
+        errs.push(`objects.${key}.density: must be > 0`);
+      if (s.color !== undefined && !isColor(s.color)) errs.push(`objects.${key}.color: invalid color`);
+      break;
+    default:
+      errs.push(`objects.${key}: unhandled windgraph kind "${k}"`);
+  }
 }
 
 function validateStroke(key: string, v: unknown, errs: string[]) {
@@ -379,12 +591,21 @@ function walkParamRefs(
   objKey: string,
   errs: string[],
 ) {
+  const checkRef = (refName: string, path: string) => {
+    if (!params || !params[refName])
+      errs.push(`objects.${path}: $param "${refName}" not found in doc.params`);
+  };
   for (const [k, v] of Object.entries(obj)) {
-    if (v && typeof v === 'object' && !Array.isArray(v)) {
+    if (Array.isArray(v)) {
+      // WgNum/WgPoint entries (domain tuples, point lists) may carry $param refs
+      v.forEach((x, i) => {
+        if (!x || typeof x !== 'object') return;
+        if (typeof (x as any).$param === 'string') checkRef((x as any).$param, `${objKey}.${k}[${i}]`);
+        else if (!Array.isArray(x)) walkParamRefs(x as Record<string, unknown>, params, `${objKey}.${k}[${i}]`, errs);
+      });
+    } else if (v && typeof v === 'object') {
       if (typeof (v as any).$param === 'string') {
-        const refName = (v as any).$param;
-        if (!params || !params[refName])
-          errs.push(`objects.${objKey}.params.${k}: $param "${refName}" not found in doc.params`);
+        checkRef((v as any).$param, `${objKey}.${k}`);
       } else {
         walkParamRefs(v as Record<string, unknown>, params, objKey + '.' + k, errs);
       }

@@ -204,12 +204,96 @@ function emitObject(lines: string[], chId: string, id: string, s: any, parentGro
       if (s.opacity !== undefined) rest.opacity = s.opacity;
       lines.push(`  ${chId}.island('${id}', '${s.island}', ${fmtObj(rest, 4)});`);
       break;
+    default:
+      // windgraph objects: data-space (NO chapter-relative offset), via ch.wg
+      if (typeof s.kind === 'string' && s.kind.startsWith('wg-')) emitWg(lines, `${chId}.wg`, id, s);
+      break;
   }
 }
 
 function emitOrphanObject(lines: string[], id: string, s: any): void {
-  // No chapter context — emit as top-level objects (not implemented in builder API)
-  // Skip for now — orphans are rare
+  // Scene-level windgraph objects project to s.wg.*; other orphans have no
+  // top-level builder API (existing limitation) and stay skipped.
+  if (typeof s.kind === 'string' && s.kind.startsWith('wg-')) emitWg(lines, 's.wg', id, s);
+}
+
+/** windgraph object → builder call on `recv` (`s.wg` or `<chapter>.wg`). */
+function emitWg(lines: string[], recv: string, id: string, s: any): void {
+  const opts: Record<string, unknown> = {};
+  const strokeFill = () => {
+    if (s.stroke) opts.stroke = s.stroke;
+    if (s.fill) opts.fill = s.fill;
+    if (s.opacity !== undefined) opts.opacity = s.opacity;
+    if (s.visible !== undefined) opts.visible = s.visible;
+  };
+  const pointLike = () => {
+    if (s.color) opts.color = s.color;
+    if (s.radius !== undefined) opts.radius = s.radius;
+    if (s.label !== undefined) opts.label = s.label;
+    if (s.opacity !== undefined) opts.opacity = s.opacity;
+    if (s.visible !== undefined) opts.visible = s.visible;
+  };
+  const colorOnly = () => {
+    if (s.color) opts.color = s.color;
+    if (s.opacity !== undefined) opts.opacity = s.opacity;
+    if (s.visible !== undefined) opts.visible = s.visible;
+  };
+  const call = (method: string, args: string[]) => {
+    const tail = Object.keys(opts).length > 0 ? ', ' + fmtObj(opts, 4) : '';
+    lines.push(`  ${recv}.${method}('${id}', ${args.join(', ')}${tail});`);
+  };
+  switch (s.kind) {
+    case 'wg-point':
+      if (s.free) opts.free = s.free;
+      pointLike(); call('point', [fmt(s.at)]); break;
+    case 'wg-segment': strokeFill(); call('segment', [fmt(s.from), fmt(s.to)]); break;
+    case 'wg-vector':
+      if (s.color) opts.color = s.color;
+      if (s.width !== undefined) opts.width = s.width;
+      if (s.opacity !== undefined) opts.opacity = s.opacity;
+      if (s.visible !== undefined) opts.visible = s.visible;
+      call('vector', [fmt(s.from), fmt(s.to)]); break;
+    case 'wg-polyline': strokeFill(); call('polyline', [fmt(s.points)]); break;
+    case 'wg-polygon': strokeFill(); call('polygon', [fmt(s.points)]); break;
+    case 'wg-circle': strokeFill(); call('circle', [fmt(s.center), fmt(s.radius)]); break;
+    case 'wg-arc': strokeFill(); call('arc', [fmt(s.center), fmt(s.radius), fmt(s.a0), fmt(s.a1)]); break;
+    case 'wg-ellipse':
+      if (s.rot !== undefined) opts.rot = s.rot;
+      strokeFill(); call('ellipse', [fmt(s.center), fmt(s.rx), fmt(s.ry)]); break;
+    case 'wg-conic':
+      if (s.foci) opts.foci = s.foci;
+      if (s.directrix) opts.directrix = s.directrix;
+      if (s.through) opts.through = s.through;
+      strokeFill(); call('conic', [JSON.stringify(s.conic)]); break;
+    case 'wg-midpoint': pointLike(); call('midpoint', [JSON.stringify(s.a), JSON.stringify(s.b)]); break;
+    case 'wg-centroid': pointLike(); call('centroid', [fmt(s.points)]); break;
+    case 'wg-intersection': pointLike(); call('intersection', [JSON.stringify(s.a), JSON.stringify(s.b)]); break;
+    case 'wg-glider': pointLike(); call('glider', [JSON.stringify(s.curve), fmt(s.t)]); break;
+    case 'wg-reflection': pointLike(); call('reflection', [JSON.stringify(s.p), JSON.stringify(s.axis)]); break;
+    case 'wg-line-through': strokeFill(); call('lineThrough', [JSON.stringify(s.a), JSON.stringify(s.b)]); break;
+    case 'wg-perpendicular': strokeFill(); call('perpendicular', [JSON.stringify(s.line), JSON.stringify(s.point)]); break;
+    case 'wg-parallel': strokeFill(); call('parallel', [JSON.stringify(s.line), JSON.stringify(s.point)]); break;
+    case 'wg-circumcircle': strokeFill(); call('circumcircle', [JSON.stringify(s.a), JSON.stringify(s.b), JSON.stringify(s.c)]); break;
+    case 'wg-angle': colorOnly(); call('angle', [JSON.stringify(s.a), JSON.stringify(s.vertex), JSON.stringify(s.b)]); break;
+    case 'wg-distance': colorOnly(); call('distance', [JSON.stringify(s.a), JSON.stringify(s.b)]); break;
+    case 'wg-plot-fn':
+      if (s.domain) opts.domain = s.domain;
+      if (s.samples !== undefined) opts.samples = s.samples;
+      strokeFill(); call('plotFn', [JSON.stringify(s.expr)]); break;
+    case 'wg-plot-parametric':
+      if (s.samples !== undefined) opts.samples = s.samples;
+      strokeFill(); call('plotParametric', [JSON.stringify(s.xExpr), JSON.stringify(s.yExpr), fmt(s.tRange)]); break;
+    case 'wg-plot-polar':
+      if (s.samples !== undefined) opts.samples = s.samples;
+      strokeFill(); call('plotPolar', [JSON.stringify(s.rExpr), fmt(s.tRange)]); break;
+    case 'wg-plot-implicit': strokeFill(); call('plotImplicit', [JSON.stringify(s.expr)]); break;
+    case 'wg-field':
+      if (s.density !== undefined) opts.density = s.density;
+      if (s.color) opts.color = s.color;
+      if (s.opacity !== undefined) opts.opacity = s.opacity;
+      if (s.visible !== undefined) opts.visible = s.visible;
+      call('field', [JSON.stringify(s.field), fmt({ x: s.xExpr, y: s.yExpr })]); break;
+  }
 }
 
 function emitClip(lines: string[], chId: string, clip: any, doc: SceneDoc): void {
@@ -270,6 +354,9 @@ function emitClip(lines: string[], chId: string, clip: any, doc: SceneDoc): void
     case 'param':
       rest.to = (clip.props as any).to;
       lines.push(`  ${chId}.clip.param(${target}, ${fmtObj(rest, 4)});`);
+      break;
+    case 'moveAlongPath':
+      lines.push(`  ${chId}.clip.moveAlongPath(${target}, ${JSON.stringify((clip.props as any).path ?? '')}, ${fmtObj(rest, 4)});`);
       break;
   }
 }

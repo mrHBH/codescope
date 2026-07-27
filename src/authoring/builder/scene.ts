@@ -3,6 +3,7 @@
 import type { SceneDoc, ObjectSpec, ClipSpec, CameraKeyframe, CameraTrack,
   GroupSpec, Vec2, Color, ParamDef, ParamRef, EasingName } from '../ir/types';
 import { validateSceneDoc } from '../ir/validate';
+import { WgBuilder } from './objects';
 
 // ── SceneBuilder ─────────────────────────────────────────────────────────
 export class SceneBuilder {
@@ -122,6 +123,9 @@ export class SceneBuilder {
     return this;
   }
 
+  // ── windgraph objects (data-space; hosted by the windgraph board) ───────
+  get wg(): WgBuilder { return new WgBuilder(this); }
+
   build(): SceneDoc {
     this.doc.camera.keyframes.sort((a, b) => a.time - b.time);
     const errors = validateSceneDoc(this.doc);
@@ -144,6 +148,10 @@ export class ChapterBuilder {
   ) {}
 
   private abs(p: Vec2): Vec2 { return [p[0] + this.origin[0], p[1] + this.origin[1]]; }
+
+  /** windgraph objects parented under this chapter (data-space coordinates —
+   *  no chapter offset; parenting only groups them for compositing/fades). */
+  get wg(): WgBuilder { return new WgBuilder(this.s, this.grpId); }
 
   // Object builder methods — each adds a spec with chapter-relative `at` → absolute
   text(id: string | null, content: string, opts: { at: Vec2; size: number; color: Color; weight?: number; align?: 'left' | 'center' | 'right'; opacity?: number }) {
@@ -379,6 +387,9 @@ export class ChapterBuilder {
     },
     param: (name: string, o: { start: number; duration: number; to: number | boolean | Vec2 | Color; ease?: EasingName }) => {
       this.s.doc.clips.push({ id: this.s.uid('clip'), target: 'param:' + name, kind: 'param', start: this.start + o.start, duration: o.duration, ease: o.ease, props: { to: o.to } });
+    },
+    moveAlongPath: (target: string, path: string, o: { start: number; duration: number; ease?: EasingName }) => {
+      this.s.doc.clips.push({ id: this.s.uid('clip'), target, kind: 'moveAlongPath', start: this.start + o.start, duration: o.duration, ease: o.ease, props: { path } });
     },
   };
 

@@ -200,5 +200,110 @@ test('validate string param ref not found', () => {
   assert(errs.some((e) => e.includes('nonexistent')));
 });
 
+// ── windgraph kinds (sprint-v2 Phase 1) ─────────────────────────────────────
+
+const wgDoc = (objects: Record<string, any>, params: Record<string, any> = {}): any =>
+  ({ version: 1, meta: { title: 'wg' }, objects, params, clips: [], camera: { keyframes: [] } });
+
+test('validate passes a full windgraph scene', () => {
+  const doc = wgDoc({
+    A: { kind: 'wg-point', id: 'A', at: [0, 0], free: true, label: 'A' },
+    B: { kind: 'wg-point', id: 'B', at: [200, 0], free: true, label: 'B' },
+    C: { kind: 'wg-point', id: 'C', at: [100, -160], free: true },
+    tri: { kind: 'wg-polygon', id: 'tri', points: ['A', 'B', 'C'], stroke: { color: [1, 1, 1, 1], width: 2 } },
+    ab: { kind: 'wg-segment', id: 'ab', from: 'A', to: 'B' },
+    v1: { kind: 'wg-vector', id: 'v1', from: 'A', to: [50, -50], width: 2 },
+    cc: { kind: 'wg-circumcircle', id: 'cc', a: 'A', b: 'B', c: 'C', stroke: { color: [1, 1, 0, 1], width: 1.5 } },
+    M: { kind: 'wg-midpoint', id: 'M', a: 'A', b: 'B', radius: 4 },
+    G: { kind: 'wg-centroid', id: 'G', points: ['A', 'B', 'C'] },
+    gl: { kind: 'wg-glider', id: 'gl', curve: 'cc', t: 0.3 },
+    ln: { kind: 'wg-line-through', id: 'ln', a: 'A', b: 'M' },
+    pp: { kind: 'wg-perpendicular', id: 'pp', line: 'ln', point: 'C' },
+    an: { kind: 'wg-angle', id: 'an', a: 'A', vertex: 'B', b: 'C' },
+    d1: { kind: 'wg-distance', id: 'd1', a: 'A', b: 'B' },
+    c2: { kind: 'wg-circle', id: 'c2', center: 'M', radius: { $param: 'r' } },
+    f: { kind: 'wg-plot-fn', id: 'f', expr: 'a*sin(x)', domain: [-6, 6], stroke: { color: [0, 1, 1, 1], width: 2 } },
+  }, { r: { kind: 'number', label: 'r', default: 40, min: 1, max: 200 }, a: { kind: 'number', label: 'a', default: 1 } });
+  const errs = validateSceneDoc(doc);
+  assert(errs.length === 0, 'expected no errors, got: ' + errs.join('; '));
+});
+
+test('validate passes parametric/polar/implicit/field plots', () => {
+  const doc = wgDoc({
+    p1: { kind: 'wg-plot-parametric', id: 'p1', xExpr: 'cos(t)*(1+0.2*cos(5*t))', yExpr: 'sin(t)*(1+0.2*cos(5*t))', tRange: [0, { $param: 'tMax' }] },
+    p2: { kind: 'wg-plot-polar', id: 'p2', rExpr: 'cos(3*t)', tRange: [0, 6.283] },
+    p3: { kind: 'wg-plot-implicit', id: 'p3', expr: 'x^2 + y^2 - 1' },
+    p4: { kind: 'wg-field', id: 'p4', field: 'vector', xExpr: '-y', yExpr: 'x', density: 12 },
+    p5: { kind: 'wg-field', id: 'p5', field: 'slope', yExpr: 'x*y' },
+    e1: { kind: 'wg-ellipse', id: 'e1', center: [0, 0], rx: 80, ry: 40, rot: 0.5 },
+    a1: { kind: 'wg-arc', id: 'a1', center: [0, 0], radius: 50, a0: 0, a1: 3.14 },
+    pl: { kind: 'wg-polyline', id: 'pl', points: [[0, 0], [10, 10], 'e1'] },
+  }, { tMax: { kind: 'number', label: 'tMax', default: 6.283 } });
+  const errs = validateSceneDoc(doc);
+  assert(errs.length === 0, 'expected no errors, got: ' + errs.join('; '));
+});
+
+test('windgraph scene round-trips through serialize/deserialize', () => {
+  const doc = wgDoc({
+    A: { kind: 'wg-point', id: 'A', at: { $param: 'pt' }, free: true },
+    f: { kind: 'wg-plot-fn', id: 'f', expr: 'sin(x)*x', domain: [{ $param: 'lo' }, 6] },
+  }, {
+    pt: { kind: 'point', label: 'A pos', default: [10, 20] },
+    lo: { kind: 'number', label: 'lo', default: -6 },
+  });
+  const back = deserialize(serialize(doc));
+  assert(deepEqual(back, doc));
+});
+
+test('validate catches wg ref to missing object', () => {
+  const doc = wgDoc({ s: { kind: 'wg-segment', id: 's', from: 'ghost', to: [10, 10] } });
+  const errs = validateSceneDoc(doc);
+  assert(errs.some((e) => e.includes('ghost')));
+});
+
+test('validate catches wg constraint cycle (no root involved)', () => {
+  const doc = wgDoc({
+    A: { kind: 'wg-point', id: 'A', at: [0, 0] },
+    p1: { kind: 'wg-midpoint', id: 'p1', a: 'p2', b: 'A' },
+    p2: { kind: 'wg-midpoint', id: 'p2', a: 'p1', b: 'A' },
+  });
+  const errs = validateSceneDoc(doc);
+  assert(errs.some((e) => e.includes('cycle')), 'expected cycle error, got: ' + errs.join('; '));
+});
+
+test('validate catches self-referencing wg-point', () => {
+  const doc = wgDoc({ p: { kind: 'wg-point', id: 'p', at: 'p' } });
+  const errs = validateSceneDoc(doc);
+  assert(errs.some((e) => e.includes('cycle')));
+});
+
+test('validate catches bad expression in wg-plot-fn', () => {
+  const doc = wgDoc({ f: { kind: 'wg-plot-fn', id: 'f', expr: 'sin(' } });
+  const errs = validateSceneDoc(doc);
+  assert(errs.some((e) => e.includes('expr')));
+});
+
+test('validate catches $param ref in wg field pointing to missing param', () => {
+  const doc = wgDoc({ c: { kind: 'wg-circle', id: 'c', center: [0, 0], radius: { $param: 'nope' } } });
+  const errs = validateSceneDoc(doc);
+  assert(errs.some((e) => e.includes('nope')));
+});
+
+test('validate catches $param ref inside a domain tuple', () => {
+  const doc = wgDoc({ f: { kind: 'wg-plot-fn', id: 'f', expr: 'x', domain: [{ $param: 'missing' }, 5] } });
+  const errs = validateSceneDoc(doc);
+  assert(errs.some((e) => e.includes('missing')));
+});
+
+test('validate rejects wg-polygon with < 3 points and wg-field vector without xExpr', () => {
+  const doc = wgDoc({
+    pg: { kind: 'wg-polygon', id: 'pg', points: [[0, 0], [1, 1]] },
+    fd: { kind: 'wg-field', id: 'fd', field: 'vector', yExpr: 'x' },
+  });
+  const errs = validateSceneDoc(doc);
+  assert(errs.some((e) => e.includes('pg.points')));
+  assert(errs.some((e) => e.includes('fd.xExpr')));
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) throw new Error(`${failed} tests failed`);

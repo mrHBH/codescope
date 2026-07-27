@@ -13,15 +13,15 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `~~struck~~` = culled b
 - [x] 0.2 Fix stale docs (AGENTS.md, PROGRESS.md)
 - [x] 0.3 Fix `WINDGRAPH.md` §5 analytic-vs-sampled carve-out (D3)
 - [x] 0.4 Integration contracts note (primitives vs islands, ObjectSpec kinds, adapter contract)
-- [ ] **CP1 passed** — regression smoke
+- [x] **CP1 passed** — regression smoke (2026-07-27: "all is still identical")
 
 ## Phase 1 — Object model (`phase-1-object-model.md`)
-- [ ] 1.1 IR windgraph ObjectSpec kinds + validation + round-trip tests
-- [ ] 1.2 `runtime/object-resolver.ts` (spec → Mobject/GObject, incremental re-resolve)
-- [ ] 1.3 `builder/objects.ts` + `builder/clips.ts`
-- [ ] 1.4 Windgraph board adapter (hosts ConstraintGraph scene, s.interactive routing)
-- [ ] 1.5 Slider binding + `emitTS` projection
-- [ ] 1.6 REPL windgraph commands
+- [x] 1.1 IR windgraph ObjectSpec kinds + validation + round-trip tests
+- [x] 1.2 `runtime/object-resolver.ts` (spec → Mobject/GObject, incremental re-resolve)
+- [x] 1.3 `builder/objects.ts` + `builder/clips.ts`
+- [x] 1.4 Windgraph board adapter (hosts ConstraintGraph scene, s.interactive routing)
+- [x] 1.5 Slider binding + `emitTS` projection
+- [x] 1.6 REPL windgraph commands
 - [ ] **CP2 passed** — the drag feel
 
 ## Phase 2 — Moat foundation (`phase-2-moat-foundation.md`)

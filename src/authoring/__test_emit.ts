@@ -127,5 +127,58 @@ test('deterministic output', () => {
   assert(a === b, 'should produce identical output');
 });
 
+// ── windgraph projection (sprint-v2 Phase 1.5) ──────────────────────────────
+import { scene } from './builder/scene';
+
+test('emits scene-level windgraph objects via s.wg', () => {
+  const doc = scene({ title: 'WG' }, (s) => {
+    s.param.number('r', { default: 2, min: 0.5, max: 5 });
+    s.wg.point('A', [0, 0], { free: true, label: 'A' });
+    s.wg.point('B', [3, 1]);
+    s.wg.segment('ab', 'A', 'B', { stroke: { color: [1, 1, 1, 1], width: 2 } });
+    s.wg.circle('c', [0, 0], s.param.ref('r'));
+    s.wg.plotFn('f', 'sin(x)', { domain: [-6, 6] });
+  });
+  const out = emitTS(doc);
+  assert(out.includes("s.wg.point('A'"), 'point call');
+  assert(out.includes('free: true'), 'free flag');
+  assert(out.includes("s.wg.segment('ab', \"A\", \"B\""), 'segment with id args');
+  assert(out.includes("s.wg.circle('c', [0, 0], s.param.ref('r')"), 'param-ref radius');
+  assert(out.includes('s.wg.plotFn(\'f\', "sin(x)"'), 'plotFn expr');
+  assert(out.includes('domain: [-6, 6]'), 'plot domain');
+});
+
+test('emits chapter-parented windgraph objects via ch.wg', () => {
+  const doc = scene({ title: 'WG2' }, (s) => {
+    const ch = s.chapter('ch0', { title: 'C', sub: 's', at: [0, 0], dur: 10 });
+    ch.wg.point('P', [1, 2]);
+    ch.wg.midpoint('M', 'P', 'P');
+  });
+  const out = emitTS(doc);
+  assert(out.includes("ch0.wg.point('P', [1, 2]"), 'chapter-relative wg call (data coords, no offset)');
+  assert(out.includes('ch0.wg.midpoint'), 'constraint call');
+});
+
+test('emits moveAlongPath clips', () => {
+  const doc = scene({ title: 'WG3' }, (s) => {
+    const ch = s.chapter('ch0', { title: 'C', sub: 's', at: [0, 0], dur: 10 });
+    ch.wg.point('P', [0, 0]);
+    ch.wg.plotFn('path', 'sin(x)');
+    ch.clip.moveAlongPath('P', 'path', { start: 1, duration: 2 });
+  });
+  const out = emitTS(doc);
+  assert(out.includes("ch0.clip.moveAlongPath('P', \"path\""), 'moveAlongPath call');
+});
+
+test('windgraph projection is deterministic', () => {
+  const mk = () => scene({ title: 'WG4' }, (s) => {
+    s.wg.point('A', [0, 0], { free: true });
+    s.wg.point('B', [2, 0]);
+    s.wg.circumcircle('cc', 'A', 'B', 'A');
+    s.wg.field('fld', 'vector', { x: '-y', y: 'x' }, { density: 1 });
+  });
+  assert(emitTS(mk()) === emitTS(mk()), 'identical output');
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) throw new Error(`${failed} tests failed`);

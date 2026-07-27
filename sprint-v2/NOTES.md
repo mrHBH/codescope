@@ -103,6 +103,34 @@ from the code lives here. Newest entries at the bottom of each section.
 - `src/windgraph/space3d/project3d.ts` — `colormap`, `LIGHT_DIR`, `faceNormal`
   — the shading vocabulary for extrusion (2.2) and surfaces.
 
+**Phase 1 architecture (as built — read before extending):**
+- `WgScene` (`runtime/object-resolver.ts`): constraint graph runs in WORLD
+  space (free points store world coords; data→world via `plane.dToWx/dToWy` at
+  resolve time). Angles/circles are therefore visually true even with
+  non-uniform plane scales. Worklist build tolerates any doc order; validation
+  guarantees termination.
+- Live values flow through closures: `pt(WgPoint)` / `num(WgNum)` return
+  getters over params/points; syncables re-read them after every
+  `graph.update()` and `markDirty()` the Mobjects. Plot groups resample only
+  when the numeric-param signature changes (`paramSig`).
+- Implicit plots + fields are NOT Mobjects — they're view-dependent direct
+  draws (`directDraws(ctx, view)`) calling `plotImplicit`/`plotVectorField`/
+  `plotSlopeField`. Function/parametric/polar plots ARE Mobject polylines
+  (animatable/morphable — the moat needs this). Discontinuities split into
+  multiple polylines (jump > 4× plane height or non-finite).
+- `WindgraphSceneBoard` (`playground/boards/windgraphScene.ts`) owns the
+  `s.interactive` slot (superseded v1 `InteractDemo` — same position/button;
+  `autoDrive` feeds the cinematic flight). Emit is cached on
+  `rev|hoveredId|tile-quantized-view`; drag/param changes bump `rev`. Sliders
+  are analytic, screen-constant (geometry ∝ 1/zoom), hit-tested before scene
+  points in `tryBeginDrag`.
+- `wgRepl(board, line)` is terminal-agnostic (returns lines); mutations
+  validate the whole doc and roll back on error, then `board.rebuild()`.
+  Terminal UI hookup = Phase 6 (Lane I).
+- `emitTS` projects wg kinds: scene-level wg objects are "orphans" → `s.wg.*`;
+  chapter-parented → `ch.wg.*` with NO chapter offset (data space). `$param`
+  refs print as `s.param.ref('name')` via the existing `fmt`.
+
 **Authoring system facts:**
 - `src/authoring/runtime/runtime.ts` is 62KB in one file — task 0.1 splits it
   before anything else piles on. Proposed seams: draw-emit, input/interactive

@@ -110,5 +110,88 @@ test('validateSceneDoc catches invalid doc (negative clip)', () => {
   assert(errs.length > 0, 'expected validation errors');
 });
 
+// ── windgraph builder (sprint-v2 Phase 1.3) ─────────────────────────────────
+
+test('wg builder: scene-level objects with auto ids', () => {
+  const doc = scene({ title: 't' }, (s) => {
+    s.wg.point('A', [0, 0], { free: true, label: 'A' });
+    s.wg.point('B', [4, 0], { free: true });
+    s.wg.segment(null, 'A', 'B', { stroke: { color: [1, 1, 1, 1], width: 2 } });
+    s.wg.plotFn('f', 'sin(x)', { domain: [-6, 6] });
+  });
+  assert(validateSceneDoc(doc).length === 0);
+  assert((doc.objects.A as any).kind === 'wg-point');
+  assert((doc.objects.A as any).free === true);
+  const seg = Object.values(doc.objects).find((o: any) => o.kind === 'wg-segment') as any;
+  assert(seg && seg.from === 'A' && seg.to === 'B');
+  assert((doc.objects.f as any).expr === 'sin(x)');
+});
+
+test('wg builder: chapter parenting', () => {
+  const doc = scene({ title: 't' }, (s) => {
+    const ch = s.chapter('ch0', { title: 'C', sub: 's', at: [0, 0], dur: 10 });
+    ch.wg.point('P', [1, 1]);
+  });
+  assert((doc.objects.ch0 as any).children.includes('P'));
+  // wg coordinates stay data-space (NO chapter offset)
+  assert((doc.objects.P as any).at[0] === 1);
+});
+
+test('wg builder: param-bound radius + $param wire', () => {
+  const doc = scene({ title: 't' }, (s) => {
+    const r = s.param.number('r', { default: 2, min: 0.5, max: 5 });
+    s.wg.circle('c', [0, 0], r.ref());
+  });
+  assert((doc.objects.c as any).radius.$param === 'r');
+  assert(validateSceneDoc(doc).length === 0);
+});
+
+test('wg builder: full construction kit validates', () => {
+  const doc = scene({ title: 't' }, (s) => {
+    s.wg.point('A', [0, 0], { free: true });
+    s.wg.point('B', [4, 0], { free: true });
+    s.wg.point('C', [2, 3], { free: true });
+    s.wg.polygon('tri', ['A', 'B', 'C']);
+    s.wg.circumcircle('cc', 'A', 'B', 'C');
+    s.wg.midpoint('M', 'A', 'B');
+    s.wg.centroid('G', ['A', 'B', 'C']);
+    s.wg.lineThrough('ln', 'A', 'M');
+    s.wg.perpendicular('pp', 'ln', 'C');
+    s.wg.glider('gl', 'cc', 0.5);
+    s.wg.angle('ang', 'A', 'B', 'C');
+    s.wg.distance('d', 'A', 'B');
+    s.wg.vector('v', 'A', [1, 1]);
+    s.wg.ellipse('e', [0, 0], 3, 1.5, { rot: 0.4 });
+    s.wg.plotPolar('rose', 'cos(3*t)', [0, 6.283]);
+    s.wg.plotImplicit('impl', 'x^2 + y^2 - 4');
+    s.wg.field('fld', 'vector', { x: '-y', y: 'x' }, { density: 1 });
+  });
+  const errs = validateSceneDoc(doc);
+  assert(errs.length === 0, 'expected no errors, got: ' + errs.join('; '));
+});
+
+test('moveAlongPath clip: chapter-relative + validation', () => {
+  const doc = scene({ title: 't' }, (s) => {
+    const ch = s.chapter('ch0', { title: 'C', sub: 's', at: [0, 0], dur: 10 });
+    ch.wg.point('P', [0, 0]);
+    ch.wg.plotFn('path', 'sin(x)');
+    ch.start = 2;
+    ch.clip.moveAlongPath('P', 'path', { start: 1, duration: 3 });
+  });
+  const c = doc.clips[0];
+  assert(c.kind === 'moveAlongPath');
+  assert(c.start === 3 && c.duration === 3);
+  assert((c.props as any).path === 'path');
+
+  const bad: any = {
+    version: 1, meta: { title: 't' },
+    objects: { P: { kind: 'wg-point', id: 'P', at: [0, 0] } },
+    params: {},
+    clips: [{ id: 'c1', target: 'P', kind: 'moveAlongPath', start: 0, duration: 1, props: { path: 'ghost' } }],
+    camera: { keyframes: [] },
+  };
+  assert(validateSceneDoc(bad).some((e) => e.includes('ghost')));
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) throw new Error(`${failed} tests failed`);

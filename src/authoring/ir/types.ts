@@ -14,7 +14,14 @@ export interface SceneDoc {
 
 export type ObjectSpec =
   | TextSpec | GlyphSpec | RectSpec | CircleSpec | PolygonSpec | LineSpec
-  | MathSpec | GroupSpec | IslandSpec;
+  | MathSpec | GroupSpec | IslandSpec
+  | WgPointSpec | WgSegmentSpec | WgVectorSpec | WgPolylineSpec | WgPolygonSpec
+  | WgCircleSpec | WgArcSpec | WgEllipseSpec | WgConicSpec
+  | WgMidpointSpec | WgCentroidSpec | WgIntersectionSpec | WgGliderSpec
+  | WgReflectionSpec | WgLineThroughSpec | WgPerpendicularSpec | WgParallelSpec
+  | WgCircumcircleSpec | WgAngleSpec | WgDistanceSpec
+  | WgPlotFnSpec | WgPlotParametricSpec | WgPlotPolarSpec | WgPlotImplicitSpec
+  | WgFieldSpec;
 
 export interface TextSpec {
   kind: 'text'; id: string;
@@ -97,6 +104,216 @@ export interface IslandSpec {
   opacity?: number; visible?: boolean;
 }
 
+// ── windgraph objects (sprint-v2 Phase 1 — see sprint-v2/contracts.md §2) ─
+// Object-like math content: typed parameters, identity, draggable/measurable,
+// per-object clips. Resolved to windgraph Mobject/GObject instances by the
+// board adapter's object-resolver. Field values accept ParamRef ({ $param })
+// for slider binding — same wire as IslandSpec.params.
+
+/** Numeric value: literal or parameter-bound. */
+export type WgNum = number | ParamRef;
+/** Point: literal [x,y], parameter-bound, or another object's id. */
+export type WgPoint = Vec2 | ParamRef | string;
+
+export interface WgPointSpec {
+  kind: 'wg-point'; id: string;
+  at: WgPoint;
+  /** Draggable; becomes a free node in the board's constraint graph. */
+  free?: boolean;
+  label?: string;
+  color?: Color; radius?: number;
+  opacity?: number; visible?: boolean;
+}
+
+export interface WgSegmentSpec {
+  kind: 'wg-segment'; id: string;
+  from: WgPoint; to: WgPoint;
+  stroke?: Stroke;
+  opacity?: number; visible?: boolean;
+}
+
+export interface WgVectorSpec {
+  kind: 'wg-vector'; id: string;
+  from: WgPoint; to: WgPoint;
+  color?: Color; width?: number;
+  opacity?: number; visible?: boolean;
+}
+
+export interface WgPolylineSpec {
+  kind: 'wg-polyline'; id: string;
+  points: WgPoint[];
+  stroke?: Stroke;
+  opacity?: number; visible?: boolean;
+}
+
+export interface WgPolygonSpec {
+  kind: 'wg-polygon'; id: string;
+  points: WgPoint[];
+  fill?: Color; stroke?: Stroke;
+  opacity?: number; visible?: boolean;
+}
+
+export interface WgCircleSpec {
+  kind: 'wg-circle'; id: string;
+  center: WgPoint; radius: WgNum;
+  fill?: Color; stroke?: Stroke;
+  opacity?: number; visible?: boolean;
+}
+
+export interface WgArcSpec {
+  kind: 'wg-arc'; id: string;
+  center: WgPoint; radius: WgNum;
+  a0: WgNum; a1: WgNum;
+  stroke?: Stroke;
+  opacity?: number; visible?: boolean;
+}
+
+export interface WgEllipseSpec {
+  kind: 'wg-ellipse'; id: string;
+  center: WgPoint; rx: WgNum; ry: WgNum; rot?: WgNum;
+  fill?: Color; stroke?: Stroke;
+  opacity?: number; visible?: boolean;
+}
+
+/** Stub kind — validated here, resolved in Phase 4 (B5 live conics). */
+export interface WgConicSpec {
+  kind: 'wg-conic'; id: string;
+  conic: 'ellipse' | 'hyperbola' | 'parabola';
+  foci?: string[]; directrix?: string; through?: string;
+  stroke?: Stroke;
+  opacity?: number; visible?: boolean;
+}
+
+// Constraint constructions: inputs are object ids; the board adapter registers
+// them in its ConstraintGraph (cycles rejected by validation).
+
+export interface WgMidpointSpec {
+  kind: 'wg-midpoint'; id: string;
+  a: string; b: string;
+  color?: Color; radius?: number; label?: string;
+  opacity?: number; visible?: boolean;
+}
+
+export interface WgCentroidSpec {
+  kind: 'wg-centroid'; id: string;
+  points: string[];
+  color?: Color; radius?: number; label?: string;
+  opacity?: number; visible?: boolean;
+}
+
+export interface WgIntersectionSpec {
+  kind: 'wg-intersection'; id: string;
+  a: string; b: string;
+  color?: Color; radius?: number; label?: string;
+  opacity?: number; visible?: boolean;
+}
+
+export interface WgGliderSpec {
+  kind: 'wg-glider'; id: string;
+  curve: string; t: WgNum;
+  color?: Color; radius?: number; label?: string;
+  opacity?: number; visible?: boolean;
+}
+
+export interface WgReflectionSpec {
+  kind: 'wg-reflection'; id: string;
+  p: string; axis: string;
+  color?: Color; radius?: number; label?: string;
+  opacity?: number; visible?: boolean;
+}
+
+export interface WgLineThroughSpec {
+  kind: 'wg-line-through'; id: string;
+  a: string; b: string;
+  stroke?: Stroke;
+  opacity?: number; visible?: boolean;
+}
+
+export interface WgPerpendicularSpec {
+  kind: 'wg-perpendicular'; id: string;
+  line: string; point: string;
+  stroke?: Stroke;
+  opacity?: number; visible?: boolean;
+}
+
+export interface WgParallelSpec {
+  kind: 'wg-parallel'; id: string;
+  line: string; point: string;
+  stroke?: Stroke;
+  opacity?: number; visible?: boolean;
+}
+
+export interface WgCircumcircleSpec {
+  kind: 'wg-circumcircle'; id: string;
+  a: string; b: string; c: string;
+  fill?: Color; stroke?: Stroke;
+  opacity?: number; visible?: boolean;
+}
+
+/** Angle mark + live measure label at `vertex`. */
+export interface WgAngleSpec {
+  kind: 'wg-angle'; id: string;
+  a: string; vertex: string; b: string;
+  color?: Color;
+  opacity?: number; visible?: boolean;
+}
+
+/** Distance readout label between two points. */
+export interface WgDistanceSpec {
+  kind: 'wg-distance'; id: string;
+  a: string; b: string;
+  color?: Color;
+  opacity?: number; visible?: boolean;
+}
+
+// Plots: expressions are compiled by windgraph/expr (variables: x / x,y / t
+// plus scene param names). Function closures attach at builder level; the
+// serialized form is always the expression string.
+
+export interface WgPlotFnSpec {
+  kind: 'wg-plot-fn'; id: string;
+  expr: string;
+  domain?: [WgNum, WgNum];
+  samples?: number;
+  stroke?: Stroke;
+  opacity?: number; visible?: boolean;
+}
+
+export interface WgPlotParametricSpec {
+  kind: 'wg-plot-parametric'; id: string;
+  xExpr: string; yExpr: string;
+  tRange: [WgNum, WgNum];
+  samples?: number;
+  stroke?: Stroke;
+  opacity?: number; visible?: boolean;
+}
+
+export interface WgPlotPolarSpec {
+  kind: 'wg-plot-polar'; id: string;
+  rExpr: string;
+  tRange: [WgNum, WgNum];
+  samples?: number;
+  stroke?: Stroke;
+  opacity?: number; visible?: boolean;
+}
+
+export interface WgPlotImplicitSpec {
+  kind: 'wg-plot-implicit'; id: string;
+  expr: string;
+  stroke?: Stroke;
+  opacity?: number; visible?: boolean;
+}
+
+export interface WgFieldSpec {
+  kind: 'wg-field'; id: string;
+  field: 'vector' | 'slope';
+  /** vector: (xExpr, yExpr) components · slope: ignored (dy/dx = yExpr). */
+  xExpr?: string; yExpr: string;
+  density?: number;
+  color?: Color;
+  opacity?: number; visible?: boolean;
+}
+
 export interface Stroke {
   color: Color; width: number;
 }
@@ -153,7 +370,7 @@ export interface ClipSpec {
   id: string;
   target: string;
   kind: 'fadeIn' | 'fadeOut' | 'draw' | 'write'
-      | 'moveTo' | 'scaleTo' | 'rotateTo' | 'morph' | 'param';
+      | 'moveTo' | 'scaleTo' | 'rotateTo' | 'morph' | 'param' | 'moveAlongPath';
   start: number;
   duration: number;
   ease?: EasingName;

@@ -24,7 +24,7 @@ import { addRect, layoutStr, tw } from '../layout/metrics';
 import { createDemo } from './cinematic';
 import { WindgraphDemo } from './boards/windgraphDemo';
 import { MorphDemo } from './boards/morphDemo';
-import { InteractDemo } from './boards/interactDemo';
+import { WindgraphSceneBoard } from './boards/windgraphScene';
 import { Surface3DDemo } from './boards/surface3dDemo';
 import { MathDemo } from './boards/mathDemo';
 import { PerfBench } from './bench';
@@ -142,9 +142,10 @@ export function bootPlayground(engine: Engine, onBack?: () => void): () => void 
     frame2DBoard(g.x0 + g.width / 2, g.y0 + g.height / 2, z);
   }
 
-  // ── windgraph Phase-5 interactivity demo ──────────────────────────────────
-  // World-space draggable board to the right of the animation board.
-  const interactive = new InteractDemo();
+  // ── windgraph v2 authored scene board (supersedes the v1 Phase-5 demo) ────
+  // World-space draggable board to the right of the animation board: a SceneDoc
+  // authored with the builder, resolved live (constraints + plots + params).
+  const interactive = new WindgraphSceneBoard();
   interactive.x0 = morphDemo.width + 400;
   interactive.y0 = -interactive.height - 200;
   s.interactive = interactive;
@@ -297,7 +298,7 @@ export function bootPlayground(engine: Engine, onBack?: () => void): () => void 
     { id: 'cinematic', icon: 'film', title: 'Play cinematic demo flight (any interaction stops it)', active: () => !!s.demo?.running, onClick: () => s.demo?.toggle() },
     { id: 'stroke', icon: 'chart', title: 'windgraph stroke demo (Phase 0)', onClick: () => frameWindgraph() },
     { id: 'anim', icon: 'morph', title: 'windgraph animation demo (Phase 4): morph, draw-on, riding point', onClick: () => frameMorph() },
-    { id: 'interact', icon: 'triangle', title: 'windgraph interactive demo (Phase 5): drag the triangle vertices', onClick: () => frameInteractive() },
+    { id: 'interact', icon: 'triangle', title: 'windgraph v2 authored scene: drag vertices/glider — constraints + plots recompute live', onClick: () => frameInteractive() },
     { id: 'graph3d', icon: 'mountain', title: 'windgraph 3D graphing demo (Phase 7): drag to orbit the surface', onClick: () => frameGraph3d() },
     { id: 'math', icon: 'ruler', title: 'windgraph math typesetting demo (Phase 6): analytic LaTeX', onClick: () => frameMath() },
     { id: 'bench', icon: 'flask', title: 'perf bench: click to cycle stress modes (watch FPS)', onClick: () => { s.bench!.cycle(); frameBench(); } },

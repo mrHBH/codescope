@@ -10,62 +10,71 @@ and expensive forever after.
 
 ---
 
-## 1.1 — IR: windgraph ObjectSpec kinds
+## 1.1 — IR: windgraph ObjectSpec kinds ✅
 
-- [ ] New kinds per the 0.4 contract, each with typed parameter schemas that
-      reuse the existing param system (`number` w/ min/max/step, point, color…).
-- [ ] Constraint-construction specs (midpoint, intersection, glider,
-      perpendicular, circumcircle…) reference object ids — extend `validate.ts`
-      referential-integrity + cycle checks (mirror `ConstraintGraph` cycle detection).
-- [ ] `serialize.ts` round-trip coverage; extend `__test_ir.ts`.
-- **Acceptance:** every new kind validates, rejects bad refs/cycles, and
-  round-trips JSON; tests green.
+- [x] 22 new kinds (`WgNum`/`WgPoint` value types; `ParamRef` reuse) in
+      `ir/types.ts` per contracts.md §2; `wg-conic` is a validated stub
+      (resolver throws → Phase 4 B5).
+- [x] `validate.ts`: per-kind checks, wg object-ref integrity, full-graph cycle
+      DFS (catches constraint cycles disconnected from any root), `$param`
+      walk generalized to any spec field incl. arrays, plot `expr` syntax
+      checked via the new `windgraph/expr.ts` compiler (25 tests).
+- [x] `serialize.ts` needed no changes (generic); round-trip tests in
+      `__test_ir.ts` (29 total).
 
-## 1.2 — `runtime/object-resolver.ts`
+## 1.2 — `runtime/object-resolver.ts` ✅
 
-- [ ] ObjectSpec → windgraph `Mobject` / `GObject` instances; free vs
-      constrained objects feed a `ConstraintGraph` owned by the board.
-- [ ] Parameter mutation re-resolves incrementally (only the dirty dependency
-      cone — the topo order already exists).
-- **Acceptance:** unit test: spec tree → mobject/constraint graph; parameter
-  change recomputes only dependents.
+- [x] `WgScene`: dependency-ordered worklist build → `ConstraintGraph` (world
+      space) + ordered Mobject draw list; `AliasPoint`/`ParamPoint`/
+      `ParamCircle` adapter GObjects; live `pt()`/`num()` source closures;
+      syncables mark mobjects dirty after each `graph.update()`.
+- [x] Param mutation: `update()` re-runs the topo order; plots resample only
+      when the numeric-param signature changes.
+- [x] Implicit plots + fields = view-dependent direct draws; fn/parametric/
+      polar plots = Mobject polylines split at discontinuities.
+- [x] 12 tests (drag recompute, glider projection, out-of-order chains,
+      measures, cycle + kind-mismatch errors).
 
-## 1.3 — Builder: `builder/objects.ts` + `builder/clips.ts`
+## 1.3 — Builder: `builder/objects.ts` + `builder/clips.ts` ✅
 
-- [ ] Builder methods for every new kind, matching `builder/scene.ts` style
-      (extend, never fork — reconcile with its existing vocabulary first).
-- [ ] `AnimationClip` → windgraph `Animation` subclass mapping (Create, Fade,
-      Transform/morph, MoveAlongPath, Shift/Scale/Rotate); extend `ClipSpec`
-      kinds if needed.
-- [ ] Extend `__test_builder.ts`.
-- **Acceptance:** a scene authored in builder TS with windgraph objects +
-  clips evaluates; tests green.
+- [x] `WgBuilder` with all 22 kinds; exposed as `SceneBuilder.wg` (scene-level)
+      and `ChapterBuilder.wg` (parents under the chapter; data-space coords,
+      NO chapter offset).
+- [x] Clip mapping: existing kinds target wg ids unchanged; new
+      `moveAlongPath` ClipSpec kind (types + validate props.path + builder +
+      `clips.ts` helper).
+- [x] 13 builder tests (incl. full construction kit + param-ref radius).
 
-## 1.4 — Windgraph board adapter
+## 1.4 — Windgraph board adapter ✅
 
-- [ ] A board that hosts a resolved scene: emits via `DrawHelpers` + windgraph
-      stroke/fill into the standard `emit(font, atlas, inst, crv, rws, now, view)`
-      signature; `EmitCache`-friendly (geometry cached, dirty on param change).
-- [ ] Pointer routing through the existing `s.interactive` contract →
-      `DragController` (reuse `camera/input.ts:143,169,321` priority pattern).
-- [ ] Register a playground board button (`playground.ts:298-302` pattern).
-- **Acceptance:** board with authored draggable triangle + live
-  centroid/circumcircle; drag recomputes at 60fps; idle frames upload nothing new.
+- [x] `playground/boards/windgraphScene.ts`: `WindgraphSceneBoard` hosts an
+      authored `demoDoc()` (triangle kit + glider + angle/distance labels +
+      `a·sin(x)` wave + param-radius circle); owns the `s.interactive` slot —
+      supersedes v1 `InteractDemo` (same position/button; `autoDrive` kept for
+      the cinematic flight; v1 file retained as reference).
+- [x] `EmitCache` signature `rev|hoveredId|tile-quantized-view`; hover ring;
+      board chrome (border + title); plane grid/axes under the scene.
+- [x] 8 board tests (drag recompute, glider, hover, autoDrive).
 
-## 1.5 — Slider binding + `emitTS` projection
+## 1.5 — Slider binding + `emitTS` projection ✅
 
-- [ ] Free numeric/point parameters in any spec surface as live sliders
-      (reuse the IR param metadata — min/max/step already there).
-- [ ] `emitTS.ts` projects the new kinds + slider state back to builder TS.
-- [ ] Extend `__test_emit.ts`.
-- **Acceptance:** board: SceneDoc-authored `y = a·sin(x)` with a slider for
-  `a`; round-trip emit reproduces the scene code.
+- [x] Analytic sliders on the board: one per numeric `ParamDef` (min/max/step
+      from the IR), screen-constant size (∝ 1/zoom), knob-drag → quantized
+      `setParam`, hit-tested before scene points.
+- [x] `emitTS` projects all wg kinds — scene-level orphans → `s.wg.*`,
+      chapter children → `ch.wg.*`, `$param` → `s.param.ref('…')`,
+      `moveAlongPath` clips; deterministic. 9 emit tests.
 
-## 1.6 — REPL windgraph commands
+## 1.6 — REPL windgraph commands ✅
 
-- [ ] `plot <expr>`, `point`, `circle`, `drag <id>`, `slider <id> <v>`,
-      `anim <clip>` over the live board, following `repl.ts` registration style.
-- **Acceptance:** a REPL session can build and manipulate a small scene live.
+- [x] `wgRepl(board, line)`: `help/list/params/plot/point/circle/slider/drag/
+      remove/emit`; mutations validate the whole doc, roll back on error,
+      rebuild the live scene; `emit` prints the builder TS of the live scene.
+- [x] Terminal-agnostic by design (returns lines) — terminal UI hookup is
+      Phase-6 chrome (Lane I). 13 board tests total.
+- [ ] ~~`anim <clip>` command~~ — deferred: needs the runtime clip→Animation
+      integration (clips currently evaluate in the authoring timeline, not the
+      board; lands when the board grows timeline support — track in Phase 5 J).
 
 ---
 
