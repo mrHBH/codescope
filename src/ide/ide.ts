@@ -8,7 +8,7 @@ import { DEPTH_FORMAT } from '../windfoil/mesh3d';
 import { ScreenHud } from '../ui/screenHud';
 import { AnalyticToolbar, type ToolbarButton } from '../ui/analyticToolbar';
 import { AnalyticPanel, ANALYTIC_PANEL_THEME } from '../ui/analyticPanel';
-import { enterOrbit, orbitViewProj, orbitScale, setOrbitEnabled, updateOrbit, screenToDocLocal, setOrbitNear, setOrbitPanChord, orbitTruck, orbitZoomToRect, orbitPolar, orbitAzimuth, orbitSetAngles } from '../camera/orbit';
+import { enterOrbit, orbitViewProj, orbitScale, setOrbitEnabled, updateOrbit, screenToDocLocal, setOrbitNear, setOrbitPanChord, orbitTruck, orbitZoomToRect, orbitPolar, orbitAzimuth, orbitSetAngles, orbitTargetLocal } from '../camera/orbit';
 import { ANALYTIC_MENU_THEME } from '../ui/analyticMenu';
 import { MenuGate, MultiClickTracker, RightGesture, routeScroll, resolveCursor } from '../ui/inputRouter';
 import { tabMenu, folderMenu, fileMenu, editorMenu, terminalMenu, searchMenu, type IdeMenuActions } from './menus';
@@ -402,6 +402,9 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
   const rg = new RightGesture();
   const mct = new MultiClickTracker();
 
+  let menuWorldXform: { ox: number; oy: number; sx: number; sy: number } | null = null;
+  let menuWasOpenOnDown = false;
+
   let sidebarOpen = true;
   let sidebarT = 1;
   let sidebarDir = 0;
@@ -447,6 +450,26 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
 
   // Shared tab/file helpers — used by both left-click handling and the
   // context-menu actions so behaviour stays in one place.
+  function captureMenuWorldXform() {
+    if (!cam3d) { menuWorldXform = null; return; }
+    const Cw = tCanvas.width, Ch = tCanvas.height;
+    const zoom = orbitScale(Ch);
+    const tgt = orbitTargetLocal();
+    menuWorldXform = { ox: tgt.x - Cw / (2 * zoom), oy: tgt.y - Ch / (2 * zoom), sx: 1 / zoom, sy: 1 / zoom };
+  }
+
+  function menuScreenToLocal(sx: number, sy: number): [number, number] {
+    if (!menuWorldXform) return [sx, sy];
+    const Cw = tCanvas.width, Ch = tCanvas.height;
+    const p = screenToDocLocal(sx, sy, Cw, Ch);
+    return [(p.x - menuWorldXform.ox) / menuWorldXform.sx, (p.y - menuWorldXform.oy) / menuWorldXform.sy];
+  }
+
+  function showMenuWorld(x: number, y: number, items: Parameters<typeof gate.show>[2], scale: number) {
+    gate.show(x, y, items, scale);
+    captureMenuWorldXform();
+  }
+
   function closeTabAt(i: number) {
     if (tabs.length <= 1) return;
     tabFrom = -1;                // skip cross-fade on close
@@ -966,6 +989,12 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
     addRect(0, 1, 1, h - 1, T.separator, crv, rws, inst);
     addRect(w - 1, 1, w, h - 1, T.separator, crv, rws, inst);
 
+    if (menuWorldXform && gate.open) {
+      menu.render(font, atlas, inst, crv, rws, ANALYTIC_MENU_THEME, menuWorldXform);
+    } else if (!gate.open) {
+      menuWorldXform = null;
+    }
+
     // The toolbar + analytic menus render as a screen-space overlay through
     // screenHud (built + drawn in the pass below). The menu viewport is backing-
     // store px so gate.show() — called from event handlers — clamps correctly.
@@ -1195,7 +1224,12 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
 
     mx = rawMx; my = rawMy;
     toolbar.updateHover(scrMx * dpr, scrMy * dpr);
-    gate.updateHover(scrMx * dpr, scrMy * dpr);   // menu is a screen overlay: backing-store px
+    if (menuWorldXform) {
+      const [lx, ly] = menuScreenToLocal(scrMx * dpr, scrMy * dpr);
+      gate.updateHover(lx, ly);
+    } else {
+      gate.updateHover(scrMx * dpr, scrMy * dpr);
+    }
     // Quality panel: a grabbed slider tracks the pointer; otherwise hover-test.
     if (qualityPanel.isDragging) qualityPanel.drag(scrMx * dpr, scrMy * dpr);
     else if (qualityPanel.open) qualityPanel.updateHover(scrMx * dpr, scrMy * dpr);
@@ -1211,9 +1245,10 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
   function blurSearch() { searchFocused = false; focus = 'editor'; tabs[activeTab].editor.focused = true; }
 
   function onPointerDown(e: PointerEvent) {
-    if (e.button === 2) { rg.press(e.clientX, e.clientY); setOrbitPanChord(true); fitted = false; gate.dismiss(); return; }
+    if (e.button === 2) { rg.press(e.clientX, e.clientY); setOrbitPanChord(true); fitted = false; return; }
     if (e.button === 1) { fitted = false; return; }
     if (e.button !== 0) return;
+    menuWasOpenOnDown = gate.open;
 
     // Toolbar + analytic menu are screen-space overlays: hit-test in backing-store
     // px (raw screen CSS px × dpr), before any world-space picking — so a click on
@@ -1223,7 +1258,10 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
       const sbx = sx * dpr, sby = sy * dpr;
       const tbHit = toolbar.hitTest(sbx, sby);
       if (tbHit) { tbHit.onClick(); return; }
-      if (gate.consumeClick(sbx, sby)) return;
+      if (gate.open) {
+        const [hx, hy] = menuWorldXform ? menuScreenToLocal(sbx, sby) : [sbx, sby];
+        if (gate.menu.hitTest(hx, hy) >= 0) return;
+      }
       // Quality panel (screen-space): consume clicks on it (toggles + slider
       // drags), dismiss on a click outside — standard popup behaviour.
       if (qualityPanel.open) {
@@ -1412,13 +1450,26 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
     dragSel = false;
     qualityPanel.endDrag();
     if (cam3d && d3.active) {
+      const wasDrag = d3.moved || performance.now() - d3.t > 400;
       d3.active = false;
-      if (d3.moved || performance.now() - d3.t > 400) return;
+      if (gate.open && menuWasOpenOnDown && !wasDrag) {
+        const [sx, sy] = toWorld(e);
+        const sbx = sx * dpr, sby = sy * dpr;
+        const [hx, hy] = menuWorldXform ? menuScreenToLocal(sbx, sby) : [sbx, sby];
+        gate.consumeClick(hx, hy);
+        return;
+      }
+      if (wasDrag) return;
       const [sx, sy] = toWorld(e);
       const p = screenToDocLocal(sx * dpr, sy * dpr, tCanvas.width, tCanvas.height);
       const ph = isPhys() ? physPick(p.x, p.y) : null;
       if (ph) handlePick(ph.x, ph.y, e.shiftKey, true);
       else handlePick(p.x, p.y, e.shiftKey);
+    } else if (gate.open && menuWasOpenOnDown) {
+      const [sx, sy] = toWorld(e);
+      const sbx = sx * dpr, sby = sy * dpr;
+      const [hx, hy] = menuWorldXform ? menuScreenToLocal(sbx, sby) : [sbx, sby];
+      gate.consumeClick(hx, hy);
     }
   }
 
@@ -1539,7 +1590,7 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
       if (idx >= 0) {
         switchToTab(idx);
         focus = 'editor';
-        gate.show(scx * dpr, scy * dpr, tabMenu(actions, idx, tabs.length), dpr);
+        showMenuWorld(scx * dpr, scy * dpr, tabMenu(actions, idx, tabs.length), dpr);
       }
       return;
     }
@@ -1551,7 +1602,7 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
         searchFocused = true;
         tabs[activeTab].editor.focused = false;
         searchCaretPhase = 0;
-        gate.show(scx * dpr, scy * dpr, searchMenu(actions), dpr);
+        showMenuWorld(scx * dpr, scy * dpr, searchMenu(actions), dpr);
         return;
       }
     }
@@ -1561,7 +1612,7 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
       const row = fileTree.rowAtY(wy);
       if (row) {
         fileTree.select(row.node.path);
-        gate.show(scx * dpr, scy * dpr, row.node.type === 'folder'
+        showMenuWorld(scx * dpr, scy * dpr, row.node.type === 'folder'
           ? folderMenu(actions, row.node, fileTree.isExpanded(row.node.path))
           : fileMenu(actions, row.node), dpr);
       }
@@ -1575,7 +1626,7 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
         focus = 'terminal';
         terminal.focused = true;
         tabs[activeTab].editor.focused = false;
-        gate.show(scx * dpr, scy * dpr, terminalMenu(actions), dpr);
+        showMenuWorld(scx * dpr, scy * dpr, terminalMenu(actions), dpr);
         return;
       }
     }
@@ -1584,7 +1635,7 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
     if (wx >= editorX && wy >= TAB_BAR_H && wy < h - STATUS_H) {
       focus = 'editor';
       tabs[activeTab].editor.focused = true;
-      gate.show(scx * dpr, scy * dpr, editorMenu(actions), dpr);
+      showMenuWorld(scx * dpr, scy * dpr, editorMenu(actions), dpr);
     }
   }
 
@@ -1644,6 +1695,7 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
         // Screen overlay anchored just below the FX button (backing-store px).
         const fb = toolbar.buttons.find((b) => b.btn.id === 'fx');
         gate.setViewport(tCanvas.width, tCanvas.height);
+        menuWorldXform = null;
         gate.show(fb ? fb.x : mx * dpr, fb ? fb.y + fb.s + 4 * dpr : my * dpr, items, dpr);
       }},
     { id: 'quality', icon: 'sliders', title: 'Quality settings: display resolution, low-res render + sharpen upscale', onClick: () => {
@@ -1665,7 +1717,7 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
     }
     toolbar.render(hud.inst, hud.crv, hud.rws, now);
     qualityPanel.render(font, atlas, hud.inst, hud.crv, hud.rws, ANALYTIC_PANEL_THEME);
-    if (gate.open) gate.menu.render(font, atlas, hud.inst, hud.crv, hud.rws, ANALYTIC_MENU_THEME);
+    if (gate.open && !menuWorldXform) gate.menu.render(font, atlas, hud.inst, hud.crv, hud.rws, ANALYTIC_MENU_THEME);
   };
 
   return () => {

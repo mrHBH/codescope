@@ -129,53 +129,56 @@ export class AnalyticContextMenu {
     this.h = hh;
   }
 
-  render(font: FontFace, atlas: any, inst: number[], crv: number[], rws: number[], th: AnalyticMenuTheme) {
+  render(font: FontFace, atlas: any, inst: number[], crv: number[], rws: number[], th: AnalyticMenuTheme, xform?: { ox: number; oy: number; sx: number; sy: number }, masterAlpha = 1) {
     if (!this.open) return;
     if (!this.font) this.font = font;
     const k = this.scale;
+    const lx = (x: number) => xform ? xform.ox + x * xform.sx : x;
+    const ly = (y: number) => xform ? xform.oy + y * xform.sy : y;
+    const ls = (s: number) => xform ? s * xform.sx : s;
+    const alpha = (c: number[]) => masterAlpha < 1 ? [c[0], c[1], c[2], (c[3] ?? 1) * masterAlpha] : c;
+
     const x0 = this.x, y0 = this.y, x1 = this.x + this.w, y1 = this.y + this.h;
 
-    // Layered soft shadow — concentric dark rects at decreasing alpha. Impossible
-    // in CSS without stacking-context hacks; here it's just addRect with alpha.
     const shadow = (ox: number, oy: number, a: number) =>
-      addRect(x0 + ox * k, y0 + oy * k, x1 + ox * k, y1 + oy * k, [0, 0, 0, a], crv, rws, inst);
+      addRect(lx(x0 + ox * k), ly(y0 + oy * k), lx(x1 + ox * k), ly(y1 + oy * k), alpha([0, 0, 0, a]), crv, rws, inst);
     shadow(8, 6, 0.12);
     shadow(5, 4, 0.10);
     shadow(3, 2, 0.08);
 
     const bd = Math.max(1, k);
-    addRect(x0, y0, x1, y1, th.bg, crv, rws, inst);
-    addRect(x0, y0, x1, y0 + bd, th.border, crv, rws, inst);
-    addRect(x0, y1 - bd, x1, y1, th.border, crv, rws, inst);
-    addRect(x0, y0, x0 + bd, y1, th.border, crv, rws, inst);
-    addRect(x1 - bd, y0, x1, y1, th.border, crv, rws, inst);
+    addRect(lx(x0), ly(y0), lx(x1), ly(y1), alpha(th.bg), crv, rws, inst);
+    addRect(lx(x0), ly(y0), lx(x1), ly(y0 + bd), alpha(th.border), crv, rws, inst);
+    addRect(lx(x0), ly(y1 - bd), lx(x1), ly(y1), alpha(th.border), crv, rws, inst);
+    addRect(lx(x0), ly(y0), lx(x0 + bd), ly(y1), alpha(th.border), crv, rws, inst);
+    addRect(lx(x1 - bd), ly(y0), lx(x1), ly(y1), alpha(th.border), crv, rws, inst);
 
     const rowH = ROW_H * k, sepH = SEP_H * k, iconSz = ICON_SZ * k;
     let ry = y0 + PAD * k;
     for (let i = 0; i < this.items.length; i++) {
       const it = this.items[i];
       if (it.separator) {
-        addRect(x0 + 8 * k, ry + 4 * k, x1 - 8 * k, ry + 5 * k, th.sep, crv, rws, inst);
+        addRect(lx(x0 + 8 * k), ly(ry + 4 * k), lx(x1 - 8 * k), ly(ry + 5 * k), alpha(th.sep), crv, rws, inst);
         ry += sepH;
         continue;
       }
       const disabled = it.enabled ? !it.enabled() : false;
       if (i === this.hovered && !disabled) {
-        addRect(x0 + 3 * k, ry + 2 * k, x1 - 3 * k, ry + rowH - 2 * k, th.hover, crv, rws, inst);
+        addRect(lx(x0 + 3 * k), ly(ry + 2 * k), lx(x1 - 3 * k), ly(ry + rowH - 2 * k), alpha(th.hover), crv, rws, inst);
       }
       const iconX = x0 + (PAD + 4) * k;
       const iconY = ry + (rowH - iconSz) / 2;
       if (it.icon) {
         const gl = atlas.table[it.icon];
-        if (gl) layoutIcon(inst, gl, { x: iconX, y: iconY, w: iconSz, h: iconSz }, disabled ? th.disabled : th.icon);
+        if (gl) layoutIcon(inst, gl, { x: lx(iconX), y: ly(iconY), w: ls(iconSz), h: ls(iconSz) }, alpha(disabled ? th.disabled : th.icon));
       }
       const labelX = iconX + iconSz + ICON_GAP * k;
       const labelY = ry + (rowH - FONT_SZ * k) / 2;
-      layoutStr(inst, it.label || '', disabled ? th.disabled : th.text, atlas.table, font, { x: labelX, y: labelY, size: FONT_SZ * k });
+      layoutStr(inst, it.label || '', alpha(disabled ? th.disabled : th.text), atlas.table, font, { x: lx(labelX), y: ly(labelY), size: ls(FONT_SZ * k) });
       if (it.shortcut) {
         const sw = this.tw ? this.tw(it.shortcut, (FONT_SZ - 1) * k) : 0;
         const sx = x1 - PAD * k - sw - 4 * k;
-        layoutStr(inst, it.shortcut, disabled ? th.disabled : th.dim, atlas.table, font, { x: sx, y: labelY + 1 * k, size: (FONT_SZ - 1) * k });
+        layoutStr(inst, it.shortcut, alpha(disabled ? th.disabled : th.dim), atlas.table, font, { x: lx(sx), y: ly(labelY + 1 * k), size: ls((FONT_SZ - 1) * k) });
       }
       ry += rowH;
     }
