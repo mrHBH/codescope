@@ -31,7 +31,10 @@ export function createBaseApp(engine: Engine, useDoc: boolean): AppState {
     editableEls: els.filter((e) => e.editable),
     dynamicEls: els.filter((e) => e.dynamic),
     marqueeEls: els.filter((e) => e.hasFlow && !e.skipText && e.classes.includes('marquee')),
-    pages: useDoc ? ref.pages : [], docH: useDoc ? ref.docH : 0, docRoot: ref.docRoot, fpsEl,
+    pages: useDoc ? ref.pages : [], docH: useDoc ? ref.docH : 0,
+    // Empty-doc demos must NOT hit-test the full reference document every frame
+    // (frame.ts walks docRoot per pointer frame) — give them an empty root.
+    docRoot: useDoc ? ref.docRoot : ({ children: [] } as any), fpsEl,
   });
   const theme = createThemeController(s, ref.themeStyle, buildStatic);
   theme.apply('dark');

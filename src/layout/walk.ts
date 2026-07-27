@@ -5,6 +5,11 @@
 import { parseColor } from '../css/engine';
 import type { StyledEl, PageRect } from './types';
 
+// Hover effects that physically translate the button (face + label move as one
+// unit). Their label text is NOT baked into the static buffers (precompute skips
+// it) — the frame loop re-lays it out every frame so it tracks the moving face.
+export const HOVER_FX_MOVES_TEXT = new Set(['push', 'key', 'dent']);
+
 export function walkDOM(el: Element, parent: StyledEl | null, styledEls: StyledEl[]): StyledEl | null {
   if (el.tagName==='STYLE'||el.tagName==='SCRIPT') return null;
   const cs = getComputedStyle(el), r = el.getBoundingClientRect();
@@ -53,6 +58,9 @@ export function walkDOM(el: Element, parent: StyledEl | null, styledEls: StyledE
   // The frame loop renders the named effect instead of the legacy bg-wash hover.
   const hovMatch = cn.match(/\bhov-([\w-]+)/);
   const hoverFx = hovMatch ? hovMatch[1] : '';
+  // Named click effect from a `clk-*` class (e.g. `clk-ripple` → 'ripple').
+  const clkMatch = cn.match(/\bclk-([\w-]+)/);
+  const clickFx = clkMatch ? clkMatch[1] : '';
   // An element only needs per-frame dynamic-background work if it can hover,
   // cast a shadow, or run an animation. Everything else is baked into the static
   // buffers and skipped entirely by the frame loop.
@@ -76,7 +84,7 @@ export function walkDOM(el: Element, parent: StyledEl | null, styledEls: StyledE
     inlineText,
     editable, editText: editable?text.trim():'', caret: editable?text.trim().length:0, selAnchor: -1, originText: editable?text.trim():'',
     caretXs: null, caretLines: null, lineTops: null,
-    pageIdx, hoverable, shadowable, anim, dynamic, ownerPage: -1, icon, hoverFx,
+    pageIdx, hoverable, shadowable, anim, dynamic, ownerPage: -1, icon, hoverFx, clickFx, pressT: 0,
   };
   styledEls.push(se);
   for(const child of Array.from(el.children)) {

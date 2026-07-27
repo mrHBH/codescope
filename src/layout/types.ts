@@ -30,8 +30,14 @@ export interface StyledEl {
   ownerPage: number;
   // Named hover effect (set once in walkDOM from a `hov-*` class). '' = the legacy
   // background-wash + shadow hover; otherwise the frame loop renders the named
-  // analytic hover effect (lift/sweep/underline/glow/border/topbar/ring/corners).
+  // analytic hover effect (see frame.ts renderHoverFx).
   hoverFx: string;
+  // Named click effect (from a `clk-*` class) — a press-triggered animation
+  // (ripple/burst/flash) timed off pressT. '' = none.
+  clickFx: string;
+  // Wall-clock time (performance.now) of the last pointerdown on this element —
+  // drives click-effect animations. 0 = never pressed.
+  pressT: number;
   // Vector art: atlas key (e.g. "icon:star" / "art:landscape"), else ''. When set
   // the element renders the shape scaled/centered into its box instead of text.
   icon: string;

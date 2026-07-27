@@ -91,6 +91,23 @@ If this file and the code disagree, investigate before trusting either.
   (overview decimates to ~50%, deep zoom refines up to 3×). Remaining
   structural cost = per-frame replay is still O(instances); the real fix is
   instance-buffer diffing / persistent static GPU buffers (Lane N).
+- 2026-07-27 — **Perf pass 5 (user: grid looks like shit + readings inverted).**
+  Two fixes: (1) dot grid → TRUE LINE GRID — a full-length line is one stroke
+  instance vs one per dot (~20-40 instances total, ~0.1-0.2ms; minor/major
+  tiers, widths derive from step so they're cache-band-constant); (2) debug
+  section timings were single-frame snapshots at 120Hz — noise-dominated
+  (readings came back inverted: fewer instances costing more = GC/scheduler
+  swings) — now EMA-smoothed (α=0.08), 2-decimal. Non-wg js floor (~3-4ms) is
+  the two GPU passes + encode + rAF at 120Hz; breaking <2ms needs HUD-pass
+  caching / render bundles → frame.ts/screenHud.ts (blocked on the concurrent
+  editing session there).
+- 2026-07-27 — **Perf pass 4 (grid 4.9ms / js-without-grid 4.3ms reads).**
+  Replay throughput is ~3μs/instance (number[] pushes, not memcpy — Lane N
+  fixes the floor), so the grid's ~950 dots cost milliseconds: replaced the
+  fixed 800px tile margin with a 3-step margin quantized to the grid step
+  (spacing target 140px) — dot count now bounded ~100-350 at every zoom.
+  And `createBaseApp(useDoc=false)` was hit-testing the FULL reference
+  document every frame — empty-doc demos now get an empty docRoot.
 - 2026-07-27 — **Perf pass 3 (diagnostic read: 4370 instances idle, caches
   stable).** Root cause of the instance count: round joins cost a 24-quad
   `discCW` disc PER POLYLINE VERTEX (plot curves, implicit contours) and round
@@ -114,3 +131,23 @@ If this file and the code disagree, investigate before trusting either.
   (`exprDeps`). Unrelated sliders replay; marching squares re-runs a few times
   per second while panning, not per frame. Regression test: unrelated param
   change keeps emitted instance count identical (13 resolver tests).
+- 2026-07-27 — **Reference-design pass (user request, pre-CP2).** (1) Eight
+  named analytic button hover effects — lift/sweep/underline/glow/border/
+  topbar/ring/corners — drawn in `frame.ts renderHoverFx`, tagged by `hov-*`
+  classes (`walkDOM` → `StyledEl.hoverFx`), each labeled in the Foundations
+  page so they're tellable. (2) New HUD page (`content/pages/04-hud.html`)
+  hosts a LIVE world-space analytic toolbar + settings panel
+  (`boards/referenceHud.ts` wired as `s.interactive`); its sliders/toggles
+  drive the board's glow/labels/accent-hue. HUD jump buttons added across all
+  pages. tsc clean; all `__test_*.ts` green (5 new board tests).
+- 2026-07-27 — **Reference-design pass 2 (user request).** Ten more hover
+  effects + click effects. Physical trio (push/key/dent) translate face+label
+  as one unit — their text is un-baked (`HOVER_FX_MOVES_TEXT` in walk.ts,
+  skipped in precompute, re-laid via `layoutFlow(dx,dy)` in the dynamic pass);
+  lift on hover, sink on press. Motion set: tilt (rotated `polygonQuads`
+  plates), spotlight (tracks `s.mwx`), stack, scan, blink, grow, split. Click
+  effects via `clk-*` → `StyledEl.clickFx` + `pressT` (set on pointerdown):
+  ripple/burst/flash in `renderClickFx`. Chose geometric pseudo-3D over the
+  IDE's per-instance `fxXforms` path — that needs `fxActive` on the whole-doc
+  draw + an 8-float/instance upload per frame; true GPU glyph 3D deferred.
+  tsc clean; build green; all `__test_*.ts` pass.

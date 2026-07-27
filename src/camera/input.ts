@@ -276,6 +276,7 @@ export function attachInput(s: AppState): () => void {
       s.activeEdit = null;
       s.selecting = false;
       s.pressed = (hit && hit.hoverable) ? hit : null;
+      if (s.pressed) s.pressed.pressT = performance.now();
       let nav: StyledEl | null = hit;
       while (nav && nav.pageIdx < 0) nav = nav.parent;
       if (nav) goToPage(s, nav.pageIdx);

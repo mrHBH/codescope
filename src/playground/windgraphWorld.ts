@@ -21,7 +21,7 @@ import { createBaseApp, finishApp, snapTo } from './app';
 import { WindgraphSceneBoard, demoDoc } from './boards/windgraphScene';
 import { EmitCache } from '../windfoil/emitCache';
 import { strokeInto } from '../windgraph/stroke/stroke';
-import { layoutStr, tw, addRect } from '../layout/metrics';
+import { layoutStr, tw } from '../layout/metrics';
 import type { FontFace } from '../windfoil/font';
 import type { PlaneView } from '../windgraph/coords/numberPlane';
 
@@ -30,6 +30,8 @@ const GOLD: Color = [0.92, 0.74, 0.42, 1];
 const TEAL: Color = [0.30, 0.85, 0.75, 1];
 const PINK: Color = [0.94, 0.55, 0.75, 1];
 const VIOLET: Color = [0.75, 0.62, 0.95, 1];
+const GRID_MINOR: Color = [1, 1, 1, 0.05];
+const GRID_MAJOR: Color = [1, 1, 1, 0.11];
 
 // ── scene docs ───────────────────────────────────────────────────────────────
 
@@ -73,7 +75,6 @@ export function plotsDoc(): SceneDoc {
 // ── world ────────────────────────────────────────────────────────────────────
 
 const GAP = 500;
-const TILE = 800;
 
 function niceStep(rough: number): number {
   if (!(rough > 0)) return 1;
@@ -96,6 +97,9 @@ export class WindgraphWorld {
 
   private active: WindgraphSceneBoard | null = null;
   private backdropCache = new EmitCache();
+  // Section timings are EMA-smoothed — single-frame snapshots at 120Hz are
+  // noise-dominated (GC/scheduler) and mislead diagnosis.
+  private ema = { total: 0, grid: 0, tri: 0, geom: 0, plots: 0, inst: 0, warm: false };
 
   constructor() {
     const tri = new WindgraphSceneBoard(demoDoc());
@@ -167,22 +171,32 @@ export class WindgraphWorld {
     // is constant across a zoom band — zooming replays the cache instead of
     // rebuilding thousands of dots per frame (the old raw-zoom key missed every
     // frame of a zoom). Dot size derives from `step` so screen size stays ~2-4px.
-    const step = niceStep(60 / z);
-    const eL = Math.floor(vL / TILE) * TILE, eT = Math.floor(vT / TILE) * TILE;
-    const eR = Math.ceil(vR / TILE) * TILE, eB = Math.ceil(vB / TILE) * TILE;
+    // Dot grid: screen spacing ~140-280px, cached over the view + a 3-step
+    // margin quantized to the step itself — so the dot COUNT stays bounded
+    // (~100-350) at every zoom instead of exploding with a fixed tile margin
+    // (replay costs ~3μs/instance — dots are instances too).
+    const step = niceStep(140 / z);
+    const mgn = step * 3;
+    const eL = Math.floor((vL - mgn) / step) * step, eT = Math.floor((vT - mgn) / step) * step;
+    const eR = Math.ceil((vR + mgn) / step) * step, eB = Math.ceil((vB + mgn) / step) * step;
     const tg0 = performance.now();
     this.backdropCache.run(`g|${this.showGrid ? 1 : 0}|${step}|${eL},${eT},${eR},${eB}`, inst, crv, rws, () => {
       if (this.showGrid) {
-        const rMinor = step * 0.035, rMajor = step * 0.06;
-        const x0 = Math.ceil(eL / step) * step, y0 = Math.ceil(eT / step) * step;
+        // True line grid — and cheaper than dots: a full-length line is ONE
+        // stroke instance, vs one instance per dot. Widths derive from `step`
+        // so they stay constant within a cache band (~1 / ~1.8 screen px).
+        const wMinor = step / 140, wMajor = step / 80;
         let i = 0;
-        for (let x = x0; x <= eR; x += step, i++) {
-          let j = 0;
-          for (let y = y0; y <= eB; y += step, j++) {
-            const major = i % 5 === 0 && j % 5 === 0;
-            const r = major ? rMajor : rMinor;
-            addRect(x - r, y - r, x + r, y + r, [1, 1, 1, major ? 0.10 : 0.045], crv, rws, inst);
-          }
+        for (let x = eL; x <= eR; x += step, i++) {
+          const major = ((i % 5) + 5) % 5 === 0;
+          strokeInto([[x, eT], [x, eB]], { width: major ? wMajor : wMinor },
+            major ? GRID_MAJOR : GRID_MINOR, inst, crv, rws);
+        }
+        let j = 0;
+        for (let y = eT; y <= eB; y += step, j++) {
+          const major = ((j % 5) + 5) % 5 === 0;
+          strokeInto([[eL, y], [eR, y]], { width: major ? wMajor : wMinor },
+            major ? GRID_MAJOR : GRID_MINOR, inst, crv, rws);
         }
       }
       this.drawMasthead(font, atlas, inst, crv, rws, eL, eT, eR, eB);
@@ -200,8 +214,16 @@ export class WindgraphWorld {
       tB.push(performance.now() - tb0);
     }
     const [tri, geom, plots] = this.boards;
-    this.debug = `wg ${(performance.now() - t0).toFixed(1)}ms · inst ${Math.round((inst.length - inst0) / 16)}`
-      + ` · grid ${tGrid.toFixed(1)} · tri ${tB[0].toFixed(1)} · geom ${tB[1].toFixed(1)} · plots ${tB[2].toFixed(1)}`
+    const e = this.ema, a = e.warm ? 0.08 : 1;
+    e.warm = true;
+    e.total += (performance.now() - t0 - e.total) * a;
+    e.grid += (tGrid - e.grid) * a;
+    e.tri += (tB[0] - e.tri) * a;
+    e.geom += (tB[1] - e.geom) * a;
+    e.plots += (tB[2] - e.plots) * a;
+    e.inst += ((inst.length - inst0) / 16 - e.inst) * a;
+    this.debug = `wg ${e.total.toFixed(2)}ms · inst ${Math.round(e.inst)}`
+      + ` · grid ${e.grid.toFixed(2)} · tri ${e.tri.toFixed(2)} · geom ${e.geom.toFixed(2)} · plots ${e.plots.toFixed(2)}`
       + ` · miss g${this.backdropCache.misses} t${tri.cacheMisses}/${tri.directMisses} e${geom.cacheMisses} p${plots.cacheMisses}/${plots.directMisses}`;
     this.onDebug?.(this.debug);
   }

@@ -68,7 +68,7 @@ export function makeDocRoot(container: HTMLElement, children: StyledEl[], docH: 
     curBg: [0, 0, 0, 0], curShadow: 0, borderW: [0, 0, 0, 0], borderC: [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]],
     inline: false, skipText: true, hasFlow: false, isPre: false, inlineText: false,
     editable: false, editText: '', caret: 0, selAnchor: -1, originText: '', caretXs: null, caretLines: null, lineTops: null,
-    pageIdx: -1, hoverable: false, shadowable: false, anim: '', dynamic: false, ownerPage: -1, icon: '', hoverFx: '',
+    pageIdx: -1, hoverable: false, shadowable: false, anim: '', dynamic: false, ownerPage: -1, icon: '', hoverFx: '', clickFx: '', pressT: 0,
   };
 }
 

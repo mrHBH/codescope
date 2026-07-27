@@ -9,7 +9,7 @@ import type { StyledEl } from './layout/types';
 import { addRect, layoutIcon } from './layout/metrics';
 import { layoutFlow, layoutPre } from './layout/flow';
 import { highlightCode } from './layout/metrics';
-import { buildStyledEls } from './layout/walk';
+import { buildStyledEls, HOVER_FX_MOVES_TEXT } from './layout/walk';
 import { resolveStyle, parseColor } from './css/engine';
 
 // Emit the four border edges of an element as thin rects. Widths are in world
@@ -88,6 +88,9 @@ export function buildStatic(s: AppState) {
     }
     if (!el.hasFlow || el.skipText || el.editable) continue;
     if (el.classes.includes('marquee')) continue;
+    // Physical hover effects (push/key/dent) translate the button, so their label
+    // is re-laid-out every frame in the dynamic pass instead of being baked here.
+    if (HOVER_FX_MOVES_TEXT.has(el.hoverFx)) continue;
     const p = el.ownerPage; if (p < 0) continue;
     if (el.isPre) layoutPre(el, s.font, s.atlas, textByPage[p], s.highlightCache);
     else layoutFlow(el, s.font, s.atlas, textByPage[p], 0);

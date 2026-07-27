@@ -98,7 +98,9 @@ export function buildCSS(p: Palette): string {
    frame.ts (renderHoverFx); the face colour below is what the frame loop lerps the
    button toward on hover. Placed after .reference-btn:hover so it wins the cascade. */
 .hov-lift:hover, .hov-sweep:hover, .hov-underline:hover, .hov-glow:hover,
-.hov-border:hover, .hov-topbar:hover, .hov-ring:hover, .hov-corners:hover { background: ${p.hovFace}; }
+.hov-border:hover, .hov-topbar:hover, .hov-ring:hover, .hov-corners:hover,
+.hov-push:hover, .hov-key:hover, .hov-dent:hover, .hov-tilt:hover, .hov-spotlight:hover,
+.hov-stack:hover, .hov-scan:hover, .hov-blink:hover, .hov-grow:hover, .hov-split:hover { background: ${p.hovFace}; }
 
 /* Inputs */
 .reference-input { width: 100%; padding: 7px 10px; font-size: 12px; color: ${p.text}; background: ${p.bg}; border: 1px solid ${p.border}; }

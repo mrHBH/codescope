@@ -14,7 +14,7 @@ interface MarqueeCache {
 }
 const _marqueeCache = new WeakMap<StyledEl, MarqueeCache>();
 
-export function layoutFlow(el: StyledEl, font: FontFace, atlas: GlyphAtlas, inst: number[], now: number) {
+export function layoutFlow(el: StyledEl, font: FontFace, atlas: GlyphAtlas, inst: number[], now: number, dx = 0, dy = 0) {
   const left=el.x+el.pad[3], right=el.x+el.w-el.pad[1];
   const mid=(left+right)/2;
   const isMarquee=el.classes.includes('marquee');
@@ -62,7 +62,7 @@ export function layoutFlow(el: StyledEl, font: FontFace, atlas: GlyphAtlas, inst
       if(wd.childY && wd.childY>curY+el.lh*0.5){curY=wd.childY;curX=left-scroll;}
       if(curX+wd.ww>right && curX>left-scroll){curY+=el.lh;curX=left-scroll;}
       const oy=curY+(el.lh-wd.fs)*0.8;
-      if(curX<=right && curX+wd.ww>=left && oy<=bottom)layoutStr(inst,wd.w,wd.color,atlas.table,font,{x:curX,y:oy,size:wd.fs});
+      if(curX<=right && curX+wd.ww>=left && oy<=bottom)layoutStr(inst,wd.w,wd.color,atlas.table,font,{x:curX+dx,y:oy+dy,size:wd.fs});
       curX+=wd.ww+tw(' ',font,wd.fs);
     }
     return;
@@ -74,7 +74,7 @@ export function layoutFlow(el: StyledEl, font: FontFace, atlas: GlyphAtlas, inst
     if(!line.length)return;
     let total=0;for(let i=0;i<line.length;i++){if(i)total+=tw(' ',font,line[i].fs);total+=line[i].ww;}
     let sx=align==='center'?mid-total/2:align==='right'?right-total:left;
-    for(const wd of line){const oy=curY+(el.lh-wd.fs)*0.8;if(sx<=right && sx+wd.ww>=left && oy<=bottom)layoutStr(inst,wd.w,wd.color,atlas.table,font,{x:sx,y:oy,size:wd.fs});sx+=wd.ww+tw(' ',font,wd.fs);}
+    for(const wd of line){const oy=curY+(el.lh-wd.fs)*0.8;if(sx<=right && sx+wd.ww>=left && oy<=bottom)layoutStr(inst,wd.w,wd.color,atlas.table,font,{x:sx+dx,y:oy+dy,size:wd.fs});sx+=wd.ww+tw(' ',font,wd.fs);}
     line=[];
   };
   for(const it of items){

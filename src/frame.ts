@@ -5,10 +5,13 @@
 
 import type { AppState } from './state';
 import type { StyledEl } from './layout/types';
+import type { FontFace } from './windfoil/font';
+import type { GlyphAtlas } from './windfoil/bands';
 import { addRect } from './layout/metrics';
 import { layoutFlow } from './layout/flow';
 import { layoutEditable } from './layout/editable';
-import { hitTest } from './layout/walk';
+import { hitTest, HOVER_FX_MOVES_TEXT } from './layout/walk';
+import { fillQuads, polygonQuads } from './windgraph/stroke/stroke';
 import { stepCamera } from './camera/camera';
 import { cameraViewProj, cameraScale, scrToDoc, uiScale } from './camera/camera';
 import type { EditorTheme } from './editor/editor';
@@ -33,15 +36,30 @@ const _boardView = { zoom: 1, left: 0, right: 0, top: 0, bottom: 0 };
 // AND out. Geometry is rect-only (the renderer has no rounded corners). The button
 // face is drawn inset by its border so the baked base border stays visible unless
 // an effect paints its own accent edge over it.
-function renderHoverFx(el: StyledEl, s: AppState, crv: number[], rws: number[], inst: number[], now: number) {
+function renderHoverFx(el: StyledEl, s: AppState, crv: number[], rws: number[], inst: number[], now: number, font: FontFace, atlas: GlyphAtlas, isAct: boolean) {
   const t = el.curShadow;
-  if (t <= 0.004 && !_hoveredSet.has(el)) return;
+  // Physical effects (push/key/dent) translate the whole button, so they always
+  // re-draw (their label is dynamic, not baked) — even at rest.
+  const moves = HOVER_FX_MOVES_TEXT.has(el.hoverFx);
+  if (!moves && t <= 0.004 && !_hoveredSet.has(el)) return;
   const x0 = el.x, y0 = el.y, x1 = el.x + el.w, y1 = el.y + el.h;
   const ac = s.themeCol.accent;
   const A = (a: number) => { _fxAc[0] = ac[0]; _fxAc[1] = ac[1]; _fxAc[2] = ac[2]; _fxAc[3] = a; return _fxAc; };
   const [bt, br, bb, bl] = el.borderW;
-  const face = () => { if (el.curBg[3] > 0.004) addRect(x0 + bl, y0 + bt, x1 - br, y1 - bb, el.curBg, crv, rws, inst); };
+  // Physical vertical offset: hover lifts the button, press sinks it.
+  const dy = el.hoverFx === 'push' ? (isAct ? 4 : -3 * t)
+    : el.hoverFx === 'key' ? (isAct ? 3 : -2 * t)
+    : el.hoverFx === 'dent' ? (isAct ? 2 : 0) : 0;
   const e = 2; // accent edge thickness (world units — scales with zoom like the doc)
+  const face = (oy = 0) => { if (el.curBg[3] > 0.004) addRect(x0 + bl, y0 + bt + oy, x1 - br, y1 - bb + oy, el.curBg, crv, rws, inst); };
+  // Re-lay-out the label at the button's current offset (physical effects only).
+  const label = () => { if (moves) layoutFlow(el, font, atlas, inst, now, 0, dy); };
+  const border4 = (a: number, oy = 0) => {
+    addRect(x0, y0 + oy, x1, y0 + oy + e, A(a), crv, rws, inst);
+    addRect(x0, y1 - e + oy, x1, y1 + oy, A(a), crv, rws, inst);
+    addRect(x0, y0 + oy, x0 + e, y1 + oy, A(a), crv, rws, inst);
+    addRect(x1 - e, y0 + oy, x1, y1 + oy, A(a), crv, rws, inst);
+  };
 
   switch (el.hoverFx) {
     case 'lift': {
@@ -50,10 +68,7 @@ function renderHoverFx(el: StyledEl, s: AppState, crv: number[], rws: number[], 
       A(0.45 * t);
       addRect(x0 - g, y0 - g, x1 + g, y1 + g, _fxAc, crv, rws, inst);
       face();
-      addRect(x0, y0, x1, y0 + e, A(0.9 * t), crv, rws, inst);
-      addRect(x0, y1 - e, x1, y1, A(0.9 * t), crv, rws, inst);
-      addRect(x0, y0, x0 + e, y1, A(0.9 * t), crv, rws, inst);
-      addRect(x1 - e, y0, x1, y1, A(0.9 * t), crv, rws, inst);
+      border4(0.9 * t);
       break;
     }
     case 'sweep': {
@@ -85,10 +100,7 @@ function renderHoverFx(el: StyledEl, s: AppState, crv: number[], rws: number[], 
     case 'border': {
       // A crisp accent border fades in; the face barely changes.
       face();
-      addRect(x0, y0, x1, y0 + e, A(0.95 * t), crv, rws, inst);
-      addRect(x0, y1 - e, x1, y1, A(0.95 * t), crv, rws, inst);
-      addRect(x0, y0, x0 + e, y1, A(0.95 * t), crv, rws, inst);
-      addRect(x1 - e, y0, x1, y1, A(0.95 * t), crv, rws, inst);
+      border4(0.95 * t);
       break;
     }
     case 'topbar': {
@@ -122,8 +134,152 @@ function renderHoverFx(el: StyledEl, s: AppState, crv: number[], rws: number[], 
       addRect(x1 - e, y1 - L, x1, y1, A(0.95 * t), crv, rws, inst);
       break;
     }
-    default:
+    case 'push': {
+      // Physical: lifts on hover (soft shadow + accent thickness edge below), sinks on press.
+      if (!isAct && t > 0.01) {
+        A(0.20 * t);
+        addRect(x0 - 3 * t, y1 - 2, x1 + 3 * t, y1 + 9 * t, _fxAc, crv, rws, inst);
+        _fxAc[0] = ac[0] * 0.45; _fxAc[1] = ac[1] * 0.45; _fxAc[2] = ac[2] * 0.45; _fxAc[3] = 0.95 * t;
+        addRect(x0, y1 + dy, x1, y1, _fxAc, crv, rws, inst); // thickness edge
+      }
+      if (isAct) { _tmpColor[0] = 0; _tmpColor[1] = 0; _tmpColor[2] = 0; _tmpColor[3] = 0.25; addRect(x0, y0 + dy, x1, y0 + dy + 4, _tmpColor, crv, rws, inst); }
+      face(dy);
+      border4(0.85 * t + (isAct ? 0.1 : 0), dy);
+      label();
+      break;
+    }
+    case 'key': {
+      // Chunky keycap: a constant thickness edge; hover lifts + accents it, press sinks flush.
+      const edgeH = isAct ? 1 : 4 + 2 * t;
+      const m = 0.35 + 0.65 * t;
+      _fxAc[0] = ac[0] * m; _fxAc[1] = ac[1] * m; _fxAc[2] = ac[2] * m; _fxAc[3] = 0.55 + 0.4 * t;
+      addRect(x0, y1 + dy, x1, y1 + dy + edgeH, _fxAc, crv, rws, inst);
+      face(dy);
+      addRect(x0, y0 + dy, x1, y0 + dy + 1, A(0.5 * t), crv, rws, inst);
+      label();
+      break;
+    }
+    case 'dent': {
+      // Pressable well: an inner top shadow deepens on hover, the button sinks on press.
+      face(dy);
+      const h = isAct ? 5 : 3 * t;
+      _tmpColor[0] = 0; _tmpColor[1] = 0; _tmpColor[2] = 0; _tmpColor[3] = isAct ? 0.32 : 0.22 * t;
+      addRect(x0, y0 + dy, x1, y0 + dy + h, _tmpColor, crv, rws, inst);
+      addRect(x0, y1 - e + dy, x1, y1 + dy, A(0.4 * t), crv, rws, inst);
+      label();
+      break;
+    }
+    case 'tilt': {
+      // Rotated accent plates fan out behind the button — a 3D card-tilt illusion.
+      const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+      const hw = el.w / 2 + 3, hh = el.h / 2 + 3;
+      const plate = (ang: number, a: number) => {
+        const c = Math.cos(ang), sn = Math.sin(ang);
+        const r = (px: number, py: number): [number, number] => [cx + px * c - py * sn, cy + px * sn + py * c];
+        fillQuads(polygonQuads([r(-hw, -hh), r(hw, -hh), r(hw, hh), r(-hw, hh)], true), A(a), inst, crv, rws);
+      };
+      plate(-0.13 * t, 0.30 * t);
+      plate(0.08 * t, 0.16 * t);
       face();
+      break;
+    }
+    case 'spotlight': {
+      // A soft vertical highlight tracks the pointer across the button.
+      face();
+      const bx = Math.max(x0 + 14, Math.min(x1 - 14, s.mwx));
+      addRect(bx - 16, y0, bx + 16, y1, A(0.07 * t), crv, rws, inst);
+      addRect(bx - 7, y0, bx + 7, y1, A(0.11 * t), crv, rws, inst);
+      addRect(bx - 1.5, y0, bx + 1.5, y1, A(0.17 * t), crv, rws, inst);
+      break;
+    }
+    case 'stack': {
+      // Offset accent layers slide out behind the button like a fanned card stack.
+      addRect(x0 + 5 * t, y0 + 5 * t, x1 + 5 * t, y1 + 5 * t, A(0.20 * t), crv, rws, inst);
+      addRect(x0 + 10 * t, y0 + 10 * t, x1 + 10 * t, y1 + 10 * t, A(0.11 * t), crv, rws, inst);
+      face();
+      break;
+    }
+    case 'scan': {
+      // A bright scan line sweeps top → bottom on loop.
+      face();
+      const p = (now / 950) % 1;
+      const sy = y0 + p * (y1 - y0);
+      addRect(x0, sy - 6, x1, sy + 6, A(0.09 * t), crv, rws, inst);
+      addRect(x0, sy - 1.5, x1, sy + 1.5, A(0.7 * t), crv, rws, inst);
+      break;
+    }
+    case 'blink': {
+      // An accent border pulses in opacity.
+      face();
+      const pulse = 0.5 + 0.5 * Math.sin(now / 200);
+      border4((0.25 + 0.7 * pulse) * t);
+      break;
+    }
+    case 'grow': {
+      // The face expands outward around its (static, centered) label + accent border.
+      const g = 3 * t;
+      if (el.curBg[3] > 0.004) addRect(x0 - g, y0 - g, x1 + g, y1 + g, el.curBg, crv, rws, inst);
+      addRect(x0 - g, y0 - g, x1 + g, y0 - g + e, A(0.9 * t), crv, rws, inst);
+      addRect(x0 - g, y1 + g - e, x1 + g, y1 + g, A(0.9 * t), crv, rws, inst);
+      addRect(x0 - g, y0 - g, x0 - g + e, y1 + g, A(0.9 * t), crv, rws, inst);
+      addRect(x1 + g - e, y0 - g, x1 + g, y1 + g, A(0.9 * t), crv, rws, inst);
+      break;
+    }
+    case 'split': {
+      // A center seam splits into two accent lines that slide apart.
+      face();
+      const cy = (y0 + y1) / 2;
+      const gap = 5 * t;
+      addRect(x0, cy - gap - 1.5, x1, cy - gap + 1.5, A(0.85 * t), crv, rws, inst);
+      addRect(x0, cy + gap - 1.5, x1, cy + gap + 1.5, A(0.85 * t), crv, rws, inst);
+      break;
+    }
+    default:
+      face(dy);
+      label();
+  }
+}
+
+// ── Named analytic click effects ─────────────────────────────────────────────
+// A button tagged with a `clk-*` class plays a short press-triggered animation
+// timed off el.pressT (set on pointerdown). Independent of any hover effect.
+function renderClickFx(el: StyledEl, s: AppState, crv: number[], rws: number[], inst: number[], now: number) {
+  const age = now - el.pressT;
+  const x0 = el.x, y0 = el.y, x1 = el.x + el.w, y1 = el.y + el.h;
+  const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+  const ac = s.themeCol.accent;
+  const A = (a: number) => { _fxAc[0] = ac[0]; _fxAc[1] = ac[1]; _fxAc[2] = ac[2]; _fxAc[3] = a; return _fxAc; };
+  switch (el.clickFx) {
+    case 'ripple': {
+      const p = age / 520;
+      if (p >= 1) return;
+      const r = p * Math.max(el.w, el.h) * 0.85;
+      const a = (1 - p) * 0.55;
+      const hw = el.w / 2 + r, hh = el.h / 2 + r, th = 2.5;
+      addRect(cx - hw, cy - hh, cx + hw, cy - hh + th, A(a), crv, rws, inst);
+      addRect(cx - hw, cy + hh - th, cx + hw, cy + hh, A(a), crv, rws, inst);
+      addRect(cx - hw, cy - hh, cx - hw + th, cy + hh, A(a), crv, rws, inst);
+      addRect(cx + hw - th, cy - hh, cx + hw, cy + hh, A(a), crv, rws, inst);
+      break;
+    }
+    case 'burst': {
+      const p = age / 560;
+      if (p >= 1) return;
+      for (let i = 0; i < 8; i++) {
+        const ang = i * Math.PI / 4 + 0.35;
+        const d = 6 + p * 46;
+        const px = cx + Math.cos(ang) * d, py = cy + Math.sin(ang) * d;
+        const sz = 1 + 3 * (1 - p);
+        addRect(px - sz, py - sz, px + sz, py + sz, A((1 - p) * 0.85), crv, rws, inst);
+      }
+      break;
+    }
+    case 'flash': {
+      const p = age / 340;
+      if (p >= 1) return;
+      addRect(x0, y0, x1, y1, A((1 - p) * 0.45), crv, rws, inst);
+      break;
+    }
   }
 }
 
@@ -410,7 +566,7 @@ export function runFrame(s: AppState): () => void {
       }
       if (el.hoverFx) {
         // Named analytic hover effect (replaces the legacy wash + shadow).
-        renderHoverFx(el, s, crv, rws, inst, now);
+        renderHoverFx(el, s, crv, rws, inst, now, s.font, s.atlas, isAct);
       } else if ((isHov || isAct) && el.curShadow > 0.01) {
         const g = 14 * el.curShadow;
         const sh = s.themeCol.shadow;
@@ -421,6 +577,9 @@ export function runFrame(s: AppState): () => void {
         const [bt, br, bb, bl] = el.borderW;
         addRect(el.x + bl, el.y + bt, el.x + el.w - br, el.y + el.h - bb, el.curBg, crv, rws, inst);
       }
+
+      // Click effect (clk-*): a short press-triggered animation, independent of hover.
+      if (el.clickFx && el.pressT > 0) renderClickFx(el, s, crv, rws, inst, now);
 
       if (anim === 'progress') {
         const frac = ((now % 3200) / 3200);

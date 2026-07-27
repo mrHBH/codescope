@@ -59,4 +59,4 @@ test('a click away from the open panel closes it without consuming', () => {
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);
-if (failed > 0) process.exit(1);
+if (failed > 0) throw new Error(`${failed} tests failed`);
