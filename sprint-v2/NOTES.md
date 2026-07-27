@@ -103,6 +103,26 @@ from the code lives here. Newest entries at the bottom of each section.
 - `src/windgraph/space3d/project3d.ts` — `colormap`, `LIGHT_DIR`, `faceNormal`
   — the shading vocabulary for extrusion (2.2) and surfaces.
 
+**Frame-level dirty tracking (perf pass 6 — read before touching frame.ts):**
+- Still-frame path: `frameSig` match → skip emit/conversion/upload → the pass
+  redraws persistent GPU buffers. Invariant that keeps it correct: the sig
+  covers EVERYTHING that changes the bytes — content (board revs, hover ids,
+  tile/zoom-band quantizations, grid toggle), camera (`viewX/viewY/viewZ` —
+  the 2D conversion subtracts them per instance! — plus `cam3d.active`),
+  canvas size, `staticRev` (theme/rebake), sharpen flag.
+- `gpu.ts draw(..., dataVersion?)`: version supplied → writeBuffer only on
+  version change; absent → legacy behavior (all other callers unchanged).
+- Eligibility is opt-in per board (`frameSig` method) AND requires no
+  time-dependent emitters in the app (editor caret blink etc.). Adding a new
+  always-animated board to a demo? It must either lack `frameSig` or be in
+  the exclusion list in frame.ts.
+- screenHud skip: `frame(..., sig)`; rebuild bumps its internal dataVersion.
+  HUD sig lives in frame.ts and includes toolbar hover, chip mode/status/
+  pressed, both debug texts, and a 50ms tick while menu/panel are open.
+- Debug line caveat: world section timings are measured in `emit`, so on
+  skipped frames they show the LAST real emit — the cumulative `skipped N`
+  counter (frame.ts → chip extra) is the truth for idle cost.
+
 **Perf facts (measured reasoning, not vibes):**
 - Idle-frame cost is dominated by `EmitCache` replay: every cached board
   re-appends its slice to the shared `inst/crv/rws` JS arrays each frame

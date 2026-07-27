@@ -76,6 +76,11 @@ export interface AppState {
   fpsChip: import('./ui/fpsChip').FpsChip | null;
   /** Extra diagnostic line the active demo feeds the chip's third mode. */
   hudDebugExtra: string;
+  /** Bumped whenever buildStatic re-bakes (theme/resize) — frame-skip key. */
+  staticRev: number;
+  /** Bumped when the main instance buffers get new content — tells the glyph
+   *  renderer whether it can redraw from its persistent GPU buffers. */
+  frameDataVersion: number;
 
   // DOM + layout tree
   container: HTMLElement;
@@ -231,7 +236,7 @@ export function createAppState(partial: Partial<AppState>): AppState {
     renderScale: 1,
     upscaler: null, lowResSharpen: false, integralScale: 0.6, sharpenAmount: 0.6,
     postfx: null, hudRenderer: null, screenHud: null, toolbar: null, panel: null, hudDebugText: '',
-    fpsChip: null, hudDebugExtra: '',
+    fpsChip: null, hudDebugExtra: '', staticRev: 0, frameDataVersion: 0,
     container: null as any,
     styledEls: [], pageRoots: [], editableEls: [], dynamicEls: [], marqueeEls: [], pages: [], docH: 0, docRoot: null as any,
     cssRules: [], isDark: false, themeMode: 'light', themeCol: {

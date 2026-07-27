@@ -25,6 +25,7 @@ function addBorders(el: StyledEl, crv: number[], rws: number[], out: number[]) {
 }
 
 export function buildStatic(s: AppState) {
+  s.staticRev = (s.staticRev ?? 0) + 1; // frame-skip key: static content changed
   const nPages = s.pageRoots.length;
   // Per-page static background + text instance buffers. The curve/row arrays
   // (preCrv/preRws) stay whole and are always uploaded, so every instance's

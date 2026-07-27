@@ -24,6 +24,12 @@ export class ScreenHud {
   private crvFA = new Float32Array(4096);
   private rwsUA = new Uint32Array(1024);
   private vp = new Float32Array(16);
+  // Frame-skip: when frame() gets a stable signature, the build + typed-array
+  // sync + GPU uploads are skipped entirely — the pass redraws the persistent
+  // buffers. Chrome is static except on hover / 8Hz readout ticks.
+  private lastSig: string | undefined = undefined;
+  private syncPending = false;
+  private dataVersion = 0;
   private readonly camScale = [1, 1];
   private readonly camCenter = [0, 0];
 
@@ -41,26 +47,35 @@ export class ScreenHud {
     if (baseRws) for (let i = 0; i < baseRws.length; i++) this.rws.push(baseRws[i]);
   }
 
-  /** reset → build → draw, in one call for the frame loop. */
-  frame(pass: GPURenderPassEncoder, Cw: number, Ch: number, now: number, baseCrv?: ArrayLike<number>, baseRws?: ArrayLike<number>) {
+  /** reset → build → draw, in one call for the frame loop. With a `sig`,
+   *  unchanged chrome skips the build + uploads and redraws persisted buffers. */
+  frame(pass: GPURenderPassEncoder, Cw: number, Ch: number, now: number, baseCrv?: ArrayLike<number>, baseRws?: ArrayLike<number>, sig?: string) {
     if (!this.onBuild) return;
-    this.reset(baseCrv, baseRws);
-    this.onBuild(this, Cw, Ch, now);
+    if (sig === undefined || sig !== this.lastSig || this.inst.length === 0) {
+      this.reset(baseCrv, baseRws);
+      this.onBuild(this, Cw, Ch, now);
+      this.syncPending = true;
+      this.dataVersion++;
+      this.lastSig = sig;
+    }
     this.draw(pass, Cw, Ch);
   }
 
   draw(pass: GPURenderPassEncoder, Cw: number, Ch: number) {
     if (this.inst.length === 0) return;
-    if (this.inst.length > this.instFA.length) this.instFA = new Float32Array(this.inst.length * 2);
-    this.instFA.set(this.inst);
-    if (this.crv.length > this.crvFA.length) this.crvFA = new Float32Array(this.crv.length * 2);
-    this.crvFA.set(this.crv);
-    if (this.rws.length > this.rwsUA.length) this.rwsUA = new Uint32Array(this.rws.length * 2);
-    this.rwsUA.set(this.rws);
+    if (this.syncPending) {
+      if (this.inst.length > this.instFA.length) this.instFA = new Float32Array(this.inst.length * 2);
+      this.instFA.set(this.inst);
+      if (this.crv.length > this.crvFA.length) this.crvFA = new Float32Array(this.crv.length * 2);
+      this.crvFA.set(this.crv);
+      if (this.rws.length > this.rwsUA.length) this.rwsUA = new Uint32Array(this.rws.length * 2);
+      this.rwsUA.set(this.rws);
+      this.syncPending = false;
+    }
     const vp = this.vp;
     vp.fill(0);
     vp[0] = 2 / Cw; vp[5] = -2 / Ch; vp[12] = -1; vp[13] = 1; vp[15] = 1;
     this.renderer.setUniforms({ width: Cw, height: Ch, camScale: this.camScale, camCenter: this.camCenter, viewProj: vp });
-    this.renderer.draw(pass, this.crvFA.subarray(0, this.crv.length), this.rwsUA.subarray(0, this.rws.length), this.instFA.subarray(0, this.inst.length), this.inst.length / 16);
+    this.renderer.draw(pass, this.crvFA.subarray(0, this.crv.length), this.rwsUA.subarray(0, this.rws.length), this.instFA.subarray(0, this.inst.length), this.inst.length / 16, undefined, undefined, this.dataVersion);
   }
 }

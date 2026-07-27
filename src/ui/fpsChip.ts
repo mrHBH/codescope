@@ -19,8 +19,11 @@ export class FpsChip {
   private rect = { x0: 0, y0: 0, x1: 0, y1: 0 };
   private pressT = -1;
   private longFired = false;
-  private status = '';
+  private statusMsg = '';
   private statusT = 0;
+
+  /** Transient feedback ("copied" / "copy failed") — part of the HUD skip-sig. */
+  get status(): string { return this.statusMsg; }
 
   update(short: string, full: string, extra: string) {
     this.short = short;
@@ -34,7 +37,7 @@ export class FpsChip {
       this.longFired = true;
       this.copy();
     }
-    if (this.status && now - this.statusT > 1200) this.status = '';
+    if (this.statusMsg && now - this.statusT > 1200) this.statusMsg = '';
   }
 
   hitTest(x: number, y: number): boolean {
@@ -62,7 +65,7 @@ export class FpsChip {
 
   private copy() {
     const text = this.extra ? `${this.full}\n${this.extra}` : this.full;
-    const mark = (msg: string) => { this.status = msg; this.statusT = performance.now(); };
+    const mark = (msg: string) => { this.statusMsg = msg; this.statusT = performance.now(); };
     try {
       const p = navigator.clipboard?.writeText(text);
       if (p) p.then(() => mark('copied'), () => mark('copy failed'));

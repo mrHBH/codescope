@@ -390,6 +390,11 @@ export function runFrame(s: AppState): () => void {
   // (input.ts, writing s.evCount) rather than a separate window listener here —
   // one fewer listener dispatched per event.
   let jsMs = 0, worstDt = 0, evAccum = 0, evPerS = 0, lastEvT = performance.now();
+  // Frame-skip state: signature of the last fully-built frame + the buffer
+  // lengths the draw call reuses when a skipped frame redraws persisted data.
+  let lastFrameSig = '';
+  let lastInstLen = 0, lastCrvLen = 0, lastRwsLen = 0;
+  let skipCount = 0;
 
   function frame(now: number) {
     if (!alive) return; // demo torn down → stop the loop
@@ -419,7 +424,10 @@ export function runFrame(s: AppState): () => void {
       // Mirror the readout for the DOM-free cinematic HUD (drawn analytically).
       s.hudDebugText = s.fpsEl.textContent ?? '';
       // Analytic fps chip: short + full + demo diagnostics (3rd click mode).
-      s.fpsChip?.update(`${Math.round(1000 / fpsDt)} fps`, s.hudDebugText, s.hudDebugExtra);
+      // The skip count climbs while the scene is still (frame-level dirty
+      // tracking redraws persistent GPU buffers instead of re-emitting).
+      const extra = skipCount > 0 ? `${s.hudDebugExtra} · skipped ${skipCount} still-frames` : s.hudDebugExtra;
+      s.fpsChip?.update(`${Math.round(1000 / fpsDt)} fps`, s.hudDebugText, extra);
       worstDt = 0;
     }
 
@@ -709,6 +717,14 @@ export function runFrame(s: AppState): () => void {
     }
     mark('morph');
 
+    // Frame-skip eligibility: only when nothing time-dependent shares the
+    // instance buffer (caret blink, terminal, demos, fx, menus all opt out).
+    const canFrameSkip = !s.editor && !s.terminal && !s.fileTree && !s.morphDemo && !s.mathDemo
+      && !s.windgraph && !s.graph3d && !s.bench && !(s.perf && s.perf.showResults)
+      && !(s.demo && s.demo.running) && s.dynamicEls.length === 0
+      && !(s.analyticMenu && s.analyticMenu.open);
+    let skipFrame = false;
+
     // windgraph Phase-5 interactive board (world-space, draggable).
     if (s.interactive) {
       const g = s.interactive;
@@ -719,7 +735,23 @@ export function runFrame(s: AppState): () => void {
         // Update hover BEFORE emit so the hover ring is current; the cursor is
         // applied once at the end of the frame (deferred write).
         const over = !wheelCool && s.pointerInput && (g.dragging || g.updateHover(s.mwx, s.mwy, cameraScale(s)));
-        g.emit(s.font, s.atlas, inst, crv, rws, now, boardView);
+        // Frame-level dirty tracking: a board exposing frameSig() skips the
+        // whole emit + conversion + upload when nothing changed — the pass
+        // redraws the persistent GPU buffers. A still scene costs ~0 JS.
+        const gAny = g as any;
+        if (canFrameSkip && typeof gAny.frameSig === 'function') {
+          const fullSig = `${s.staticRev}|${Cw}x${Ch}|${s.viewX},${s.viewY},${s.viewZ},${s.cam3d.active ? 1 : 0},${s.lowResSharpen ? 1 : 0}|${gAny.frameSig(boardView)}`;
+          if (fullSig === lastFrameSig) {
+            skipFrame = true;
+            skipCount++;
+          } else {
+            lastFrameSig = fullSig;
+            g.emit(s.font, s.atlas, inst, crv, rws, now, boardView);
+          }
+        } else {
+          lastFrameSig = '';
+          g.emit(s.font, s.atlas, inst, crv, rws, now, boardView);
+        }
         if (over) cursor = g.dragging ? 'grabbing' : 'grab';
       }
     }
@@ -784,24 +816,30 @@ export function runFrame(s: AppState): () => void {
     // every frame (extra GPU/composite load that competed with rendering + cursor
     // compositing while moving the mouse). The WebGPU canvas is transparent where
     // nothing is drawn, so the CSS backdrop shows through.
-    if (crv.length > s.crvFA.length) s.crvFA = new Float32Array(crv.length * 2);
-    s.crvFA.set(crv);
-    if (rws.length > s.rwsUA.length) s.rwsUA = new Uint32Array(rws.length * 2);
-    s.rwsUA.set(rws);
-    // Upload instance buffer. In 2D mode, subtract camera center from each
-    // instance origin in JS (f64) so the GPU sees small coordinates even at
-    // extreme zoom — true infinite zoom. 3D mode passes absolute coords because
-    // orbitViewProj handles the camera transform internally.
-    if (inst.length > s.instFA.length) s.instFA = new Float32Array(inst.length * 2);
-    if (s.cam3d.active) {
-      s.instFA.set(inst);
-    } else {
-      const cx = s.viewX, cy = s.viewY;
-      for (let i = 0; i < inst.length; i += 16) {
-        s.instFA[i] = inst[i] - cx;       // place.x relative to camera (f64→f32)
-        s.instFA[i + 1] = inst[i + 1] - cy;
-        for (let j = 2; j < 16; j++) s.instFA[i + j] = inst[i + j];
+    // Skipped frames keep the previous frame's typed arrays + GPU buffers —
+    // the signature match guarantees identical content (camera included).
+    if (!skipFrame) {
+      if (crv.length > s.crvFA.length) s.crvFA = new Float32Array(crv.length * 2);
+      s.crvFA.set(crv);
+      if (rws.length > s.rwsUA.length) s.rwsUA = new Uint32Array(rws.length * 2);
+      s.rwsUA.set(rws);
+      // Upload instance buffer. In 2D mode, subtract camera center from each
+      // instance origin in JS (f64) so the GPU sees small coordinates even at
+      // extreme zoom — true infinite zoom. 3D mode passes absolute coords because
+      // orbitViewProj handles the camera transform internally.
+      if (inst.length > s.instFA.length) s.instFA = new Float32Array(inst.length * 2);
+      if (s.cam3d.active) {
+        s.instFA.set(inst);
+      } else {
+        const cx = s.viewX, cy = s.viewY;
+        for (let i = 0; i < inst.length; i += 16) {
+          s.instFA[i] = inst[i] - cx;       // place.x relative to camera (f64→f32)
+          s.instFA[i + 1] = inst[i + 1] - cy;
+          for (let j = 2; j < 16; j++) s.instFA[i + j] = inst[i + j];
+        }
       }
+      s.frameDataVersion++;
+      lastInstLen = inst.length; lastCrvLen = crv.length; lastRwsLen = rws.length;
     }
     mark('upload');
     const enc = s.device.createCommandEncoder();
@@ -857,7 +895,7 @@ export function runFrame(s: AppState): () => void {
       }
     }
     s.renderer.setUniforms({ width: renderW, height: renderH, camScale: [camScale, camScale], camCenter: [0, 0], viewProj });
-    s.renderer.draw(pass, s.crvFA.subarray(0, crv.length), s.rwsUA.subarray(0, rws.length), s.instFA.subarray(0, inst.length), inst.length / 16);
+    s.renderer.draw(pass, s.crvFA.subarray(0, lastCrvLen), s.rwsUA.subarray(0, lastRwsLen), s.instFA.subarray(0, lastInstLen), lastInstLen / 16, undefined, undefined, s.frameDataVersion);
     // Screen-space cinematic HUD overlay (letterbox + sleek timeline + controls +
     // caption), drawn through a dedicated renderer with a screen-ortho matrix, on
     // top of the 3D scene. This composites correctly in the same pass because the
@@ -880,7 +918,11 @@ export function runFrame(s: AppState): () => void {
     // FULL backing size (Cw/Ch, not the low-res renderW/H) so chrome stays correctly
     // positioned even when low-res render + sharpen upscales the scene target.
     // Seeded with the atlas base band tables so menu/toolbar glyphs resolve.
-    s.screenHud?.frame(pass, Cw, Ch, now, s.baseCrv, s.baseRws);
+    // HUD frame-skip: chrome changes only on hover, panel/menu interaction, or
+    // the 8Hz readout tick — otherwise the pass redraws persistent buffers.
+    const chip = s.fpsChip;
+    const hudSig = `${Cw}x${Ch}|${s.toolbar?.hoveredId ?? ''}|${chip ? `${chip.mode}|${chip.status}|${chip.pressed ? 1 : 0}` : ''}|${s.hudDebugText}|${s.hudDebugExtra}|${s.analyticMenu?.open ? 'M' + Math.floor(now / 50) : ''}|${s.panel?.open ? 'P' + Math.floor(now / 50) : ''}`;
+    s.screenHud?.frame(pass, Cw, Ch, now, s.baseCrv, s.baseRws, hudSig);
     pass.end();
     // Resolve the offscreen render to the full-res swapchain: cinematic grade
     // (postfx) or contrast-adaptive sharpen (upscale), else already on swapchain.

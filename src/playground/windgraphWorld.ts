@@ -156,31 +156,45 @@ export class WindgraphWorld {
 
   // ── emit ────────────────────────────────────────────────────────────────
 
-  emit(font: FontFace, atlas: any, inst: number[], crv: number[], rws: number[], now: number, view: PlaneView) {
-    const t0 = performance.now();
-    const inst0 = inst.length;
+  /** Backdrop cache key + quantized clip for a view (shared by frameSig/emit). */
+  private backdropParts(view: PlaneView) {
     const z = Math.max(view.zoom, 1e-4);
     const sentinel = view.left < -1e11;
     const vL = sentinel ? this.overview.x - 2000 : view.left;
     const vT = sentinel ? this.overview.y - 2000 : view.top;
     const vR = sentinel ? this.overview.x + this.overview.w + 2000 : view.right;
     const vB = sentinel ? this.overview.y + this.overview.h + 2000 : view.bottom;
-
-    // Backdrop (LOD dot grid + masthead). Cache key = grid STEP + tile range,
-    // never raw zoom: niceStep is a step-function of zoom, so the grid geometry
-    // is constant across a zoom band — zooming replays the cache instead of
-    // rebuilding thousands of dots per frame (the old raw-zoom key missed every
-    // frame of a zoom). Dot size derives from `step` so screen size stays ~2-4px.
-    // Dot grid: screen spacing ~140-280px, cached over the view + a 3-step
-    // margin quantized to the step itself — so the dot COUNT stays bounded
-    // (~100-350) at every zoom instead of exploding with a fixed tile margin
-    // (replay costs ~3μs/instance — dots are instances too).
+    // Line grid: screen spacing ~140-280px, cached over the view + a 3-step
+    // margin quantized to the step itself — bounded line count at every zoom,
+    // and the key never contains raw zoom (niceStep is a step-function of it).
     const step = niceStep(140 / z);
     const mgn = step * 3;
     const eL = Math.floor((vL - mgn) / step) * step, eT = Math.floor((vT - mgn) / step) * step;
     const eR = Math.ceil((vR + mgn) / step) * step, eB = Math.ceil((vB + mgn) / step) * step;
+    return { sig: `g|${this.showGrid ? 1 : 0}|${step}|${eL},${eT},${eR},${eB}`, step, eL, eT, eR, eB, vL, vT, vR, vB };
+  }
+
+  /** Frame-skip signature: the frame loop compares this to decide whether the
+   *  world would emit identically — if so it redraws persistent GPU buffers
+   *  with zero JS emit / conversion / upload (a still scene costs ~nothing). */
+  frameSig(view: PlaneView): string {
+    const bp = this.backdropParts(view);
+    let sig = bp.sig;
+    for (const b of this.boards) {
+      sig += '|';
+      sig += (b.x0 <= bp.vR && b.x0 + b.width >= bp.vL && b.y0 <= bp.vB && b.y0 + b.height >= bp.vT)
+        ? b.sigFor(view) : 'off';
+    }
+    return sig;
+  }
+
+  emit(font: FontFace, atlas: any, inst: number[], crv: number[], rws: number[], now: number, view: PlaneView) {
+    const t0 = performance.now();
+    const inst0 = inst.length;
+    const bp = this.backdropParts(view);
+    const { step, eL, eT, eR, eB, vL, vT, vR, vB } = bp;
     const tg0 = performance.now();
-    this.backdropCache.run(`g|${this.showGrid ? 1 : 0}|${step}|${eL},${eT},${eR},${eB}`, inst, crv, rws, () => {
+    this.backdropCache.run(bp.sig, inst, crv, rws, () => {
       if (this.showGrid) {
         // True line grid — and cheaper than dots: a full-length line is ONE
         // stroke instance, vs one instance per dot. Widths derive from `step`

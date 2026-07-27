@@ -193,6 +193,25 @@ export class WindgraphSceneBoard {
 
   // ── emit ────────────────────────────────────────────────────────────────
 
+  /** Cache signature for a view — pure (no side effects), so the frame loop
+   *  can ask "would this frame differ?" before deciding to emit at all.
+   *  Quantizes both camera axes: view∩board clip snaps to a coarse tile (pan
+   *  replays within a tile), zoom snaps to ~9% log2 bands (zoom replays
+   *  instead of re-running marching squares / resampling every frame). */
+  sigFor(view: PlaneView): string {
+    this.ensure();
+    const z = Math.max(view.zoom, 1e-6);
+    const lod = Math.max(0.3, Math.min(3, Math.round(Math.sqrt(z) * 10) / 10));
+    const zq = Math.pow(2, Math.round(Math.log2(z) * 8) / 8);
+    if (view.left < -1e11) return `3d|${this.rev}|${this.scene.hoveredId ?? ''}|${lod}|${zq}`;
+    const TILE = 1200;
+    const eL = Math.floor(Math.max(view.left, this.x0) / TILE) * TILE;
+    const eT = Math.floor(Math.max(view.top, this.y0) / TILE) * TILE;
+    const eR = Math.ceil(Math.min(view.right, this.x0 + this.width) / TILE) * TILE;
+    const eB = Math.ceil(Math.min(view.bottom, this.y0 + this.height) / TILE) * TILE;
+    return `${this.rev}|${this.scene.hoveredId ?? ''}|${lod}|${zq}|${eL},${eT},${eR},${eB}`;
+  }
+
   emit(font: FontFace, atlas: any, inst: number[], crv: number[], rws: number[], now: number, view: PlaneView) {
     this.ensure();
     this.lastZoom = view.zoom;
@@ -201,25 +220,7 @@ export class WindgraphSceneBoard {
     // A change bumps rev so the cache rebuilds once at the new density.
     const lod = Math.max(0.3, Math.min(3, Math.round(Math.sqrt(Math.max(view.zoom, 1e-6)) * 10) / 10));
     if (this.scene.setLodScale(lod)) this.rev++;
-    // Cache key quantizes BOTH axes of camera motion: the view∩board clip snaps
-    // to a coarse tile (panning replays within a tile), and zoom snaps to ~9%
-    // relative bands (log2-rounded) — so zooming replays the cache instead of
-    // re-running marching squares / plot resampling every frame (raw-zoom keys
-    // missed on every frame of a zoom). Screen-px elements (ticks, sliders)
-    // carry ≤9% size variance between rebuilds — imperceptible.
-    const zq = Math.pow(2, Math.round(Math.log2(Math.max(view.zoom, 1e-6)) * 8) / 8);
-    let sig: string;
-    if (view.left < -1e11) {
-      sig = `3d|${this.rev}|${this.scene.hoveredId ?? ''}|${zq}`;
-    } else {
-      const TILE = 1200;
-      const eL = Math.floor(Math.max(view.left, this.x0) / TILE) * TILE;
-      const eT = Math.floor(Math.max(view.top, this.y0) / TILE) * TILE;
-      const eR = Math.ceil(Math.min(view.right, this.x0 + this.width) / TILE) * TILE;
-      const eB = Math.ceil(Math.min(view.bottom, this.y0 + this.height) / TILE) * TILE;
-      sig = `${this.rev}|${this.scene.hoveredId ?? ''}|${zq}|${eL},${eT},${eR},${eB}`;
-    }
-    this.cache.run(sig, inst, crv, rws, () => {
+    this.cache.run(this.sigFor(view), inst, crv, rws, () => {
       // Board chrome: border + title.
       const { x0, y0, width, height } = this;
       strokeInto([[x0, y0], [x0 + width, y0], [x0 + width, y0 + height], [x0, y0 + height], [x0, y0]], { width: 1.5 }, BORDER, inst, crv, rws);

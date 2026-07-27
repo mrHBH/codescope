@@ -91,6 +91,19 @@ If this file and the code disagree, investigate before trusting either.
   (overview decimates to ~50%, deep zoom refines up to 3×). Remaining
   structural cost = per-frame replay is still O(instances); the real fix is
   instance-buffer diffing / persistent static GPU buffers (Lane N).
+- 2026-07-27 — **Perf pass 6 — FRAME-LEVEL DIRTY TRACKING (the asymptotic
+  fix, Lane N pulled forward; user granted sole frame.ts ownership).** A still
+  scene now costs ~0 JS: `WindgraphWorld.frameSig(view)` + per-board `sigFor`
+  answer "would this emit identically?" — frame.ts compares
+  `staticRev|canvas|viewX,Y,Z|cam3d|sharpen|contentSig` and on match skips
+  emit + f64→f32 conversion + all GPU uploads; the render pass redraws the
+  PERSISTENT buffers (gpu.ts `draw` gained a caller-managed `dataVersion`
+  gating writeBuffer). screenHud got the same treatment (sig → skip
+  onBuild+sync+uploads; chrome changes on hover / 8Hz tick / menu / panel).
+  `precompute.buildStatic` bumps `s.staticRev`. Skip eligibility excludes
+  every time-dependent emitter (editor/terminal/fileTree/demos/fx/menus/
+  dynamicEls). Chip diagnostics show cumulative `skipped N still-frames`.
+  Interacting (drag/pan/zoom/slider) takes the full path exactly as before.
 - 2026-07-27 — **Perf pass 5 (user: grid looks like shit + readings inverted).**
   Two fixes: (1) dot grid → TRUE LINE GRID — a full-length line is one stroke
   instance vs one per dot (~20-40 instances total, ~0.1-0.2ms; minor/major

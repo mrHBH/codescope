@@ -85,6 +85,10 @@ export function createGlyphRenderer(
 
   let lastCurves: Float32Array | null = null;
   let lastRows: Uint32Array | null = null;
+  // Caller-managed content version: when supplied, geometry uploads happen only
+  // on version change — a still scene redraws from the persistent GPU buffers
+  // with zero writeBuffer calls (frame-level dirty tracking, sprint-v2).
+  let lastDataVersion = -1;
 
   return {
     setUniforms({ width, height, camScale = [1, 1] as number[], camCenter = [0, 0] as number[], viewProj, fxActive = 0 }: { width: number; height: number; camScale?: number[]; camCenter?: number[]; viewProj: ArrayLike<number>; fxActive?: number }) {
@@ -96,7 +100,7 @@ export function createGlyphRenderer(
       uniformData[24] = fxActive;
       device.queue.writeBuffer(uniform, 0, uniformData);
     },
-    draw(pass: GPURenderPassEncoder, curves: Float32Array, rows: Uint32Array, instances: Float32Array, instanceCount: number, xforms?: Float32Array, clip?: Float32Array) {
+    draw(pass: GPURenderPassEncoder, curves: Float32Array, rows: Uint32Array, instances: Float32Array, instanceCount: number, xforms?: Float32Array, clip?: Float32Array, dataVersion?: number) {
       if (!instanceCount) return;
       let newBindGroup = false;
       let c: GPUBuffer, cc: number;
@@ -120,9 +124,19 @@ export function createGlyphRenderer(
         if (cl !== clipBuf) { clipBuf = cl; clipCap = clc; newBindGroup = true; }
         device.queue.writeBuffer(clipBuf, 0, clip);
       }
-      if (curves !== lastCurves) { device.queue.writeBuffer(curveBuf, 0, curves); lastCurves = curves; }
-      if (rows !== lastRows) { device.queue.writeBuffer(rowBuf, 0, rows); lastRows = rows; }
-      device.queue.writeBuffer(instBuf, 0, instances);
+      if (dataVersion !== undefined) {
+        if (dataVersion !== lastDataVersion) {
+          device.queue.writeBuffer(curveBuf, 0, curves);
+          device.queue.writeBuffer(rowBuf, 0, rows);
+          device.queue.writeBuffer(instBuf, 0, instances);
+          lastDataVersion = dataVersion;
+          lastCurves = curves; lastRows = rows;
+        }
+      } else {
+        if (curves !== lastCurves) { device.queue.writeBuffer(curveBuf, 0, curves); lastCurves = curves; }
+        if (rows !== lastRows) { device.queue.writeBuffer(rowBuf, 0, rows); lastRows = rows; }
+        device.queue.writeBuffer(instBuf, 0, instances);
+      }
       if (newBindGroup) {
         bindGroup = device.createBindGroup({
           layout,
