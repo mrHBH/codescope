@@ -11,7 +11,7 @@ import { addRect } from './layout/metrics';
 import { layoutFlow } from './layout/flow';
 import { layoutEditable } from './layout/editable';
 import { hitTest, HOVER_FX_MOVES_TEXT } from './layout/walk';
-import { fillQuads, polygonQuads } from './windgraph/stroke/stroke';
+import { fillQuads, polygonQuads, type Pt } from './windgraph/stroke/stroke';
 import { stepCamera } from './camera/camera';
 import { cameraViewProj, cameraScale, scrToDoc, uiScale } from './camera/camera';
 import type { EditorTheme } from './editor/editor';
@@ -25,9 +25,39 @@ import { poseXform } from './camera/screenWorld';
 const _hoveredSet = new Set<StyledEl>();
 const _tmpColor: number[] = [0, 0, 0, 0];
 const _fxAc: number[] = [0, 0, 0, 0];
+const _fxB: number[] = [0, 0, 0, 0];
+const _fxC: number[] = [0, 0, 0, 0];
 const ZERO_COLOR: number[] = [0, 0, 0, 0];
 const SHIMMER_COLOR: number[] = [1, 1, 1, 0.12];
 const _boardView = { zoom: 1, left: 0, right: 0, top: 0, bottom: 0 };
+
+// Rotate a color's hue by `deg` (standard hue-rotation matrix) into `out` — lets
+// the multi-color effects (aurora/prism/firework/…) derive theme-matched palettes
+// from the single accent instead of hard-coding clashing hues.
+function _shiftHue(c: number[], deg: number, out: number[]): number[] {
+  const r = c[0], g = c[1], b = c[2];
+  const co = Math.cos(deg * Math.PI / 180), si = Math.sin(deg * Math.PI / 180);
+  out[0] = (0.213 + co * 0.787 - si * 0.213) * r + (0.715 - co * 0.715 - si * 0.715) * g + (0.072 - co * 0.072 + si * 0.928) * b;
+  out[1] = (0.213 - co * 0.213 + si * 0.143) * r + (0.715 + co * 0.285 + si * 0.140) * g + (0.072 - co * 0.072 - si * 0.283) * b;
+  out[2] = (0.213 - co * 0.213 - si * 0.787) * r + (0.715 - co * 0.715 + si * 0.715) * g + (0.072 + co * 0.928 + si * 0.072) * b;
+  out[3] = c[3];
+  return out;
+}
+
+// Axis-aligned rectangular ring (4 thin rects) centered at (cx, cy).
+function _ring(cx: number, cy: number, hw: number, hh: number, th: number, col: number[], crv: number[], rws: number[], inst: number[]) {
+  addRect(cx - hw, cy - hh, cx + hw, cy - hh + th, col, crv, rws, inst);
+  addRect(cx - hw, cy + hh - th, cx + hw, cy + hh, col, crv, rws, inst);
+  addRect(cx - hw, cy - hh, cx - hw + th, cy + hh, col, crv, rws, inst);
+  addRect(cx + hw - th, cy - hh, cx + hw, cy + hh, col, crv, rws, inst);
+}
+
+// Damped click-bounce offset (positive = down) for the physical hover effects.
+function _bounce(age: number): number {
+  if (age >= 520) return 0;
+  const p = age / 520;
+  return Math.sin(p * Math.PI * 3) * 5 * (1 - p);
+}
 
 // ── Named analytic button hover effects ──────────────────────────────────────
 // A button tagged with a `hov-*` class (walkDOM → StyledEl.hoverFx) renders one of
@@ -49,7 +79,10 @@ function renderHoverFx(el: StyledEl, s: AppState, crv: number[], rws: number[], 
   // Physical vertical offset: hover lifts the button, press sinks it.
   const dy = el.hoverFx === 'push' ? (isAct ? 4 : -3 * t)
     : el.hoverFx === 'key' ? (isAct ? 3 : -2 * t)
-    : el.hoverFx === 'dent' ? (isAct ? 2 : 0) : 0;
+    : el.hoverFx === 'dent' ? (isAct ? 2 : 0)
+    : el.hoverFx === 'levitate'
+      ? (isAct ? 2 : -4 * t + Math.sin(now / 300) * 1.3 * t) + (el.pressT > 0 ? _bounce(now - el.pressT) : 0)
+      : 0;
   const e = 2; // accent edge thickness (world units — scales with zoom like the doc)
   const face = (oy = 0) => { if (el.curBg[3] > 0.004) addRect(x0 + bl, y0 + bt + oy, x1 - br, y1 - bb + oy, el.curBg, crv, rws, inst); };
   // Re-lay-out the label at the button's current offset (physical effects only).
@@ -234,6 +267,277 @@ function renderHoverFx(el: StyledEl, s: AppState, crv: number[], rws: number[], 
       addRect(x0, cy + gap - 1.5, x1, cy + gap + 1.5, A(0.85 * t), crv, rws, inst);
       break;
     }
+    case 'orbit': {
+      // Three satellites orbit the button's perimeter.
+      face();
+      const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+      const rx = el.w / 2 + 7, ry = el.h / 2 + 7;
+      for (let i = 0; i < 3; i++) {
+        const ang = now / 620 + i * (Math.PI * 2 / 3);
+        const px = cx + Math.cos(ang) * rx, py = cy + Math.sin(ang) * ry;
+        addRect(px - 2.5, py - 2.5, px + 2.5, py + 2.5, A(0.8 * t), crv, rws, inst);
+      }
+      break;
+    }
+    case 'wave': {
+      // A sine wave of dots ripples along the bottom, phase bent by the pointer.
+      face();
+      for (let i = 0; i <= 12; i++) {
+        const fx = i / 12;
+        const px = x0 + fx * el.w;
+        const py = y1 + 5 + Math.sin(now / 260 + fx * 6 + (px - s.mwx) * 0.06) * 3 * t;
+        addRect(px - 1.5, py - 1.5, px + 1.5, py + 1.5, A(0.7 * t), crv, rws, inst);
+      }
+      break;
+    }
+    case 'glitch': {
+      // RGB-split slices flicker across the button.
+      face();
+      if (Math.sin(now / 90) > 0.2) {
+        _shiftHue(ac, 120, _fxB); _fxB[3] = 0.45 * t;
+        _shiftHue(ac, -120, _fxC); _fxC[3] = 0.45 * t;
+        const sy = y0 + ((now / 70) % 1) * (el.h - 10);
+        addRect(x0 + 3, sy, x1 + 3, sy + 4, _fxB, crv, rws, inst);
+        addRect(x0 - 3, sy + 6, x1 - 3, sy + 10, _fxC, crv, rws, inst);
+      }
+      break;
+    }
+    case 'radar': {
+      // Concentric rings expand from the center on a staggered loop.
+      face();
+      const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+      for (let i = 0; i < 3; i++) {
+        const p = ((now / 1250) + i / 3) % 1;
+        _ring(cx, cy, 4 + p * (el.w / 2 + 12), 4 + p * (el.h / 2 + 12), 1.5, A((1 - p) * 0.5 * t), crv, rws, inst);
+      }
+      break;
+    }
+    case 'fuse': {
+      // A bright spark runs the top edge with a fading trail.
+      face();
+      const p = (now / 900) % 1;
+      for (let i = 5; i >= 1; i--) {
+        const tp = p - i * 0.03;
+        if (tp < 0) continue;
+        const tx = x0 + tp * el.w;
+        addRect(tx - 2, y0 - 2, tx + 2, y0 + 2, A((1 - i / 6) * 0.7 * t), crv, rws, inst);
+      }
+      addRect(x0 + p * el.w - 3, y0 - 3, x0 + p * el.w + 3, y0 + 3, A(0.95 * t), crv, rws, inst);
+      break;
+    }
+    case 'breathe': {
+      // The face inhales/exhales on a slow sine.
+      const b = (0.5 + 0.5 * Math.sin(now / 520)) * 2.5 * t;
+      if (el.curBg[3] > 0.004) addRect(x0 - b, y0 - b, x1 + b, y1 + b, el.curBg, crv, rws, inst);
+      border4(0.55 * t);
+      break;
+    }
+    case 'aurora': {
+      // Hue-shifted curtains drift across the face.
+      face();
+      _shiftHue(ac, 40, _fxB); _fxB[3] = 0.14 * t;
+      _shiftHue(ac, -70, _fxC); _fxC[3] = 0.14 * t;
+      for (let i = 0; i < 3; i++) {
+        const bx = x0 + ((now / (1500 + i * 420) + i * 0.33) % 1) * el.w;
+        addRect(bx - 16, y0, bx + 16, y1, i === 1 ? _fxC : _fxB, crv, rws, inst);
+      }
+      break;
+    }
+    case 'ember': {
+      // Embers drift up through the button, shrinking as they cool.
+      face();
+      for (let i = 0; i < 7; i++) {
+        const p = ((now / 1150) + (i * 0.618) % 1) % 1;
+        const px = x0 + (0.1 + 0.8 * ((i * 0.37) % 1)) * el.w + Math.sin(now / 300 + i) * 2;
+        const py = y1 - p * (el.h + 12);
+        const sz = 1.5 + (1 - p) * 1.5;
+        addRect(px - sz, py - sz, px + sz, py + sz, A((1 - p) * 0.7 * t), crv, rws, inst);
+      }
+      break;
+    }
+    case 'prism': {
+      // Skewed light bands refract across the face.
+      face();
+      const p = (now / 1350) % 1;
+      const bx = x0 - 30 + p * (el.w + 60);
+      _shiftHue(ac, 50, _fxB); _fxB[3] = 0.22 * t;
+      const band = (x: number, col: number[]) =>
+        fillQuads(polygonQuads([[x, y0], [x + 14, y0], [x + 2, y1], [x - 12, y1]] as Pt[], true), col, inst, crv, rws);
+      band(bx, A(0.18 * t));
+      band(bx + 20, _fxB);
+      break;
+    }
+    case 'static': {
+      // Broadcast static: deterministic dots flicker on/off.
+      face();
+      for (let i = 0; i < 24; i++) {
+        if (Math.sin(now / (60 + ((i * 2654435761 >>> 0) % 80)) + i * 7) <= 0) continue;
+        const px = x0 + ((i * 2654435761 >>> 0) % 1000) / 1000 * el.w;
+        const py = y0 + ((i * 40503 >>> 0) % 1000) / 1000 * el.h;
+        addRect(px, py, px + 2, py + 2, A(0.25 * t), crv, rws, inst);
+      }
+      break;
+    }
+    case 'comet': {
+      // A comet with a fading tail crosses above the top edge.
+      face();
+      const p = (now / 1150) % 1;
+      for (let i = 7; i >= 0; i--) {
+        const tp = p - i * 0.025;
+        if (tp < 0) continue;
+        const sz = 3 - i * 0.3;
+        const tx = x0 + tp * el.w;
+        addRect(tx - sz, y0 - 7 - sz, tx + sz, y0 - 7 + sz, A((1 - i / 8) * 0.8 * t), crv, rws, inst);
+      }
+      break;
+    }
+    case 'origami': {
+      // A dog-ear fold appears at the top-right corner.
+      face();
+      const f = 15 * t;
+      _shiftHue(ac, 30, _fxB); _fxB[3] = 0.5 * t;
+      fillQuads(polygonQuads([[x1 - f, y0], [x1, y0], [x1, y0 + f]] as Pt[], true), A(0.7 * t), inst, crv, rws);
+      fillQuads(polygonQuads([[x1 - f, y0], [x1, y0 + f], [x1 - f, y0 + f]] as Pt[], true), _fxB, inst, crv, rws);
+      break;
+    }
+    case 'sonar': {
+      // Pings radiate from the top-left corner.
+      face();
+      for (let i = 0; i < 3; i++) {
+        const p = ((now / 1050) + i / 3) % 1;
+        _ring(x0, y0, 4 + p * 42, 4 + p * 42, 1.5, A((1 - p) * 0.5 * t), crv, rws, inst);
+      }
+      break;
+    }
+    case 'zipper': {
+      // Interlocking teeth zip along the bottom edge.
+      face();
+      const n = Math.floor(el.w / 8);
+      for (let i = 0; i < n; i++) {
+        const tx = x0 + i * 8 + 2;
+        addRect(tx, i % 2 ? y1 - 2 : y1 - 5, tx + 4, i % 2 ? y1 + 1 : y1 - 2, A(0.7 * t), crv, rws, inst);
+      }
+      addRect(x0, y1 - 1, x1, y1, A(0.45 * t), crv, rws, inst);
+      break;
+    }
+    case 'typewriter': {
+      // An underline types left → right with a blinking caret at its head.
+      face();
+      const w = (x1 - x0) * ((now / 1400) % 1);
+      addRect(x0, y1 - 2, x0 + w, y1, A(0.8 * t), crv, rws, inst);
+      if (Math.sin(now / 180) > 0) addRect(x0 + w, y0 + el.h * 0.28, x0 + w + 2, y1 - 2, A(0.9 * t), crv, rws, inst);
+      break;
+    }
+    case 'levitate': {
+      // Physical: the button floats with a wobble; a small shadow pools below.
+      if (!isAct && t > 0.01) addRect(x0 + 5, y1 + 3, x1 - 5, y1 + 6, A(0.16 * t), crv, rws, inst);
+      face(dy);
+      border4(0.6 * t, dy);
+      label();
+      break;
+    }
+    case 'helix': {
+      // A wave of dots with pseudo-depth threads the button's midline.
+      face();
+      const cy = (y0 + y1) / 2;
+      for (let i = 0; i < 14; i++) {
+        const fx = i / 13;
+        const ph = now / 300 + fx * Math.PI * 3;
+        const py = cy + Math.sin(ph) * el.h * 0.3 * t;
+        const depth = 0.5 + 0.5 * Math.cos(ph);
+        addRect(x0 + fx * el.w - 1.5, py - 1.5, x0 + fx * el.w + 1.5, py + 1.5, A((0.3 + 0.6 * depth) * t), crv, rws, inst);
+      }
+      break;
+    }
+    case 'torch': {
+      // Flame tongues flicker up from the bottom edge.
+      face();
+      for (let i = 0; i < 9; i++) {
+        const fl = 0.5 + 0.5 * Math.sin(now / (120 + i * 17) + i * 3);
+        const hgt = (4 + fl * 8) * t;
+        const px = x0 + ((i + 0.5) / 9) * el.w;
+        _shiftHue(ac, 30 * fl, _fxB); _fxB[3] = 0.35 * t;
+        addRect(px - 3, y1 - hgt, px + 3, y1, _fxB, crv, rws, inst);
+      }
+      break;
+    }
+    case 'pendulum': {
+      // A plumb bob swings beneath the button.
+      face();
+      const cx = (x0 + x1) / 2;
+      const ang = Math.sin(now / 520) * 0.6 * t;
+      const bx = cx + Math.sin(ang) * 14, by = y1 + Math.cos(ang) * 14;
+      addRect(Math.min(cx, bx), y1, Math.max(cx, bx) + 1, by, A(0.3 * t), crv, rws, inst);
+      addRect(bx - 2.5, by - 2.5, bx + 2.5, by + 2.5, A(0.85 * t), crv, rws, inst);
+      break;
+    }
+    case 'vortex': {
+      // Particles spiral inward toward the pointer.
+      face();
+      const cx = Math.max(x0 + 8, Math.min(x1 - 8, s.mwx));
+      const cy = Math.max(y0 + 6, Math.min(y1 - 6, s.mwy));
+      for (let i = 0; i < 10; i++) {
+        const prog = ((now / 950) + i / 10) % 1;
+        const ang = prog * Math.PI * 4 + i;
+        const r = (1 - prog) * 26;
+        addRect(cx + Math.cos(ang) * r - 1.5, cy + Math.sin(ang) * r * 0.6 - 1.5, cx + Math.cos(ang) * r + 1.5, cy + Math.sin(ang) * r * 0.6 + 1.5, A((0.3 + 0.6 * prog) * t), crv, rws, inst);
+      }
+      break;
+    }
+    case 'matrix': {
+      // Columns of code-rain fall inside the button.
+      face();
+      for (let i = 0; i < 8; i++) {
+        const px = x0 + ((i + 0.5) / 8) * el.w;
+        const p = ((now / (1600 / (0.5 + ((i * 0.37) % 1) * 0.8))) + i * 0.13) % 1;
+        for (let j = 0; j < 4; j++) {
+          const py = y0 + p * el.h - j * 5;
+          if (py < y0 || py > y1) continue;
+          addRect(px - 1.5, py - 1.5, px + 1.5, py + 1.5, A((1 - j / 4) * 0.6 * t), crv, rws, inst);
+        }
+      }
+      break;
+    }
+    case 'barcode': {
+      // Barcode bars materialize with a sweeping scan line.
+      face();
+      for (let i = 0; i < 16; i++) {
+        const px = x0 + 4 + (i / 16) * (el.w - 8);
+        addRect(px, y0 + 4, px + 1 + (i * 7) % 3, y1 - 4, A(0.28 * t), crv, rws, inst);
+      }
+      addRect(x0 + ((now / 1000) % 1) * el.w - 1, y0, x0 + ((now / 1000) % 1) * el.w + 1, y1, A(0.7 * t), crv, rws, inst);
+      break;
+    }
+    case 'neon': {
+      // A neon border hums, dipping dark now and then.
+      face();
+      const a = 0.85 * t * (Math.sin(now / 70) > -0.6 ? 1 : 0.25);
+      addRect(x0 - 3, y0 - 3, x1 + 3, y1 + 3, A(a * 0.22), crv, rws, inst);
+      border4(a);
+      break;
+    }
+    case 'domino': {
+      // A wave of domino bars rises and falls along the bottom.
+      face();
+      const wave = (now / 720) % 1;
+      for (let i = 0; i < 8; i++) {
+        const ph = (wave + i / 8) % 1;
+        const hgt = 8 * (0.3 + 0.7 * Math.abs(Math.sin(ph * Math.PI)));
+        const px = x0 + ((i + 0.5) / 8) * el.w;
+        addRect(px - 2.5, y1 - 4 - hgt, px + 2.5, y1 - 4, A(0.7 * t), crv, rws, inst);
+      }
+      break;
+    }
+    case 'firework': {
+      // A rising fuse of sparks (the click is the burst).
+      face();
+      for (let i = 0; i < 5; i++) {
+        const p = ((now / 820) + i * 0.2) % 1;
+        const px = (x0 + x1) / 2 + Math.sin(now / 200 + i * 2) * 3;
+        addRect(px - 1.5, y1 - p * (el.h + 8) - 1.5, px + 1.5, y1 - p * (el.h + 8) + 1.5, A((1 - p) * 0.8 * t), crv, rws, inst);
+      }
+      break;
+    }
     default:
       face(dy);
       label();
@@ -278,6 +582,253 @@ function renderClickFx(el: StyledEl, s: AppState, crv: number[], rws: number[], 
       const p = age / 340;
       if (p >= 1) return;
       addRect(x0, y0, x1, y1, A((1 - p) * 0.45), crv, rws, inst);
+      break;
+    }
+    case 'orbit': {
+      const p = age / 520;
+      if (p >= 1) return;
+      for (let i = 0; i < 3; i++) {
+        const ang = i * (Math.PI * 2 / 3) + 0.5;
+        const px = cx + Math.cos(ang) * (10 + p * 48), py = cy + Math.sin(ang) * (10 + p * 48);
+        addRect(px - 2.5, py - 2.5, px + 2.5, py + 2.5, A((1 - p) * 0.9), crv, rws, inst);
+      }
+      _ring(cx, cy, el.w / 2 + p * 26, el.h / 2 + p * 26, 2, A((1 - p) * 0.4), crv, rws, inst);
+      break;
+    }
+    case 'wave': {
+      const p = age / 620;
+      if (p >= 1) return;
+      for (let i = 0; i < 9; i++) {
+        const fx = (i + 0.5) / 9;
+        const arc = Math.sin(Math.min(1, p * 1.2) * Math.PI);
+        const py = y1 - Math.sin(fx * Math.PI) * 26 * arc + 6 * p;
+        addRect(x0 + fx * el.w - 2, py - 2, x0 + fx * el.w + 2, py + 2, A((1 - p) * 0.8), crv, rws, inst);
+      }
+      break;
+    }
+    case 'glitch': {
+      const p = age / 420;
+      if (p >= 1) return;
+      _shiftHue(ac, 120, _fxB); _fxB[3] = (1 - p) * 0.6;
+      _shiftHue(ac, -120, _fxC); _fxC[3] = (1 - p) * 0.6;
+      for (let i = 0; i < 5; i++) {
+        const sy = y0 + ((i * 0.2 + p * 0.5) % 1) * (el.h - 4);
+        const off = (i % 2 ? 1 : -1) * (4 + 6 * (1 - p));
+        addRect(x0 + off, sy, x1 + off, sy + 3, i % 2 ? _fxB : _fxC, crv, rws, inst);
+      }
+      break;
+    }
+    case 'radar': {
+      const p = age / 620;
+      if (p >= 1) return;
+      _ring(cx, cy, 4 + p * (el.w / 2 + 22), 4 + p * (el.h / 2 + 22), 2.5, A((1 - p) * 0.8), crv, rws, inst);
+      addRect(cx - 3, cy - 3, cx + 3, cy + 3, A((1 - p) * 0.9), crv, rws, inst);
+      break;
+    }
+    case 'fuse': {
+      const p = age / 520;
+      if (p >= 1) return;
+      for (let i = 0; i < 10; i++) {
+        const ang = (i / 10) * Math.PI * 2;
+        const d = 4 + p * 38 * (0.5 + ((i * 0.37) % 1) * 0.7);
+        addRect(x1 + Math.cos(ang) * d - 2, y0 + Math.sin(ang) * d - 2, x1 + Math.cos(ang) * d + 2, y0 + Math.sin(ang) * d + 2, A((1 - p) * 0.9), crv, rws, inst);
+      }
+      break;
+    }
+    case 'breathe': {
+      const p = age / 460;
+      if (p >= 1) return;
+      _ring(cx, cy, el.w / 2 + p * 24, el.h / 2 + p * 24, 2, A((1 - p) * 0.6), crv, rws, inst);
+      break;
+    }
+    case 'aurora': {
+      const p = age / 520;
+      if (p >= 1) return;
+      _shiftHue(ac, 40, _fxB); _fxB[3] = (1 - p) * 0.3;
+      _shiftHue(ac, -70, _fxC); _fxC[3] = (1 - p) * 0.3;
+      const bx = x0 + p * (el.w + 60) - 30;
+      addRect(bx - 20, y0, bx + 20, y1, _fxB, crv, rws, inst);
+      addRect(bx + 10, y0, bx + 50, y1, _fxC, crv, rws, inst);
+      break;
+    }
+    case 'ember': {
+      const p = age / 520;
+      if (p >= 1) return;
+      for (let i = 0; i < 12; i++) {
+        const px = x0 + ((i + 0.5) / 12) * el.w + Math.sin(i * 7) * 2;
+        const py = y1 - p * (el.h + 20) * (0.5 + ((i * 0.53) % 1) * 0.6);
+        addRect(px - 2, py - 2, px + 2, py + 2, A((1 - p) * 0.85), crv, rws, inst);
+      }
+      break;
+    }
+    case 'prism': {
+      const p = age / 560;
+      if (p >= 1) return;
+      _shiftHue(ac, 60, _fxB); _shiftHue(ac, -60, _fxC);
+      const cols = [_fxAc, _fxB, _fxC];
+      for (let i = 0; i < 3; i++) {
+        cols[i][3] = (1 - p) * 0.4;
+        const bx = x0 + p * (el.w + 80) - 40 + i * 14;
+        fillQuads(polygonQuads([[bx, y0], [bx + 12, y0], [bx - 2, y1], [bx - 14, y1]] as Pt[], true), cols[i], inst, crv, rws);
+      }
+      break;
+    }
+    case 'static': {
+      const p = age / 420;
+      if (p >= 1) return;
+      addRect(x0, y0, x1, y1, A((1 - p) * 0.3), crv, rws, inst);
+      const sy = y0 + p * el.h;
+      addRect(x0, sy - 2, x1, sy + 2, A((1 - p) * 0.8), crv, rws, inst);
+      break;
+    }
+    case 'comet': {
+      const p = age / 560;
+      if (p >= 1) return;
+      _ring(cx, y0, 4 + p * 34, 4 + p * 34, 2, A((1 - p) * 0.6), crv, rws, inst);
+      for (let i = 0; i < 7; i++) {
+        const ang = (i / 6) * Math.PI;
+        const d = 6 + p * 30;
+        addRect(cx + Math.cos(ang) * d - 1.5, y0 + Math.sin(ang) * d * 0.7 - 1.5, cx + Math.cos(ang) * d + 1.5, y0 + Math.sin(ang) * d * 0.7 + 1.5, A((1 - p) * 0.8), crv, rws, inst);
+      }
+      break;
+    }
+    case 'origami': {
+      const p = age / 520;
+      if (p >= 1) return;
+      const f = 15 + p * 22;
+      _shiftHue(ac, 30, _fxB); _fxB[3] = (1 - p) * 0.6;
+      fillQuads(polygonQuads([[x1 - f, y0], [x1, y0], [x1, y0 + f]] as Pt[], true), A((1 - p) * 0.8), inst, crv, rws);
+      fillQuads(polygonQuads([[x1 - f, y0], [x1, y0 + f], [x1 - f, y0 + f]] as Pt[], true), _fxB, inst, crv, rws);
+      break;
+    }
+    case 'sonar': {
+      const p = age / 680;
+      if (p >= 1) return;
+      for (let i = 0; i < 3; i++) {
+        const pp = p * 3 - i;
+        if (pp < 0 || pp > 1) continue;
+        _ring(x0, y0, 4 + pp * 44, 4 + pp * 44, 2, A((1 - pp) * 0.7), crv, rws, inst);
+      }
+      break;
+    }
+    case 'zipper': {
+      const p = age / 520;
+      if (p >= 1) return;
+      const gap = Math.sin(Math.min(1, p) * Math.PI) * el.w * 0.4;
+      addRect(cx - gap / 2 - 2, y1 - 6, cx - gap / 2, y1 + 2, A((1 - p) * 0.8), crv, rws, inst);
+      addRect(cx + gap / 2, y1 - 6, cx + gap / 2 + 2, y1 + 2, A((1 - p) * 0.8), crv, rws, inst);
+      addRect(cx - gap / 2, y1 - 2, cx + gap / 2, y1, A((1 - p) * 0.4), crv, rws, inst);
+      break;
+    }
+    case 'typewriter': {
+      const p = age / 400;
+      if (p >= 1) return;
+      addRect(x0, y0, x1, y1, A((1 - p) * 0.4), crv, rws, inst);
+      _ring(cx, cy, el.w / 2 + p * 16, el.h / 2 + p * 16, 2, A((1 - p) * 0.5), crv, rws, inst);
+      break;
+    }
+    case 'levitate': {
+      const p = age / 520;
+      if (p >= 1) return;
+      _ring(cx, y1 + 5, 6 + p * el.w * 0.4, 3 + p * 6, 1.5, A((1 - p) * 0.5), crv, rws, inst);
+      break;
+    }
+    case 'helix': {
+      const p = age / 520;
+      if (p >= 1) return;
+      for (let i = 0; i < 12; i++) {
+        const px = x0 + (i / 11) * el.w;
+        const py = cy + (i % 2 ? 1 : -1) * p * 26;
+        addRect(px - 1.5, py - 1.5, px + 1.5, py + 1.5, A((1 - p) * 0.8), crv, rws, inst);
+      }
+      break;
+    }
+    case 'torch': {
+      const p = age / 560;
+      if (p >= 1) return;
+      _shiftHue(ac, 25, _fxB); _fxB[3] = (1 - p) * 0.5;
+      for (let i = 0; i < 10; i++) {
+        const hgt = Math.sin(Math.min(1, p * 1.3) * Math.PI) * el.h * 0.8 * (0.5 + ((i * 0.37) % 1) * 0.6);
+        const px = x0 + ((i + 0.5) / 10) * el.w;
+        addRect(px - 3, y1 - hgt, px + 3, y1, _fxB, crv, rws, inst);
+      }
+      break;
+    }
+    case 'pendulum': {
+      const p = age / 820;
+      if (p >= 1) return;
+      const ang = Math.sin(p * Math.PI * 4) * 1.1 * (1 - p);
+      const bx = cx + Math.sin(ang) * 16, by = y1 + Math.cos(ang) * 16;
+      addRect(bx - 2.5, by - 2.5, bx + 2.5, by + 2.5, A((1 - p) * 0.9), crv, rws, inst);
+      break;
+    }
+    case 'vortex': {
+      const p = age / 560;
+      if (p >= 1) return;
+      if (p < 0.5) {
+        const q = p / 0.5;
+        for (let i = 0; i < 8; i++) {
+          const ang = i * Math.PI / 4;
+          const d = (1 - q) * 30;
+          addRect(cx + Math.cos(ang) * d - 1.5, cy + Math.sin(ang) * d * 0.6 - 1.5, cx + Math.cos(ang) * d + 1.5, cy + Math.sin(ang) * d * 0.6 + 1.5, A(0.8), crv, rws, inst);
+        }
+      } else {
+        const q = (p - 0.5) / 0.5;
+        _ring(cx, cy, 4 + q * 36, 4 + q * 36, 2, A((1 - q) * 0.6), crv, rws, inst);
+      }
+      break;
+    }
+    case 'matrix': {
+      const p = age / 520;
+      if (p >= 1) return;
+      for (let i = 0; i < 20; i++) {
+        const px = x0 + ((i * 2654435761 >>> 0) % 1000) / 1000 * el.w;
+        const py = y0 + (((i * 40503 >>> 0) % 1000) / 1000 + p * 2) % 1 * el.h;
+        addRect(px - 1.5, py - 1.5, px + 1.5, py + 1.5, A((1 - p) * 0.7), crv, rws, inst);
+      }
+      break;
+    }
+    case 'barcode': {
+      const p = age / 460;
+      if (p >= 1) return;
+      for (let i = 0; i < 16; i++) {
+        const hgt = (0.3 + ((i * 7919) % 100) / 100 * 0.7) * el.h * (1 - p * 0.5);
+        const px = x0 + 4 + (i / 16) * (el.w - 8);
+        addRect(px, cy - hgt / 2, px + 3, cy + hgt / 2, A((1 - p) * 0.5), crv, rws, inst);
+      }
+      break;
+    }
+    case 'neon': {
+      const p = age / 520;
+      if (p >= 1) return;
+      addRect(x0 - 4, y0 - 4, x1 + 4, y1 + 4, A((1 - p) * 0.3), crv, rws, inst);
+      addRect(x0, y0, x1, y1, A((1 - p) * 0.35), crv, rws, inst);
+      _ring(cx, cy, el.w / 2 + 4, el.h / 2 + 4, 2, A((1 - p) * 0.8), crv, rws, inst);
+      break;
+    }
+    case 'domino': {
+      const p = age / 520;
+      if (p >= 1) return;
+      const fall = Math.sin(Math.min(1, p * 1.5) * Math.PI);
+      for (let i = 0; i < 8; i++) {
+        const hgt = 8 * (1 - fall * 0.8);
+        const px = x0 + ((i + 0.5) / 8) * el.w;
+        addRect(px - 2.5, y1 - 4 - hgt, px + 2.5, y1 - 4, A((1 - p) * 0.8), crv, rws, inst);
+      }
+      break;
+    }
+    case 'firework': {
+      const p = age / 720;
+      if (p >= 1) return;
+      _shiftHue(ac, 50, _fxB); _shiftHue(ac, -50, _fxC);
+      const cols = [_fxAc, _fxB, _fxC];
+      for (let i = 0; i < 14; i++) {
+        const ang = (i / 14) * Math.PI * 2;
+        const d = 6 + p * 44;
+        cols[i % 3][3] = (1 - p) * 0.9;
+        const px = cx + Math.cos(ang) * d, py = cy + Math.sin(ang) * d * 0.75;
+        addRect(px - 2, py - 2, px + 2, py + 2, cols[i % 3], crv, rws, inst);
+      }
       break;
     }
   }

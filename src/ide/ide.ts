@@ -1,11 +1,13 @@
 import type { Engine } from '../playground/engine';
 import { advanceOf } from '../windfoil/font';
+import { createGlyphRenderer } from '../windfoil/gpu';
 import { addRect, layoutStr, layoutIcon } from '../layout/metrics';
 import { CodeEditor, type EditorTheme } from '../editor/editor';
 import { Terminal, type TerminalTheme } from '../editor/terminal';
 import { FileTree, type FileTreeTheme, type TreeNode } from '../editor/fileTree';
 import { DEPTH_FORMAT } from '../windfoil/mesh3d';
 import { ScreenHud } from '../ui/screenHud';
+import { FpsChip } from '../ui/fpsChip';
 import { AnalyticToolbar, type ToolbarButton } from '../ui/analyticToolbar';
 import { AnalyticPanel, ANALYTIC_PANEL_THEME } from '../ui/analyticPanel';
 import { enterOrbit, orbitViewProj, orbitScale, setOrbitEnabled, updateOrbit, screenToDocLocal, setOrbitNear, setOrbitPanChord, orbitTruck, orbitZoomToRect, orbitPolar, orbitAzimuth, orbitSetAngles, orbitTargetLocal } from '../camera/orbit';
@@ -103,6 +105,10 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
   const fpsEl = engine.fpsEl;
   const prevFpsDisplay = fpsEl.style.display;
   fpsEl.style.display = 'none';
+  // Analytic fps chip — same behaviour as the windgraph demos: click cycles
+  // fps → full → full+diagnostics, long press copies (and keeps copying at
+  // 5Hz while held). The DOM #fps above stays hidden.
+  const fpsChip = new FpsChip();
 
   const tabs = SAMPLE_FILES.map(f => {
     const ed = new CodeEditor(f.code);
@@ -310,7 +316,7 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
   };
 
   let mx = 0, my = 0;
-  let fxMode: FxMode = 'cloth';
+  let fxMode: FxMode = 'off';
   const isPhys = () => fxMode === 'physics' || fxMode === 'physics2';
   const physPick = (x: number, y: number) => fxMode === 'physics2' ? physics2Pick(x, y) : physicsPick(x, y);
   const physDead = (x: number, y: number) => fxMode === 'physics2' ? physics2Dead(x, y) : physicsDead(x, y);
@@ -343,6 +349,34 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
   const crv: number[] = [];
   const rws: number[] = [];
   let instFA = new Float32Array(65536);
+  // Frame-skip state: an idle IDE redraws from persistent GPU buffers (same
+  // mechanism as frame.ts) — signature match skips build + convert + upload.
+  let lastIdeSig = '';
+  let ideDataVersion = 0;
+  let lastTotalInst = 0, lastCrvLen = 0, lastRwsLen = 0;
+  // Zero-allocation fast path: a numeric pre-hash decides per frame; the string
+  // signature is built only when the hash differs. The blink quantum is IN the
+  // hash, so a hash collision can never stay stale longer than one quantum.
+  let lastQuick = NaN;
+  // HUD sig rebuild gate (no per-frame template strings).
+  let ideHudSig = '';
+  let lastHudTh: string | null = null, lastHudHT = -2, lastHudHCT = -2, lastHudTick = -1, lastHudBlink = -1, lastHudCw = -1, lastHudCh = -1, lastHudGate = false, lastHudPanel = false;
+  let lastHudChipMode = -2, lastHudChipStatus = '', lastHudChipPressed = -1;
+  // Cached draw subarrays (recreated only on length change or buffer regrowth).
+  let subCrv: Float32Array | null = null, subRws: Uint32Array | null = null, subInst: Float32Array | null = null, subXforms: Float32Array | null = null;
+  let subCrvBuf: Float32Array | null = null, subRwsBuf: Uint32Array | null = null, subInstBuf: Float32Array | null = null, subXformsBuf: Float32Array | null = null;
+  let subCrvLen = -1, subRwsLen = -1, subInstLen = -1, subXformsLen = -1;
+  // Caret overlay: its own tiny renderer + buffers so the caret blinks/glides
+  // at full rate every frame while the main build stays skipped (a few
+  // instances uploaded per frame instead of rebuilding the whole IDE).
+  const caretRenderer = createGlyphRenderer(device, { code: shaderCode, format: 'rgba8unorm' });
+  const caretInst: number[] = [], caretCrv: number[] = [], caretRws: number[] = [];
+  let caretFA = new Float32Array(256), caretCrvFA = new Float32Array(64), caretRwsUA = new Uint32Array(32);
+  let subCaretInst: Float32Array | null = null, subCaretCrv: Float32Array | null = null, subCaretRws: Uint32Array | null = null;
+  let subCaretInstBuf: Float32Array | null = null;
+  let subCaretInstLen = -1, subCaretCrvLen = -1, subCaretRwsLen = -1;
+  // Cumulative main builds — frozen while idle proves the skip holds.
+  let ideBuilds = 0;
   const vp2d = new Float32Array(16);
   const uCamScale: number[] = [1, 1];
   const uCamCenter: number[] = [0, 0];
@@ -516,6 +550,87 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
       orbitZoomToRect(0, 0, w, h, tCanvas.width, tCanvas.height, 1, false);
     }
 
+    // ── Frame skip ──────────────────────────────────────────────────────────
+    // With fx off, in 2D, and nothing transiently animating, the frame output
+    // changes only on state changes or the 80ms blink quantum (editor caret is
+    // a 530ms step blink; terminal blink/glide render at 12.5fps — both look
+    // native). A sig match skips the whole build + conversion + upload and the
+    // pass redraws the persistent buffers.
+    const Cw = tCanvas.width, Ch = tCanvas.height;
+    // 250ms quantum: only a hash-collision safety net now — carets live in the
+    // per-frame overlay and nothing else time-dependent runs while skippable.
+    const blinkQ = Math.floor(now / 250);
+    const ed0 = tabs[activeTab].editor;
+    const anc0 = ed0.anchor;
+    const termTarget = termH > 1 ? 1 : 0;
+    // (tabTransT only advances while tabFrom >= 0 — at rest it sits at 0, so
+    // the transient condition MUST gate on tabFrom or it's true forever and
+    // the skip never engages. Terminal state only matters when its panel is
+    // actually rendered — a hidden terminal can keep animating internally
+    // (boot residue, live dock widget) without changing the build output.)
+    const termEasing = Math.abs(termT - termTarget) > 0.01;
+    const sidebarMoving = Math.abs(sidebarT - Math.round(sidebarT)) > 0.01;
+    const transientAnim = !!accentAnim || (tabFrom >= 0 && tabTransT < 1)
+      || (terminal.animating && termH > 1) || searchFocused
+      || termEasing || sidebarMoving;
+    // 3D: the orbit pose belongs in the signature — while it damps, the pose
+    // changes every frame (builds run); settled, it's stable and the instances
+    // are camera-independent (viewProj carries the camera), so 3D skips too.
+    const orbit = cam3d ? orbitTargetLocal() : null;
+    const orbitKey = cam3d ? orbitAzimuth() * 2246822519 + orbitPolar() * 32452843
+      + orbitScale(Ch) * 49979687 + (orbit!.x * 31 + orbit!.y * 37) * 65537 : 0;
+    // Which flag blocks the skip — shown in the chip diagnostics so a
+    // never-skipping IDE self-reports the culprit.
+    const skipGate = fxMode !== 'off' ? 'fx'
+      : accentAnim ? 'accent' : (tabFrom >= 0 && tabTransT < 1) ? 'tab'
+      : (terminal.animating && termH > 1) ? 'term' : searchFocused ? 'search'
+      : termEasing ? 'termEase' : sidebarMoving ? 'sidebar' : 'ok';
+    const canSkipBuild = fxMode === 'off' && !transientAnim;
+    // Stage 1 — zero-allocation numeric hash (prime-weighted). blinkQ is IN it,
+    // so even a collision forces the full check within one quantum; fields that
+    // can change without appearing here (terminal output, search typing) gate
+    // canSkipBuild off via transientAnim while in flight.
+    const quick = canSkipBuild ? (blinkQ * 1000000007
+      + w * 104729 + h * 1299709 + Math.round(dpr * 100) * 7919
+      + mx * 15485863 + my * 32452843
+      + (focus === 'editor' ? 11 : focus === 'terminal' ? 23 : 0)
+      + activeTab * 49979687 + tabFrom * 65537
+      + Math.round(termH) * 86028121 + Math.round(termT * 20) * 13
+      + Math.round(sidebarT * 20) * 17 + (fitted ? 29 : 0)
+      + hoverTab * 31 + hoverCloseTab * 37 + (hoverExplorer ? 41 : 0) + (hoverTerminal ? 43 : 0)
+      + hoverSource * 47 + hoverAction * 53 + (hoverSearch ? 59 : 0)
+      + Math.round(fileTree.scrollOffset * 2) * 61
+      + ed0.cursor.line * 67 + ed0.cursor.col * 71
+      + (anc0 ? anc0.line * 73 + anc0.col * 79 + 83 : 0)
+      + ed0.doc.version * 89 + (ed0.focused ? 97 : 0) + Math.round(ed0.y0 * 2) * 101
+      + (gate.open ? 103 : 0) + (qualityPanel.open ? 107 : 0)
+      + (lowResSharpen ? 109 : 0) + Math.round(integralScale * 20) * 113 + Math.round(renderScale * 20) * 127
+      + orbitKey
+    ) : -1;
+    let skipBuild = false;
+    if (canSkipBuild && quick === lastQuick) {
+      // (canSkipBuild guard is load-bearing: quick === -1 on non-skippable
+      // frames would otherwise match lastQuick === -1 and freeze animations.)
+      skipBuild = true;
+    } else {
+      // Stage 2 — full string signature, built only when the hash detects change.
+      const ideSig = canSkipBuild ? [
+        w, h, dpr, focus, activeTab, tabFrom, Math.round(termH), Math.round(termT * 20),
+        Math.round(sidebarT * 20), fitted ? 1 : 0,
+        `${mx},${my}`,
+        `${hoverTab},${hoverCloseTab},${hoverExplorer},${hoverTerminal},${hoverSource},${hoverAction},${hoverSearch}`,
+        `${fileTree.hovered ?? ''},${Math.round(fileTree.scrollOffset * 2)}`,
+        `${ed0.cursor.line},${ed0.cursor.col},${anc0 ? anc0.line + '.' + anc0.col : '-'},${ed0.doc.version},${ed0.focused},${Math.round(ed0.y0 * 2)}`,
+        terminal.sigState, gate.open, qualityPanel.open, searchQuery,
+        `${lowResSharpen},${integralScale},${renderScale}`, blinkQ,
+        orbit ? `${orbitAzimuth()},${orbitPolar()},${orbitScale(Ch)},${orbit.x},${orbit.y}` : '',
+      ].join('|') : '';
+      skipBuild = canSkipBuild && ideSig === lastIdeSig;
+      lastIdeSig = ideSig;
+      lastQuick = quick;
+    }
+
+    if (!skipBuild) {   // ← build + convert guard (closes before the draw pass)
     inst.length = 0; crv.length = 0; rws.length = 0;
 
     addRect(0, 0, w, h, T.editorBg, crv, rws, inst);
@@ -727,28 +842,33 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
     // The toolbar + analytic menus render as a screen-space overlay through
     // screenHud (built + drawn in the pass below). The menu viewport is backing-
     // store px so gate.show() — called from event handlers — clamps correctly.
-    const Cw = tCanvas.width, Ch = tCanvas.height;
     gate.setViewport(Cw, Ch);
+    }   // ← end build + convert guard
 
     // ── Draw
-    if (inst.length > instFA.length) instFA = new Float32Array(inst.length * 2);
     let vp: Float32Array;
     let cs: number;
     if (cam3d) {
       vp = orbitViewProj(Cw, Ch);
       cs = orbitScale(Ch);
-      instFA.set(inst);
     } else {
-      const cx = w / 2, cy = h / 2;
-      for (let i = 0; i < inst.length; i += 16) {
-        instFA[i] = inst[i] - cx;
-        instFA[i + 1] = inst[i + 1] - cy;
-        for (let j = 2; j < 16; j++) instFA[i + j] = inst[i + j];
-      }
       const sxm = (2 * dpr) / Cw, sym = (2 * dpr) / Ch;
       vp2d[0] = sxm; vp2d[5] = -sym; vp2d[10] = 0; vp2d[15] = 1;
       vp = vp2d;
       cs = dpr;
+    }
+    if (!skipBuild) {
+      if (inst.length > instFA.length) instFA = new Float32Array(inst.length * 2);
+      if (cam3d) {
+        instFA.set(inst);
+      } else {
+        const cx = w / 2, cy = h / 2;
+        for (let i = 0; i < inst.length; i += 16) {
+          instFA[i] = inst[i] - cx;
+          instFA[i + 1] = inst[i + 1] - cy;
+          for (let j = 2; j < 16; j++) instFA[i + j] = inst[i + j];
+        }
+      }
     }
     const fxT = now / 1000;
     const fx = REG[fxMode] ?? null;
@@ -799,12 +919,14 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
       fx.postFrame(pCtx);
       if (pCtx.fx3dActive) fx3dActive = true;
     }
-    if (crv.length > crvFA.length) crvFA = new Float32Array(crv.length * 2);
-    crvFA.set(crv);
-    if (rws.length > rwsUA.length) rwsUA = new Uint32Array(rws.length * 2);
-    rwsUA.set(rws);
+    if (!skipBuild) {
+      if (crv.length > crvFA.length) crvFA = new Float32Array(crv.length * 2);
+      crvFA.set(crv);
+      if (rws.length > rwsUA.length) rwsUA = new Uint32Array(rws.length * 2);
+      rwsUA.set(rws);
+    }
 
-    let totalInst = inst.length;
+    let totalInst = skipBuild ? lastTotalInst : inst.length;
     const baseCount = totalInst / 16;
     const extra = fx?.extras?.();
     if (extra && extra.count > 0) {
@@ -817,6 +939,13 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
       fxXforms.set(extra.xforms.subarray(0, extra.count * 8), xOff);
       totalInst += extraBytes;
       fx3dActive = true;
+    }
+    if (!skipBuild) {
+      ideDataVersion++;
+      ideBuilds++;
+      lastTotalInst = totalInst;
+      lastCrvLen = crv.length;
+      lastRwsLen = rws.length;
     }
 
     // Low-res render + sharpen (quality panel): the coverage integral runs into an
@@ -848,20 +977,81 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
       clipArg = clipFA.subarray(0, cNeed);
     }
     renderer.setUniforms({ width: renderW, height: renderH, camScale: uCamScale, camCenter: uCamCenter, viewProj: vp, fxActive: fx3dActive ? 1 : 0 });
-    renderer.draw(pass, crvFA.subarray(0, crv.length), rwsUA.subarray(0, rws.length), instFA.subarray(0, totalInst), instCount, fx3dActive ? fxXforms.subarray(0, instCount * 8) : undefined, clipArg);
+    if (lastCrvLen !== subCrvLen || subCrvBuf !== crvFA) { subCrv = crvFA.subarray(0, lastCrvLen); subCrvLen = lastCrvLen; subCrvBuf = crvFA; }
+    if (lastRwsLen !== subRwsLen || subRwsBuf !== rwsUA) { subRws = rwsUA.subarray(0, lastRwsLen); subRwsLen = lastRwsLen; subRwsBuf = rwsUA; }
+    if (totalInst !== subInstLen || subInstBuf !== instFA) { subInst = instFA.subarray(0, totalInst); subInstLen = totalInst; subInstBuf = instFA; }
+    let xformsArg: Float32Array | undefined;
+    if (fx3dActive) {
+      const xLen = instCount * 8;
+      if (xLen !== subXformsLen || subXformsBuf !== fxXforms) { subXforms = fxXforms.subarray(0, xLen); subXformsLen = xLen; subXformsBuf = fxXforms; }
+      xformsArg = subXforms!;
+    } else {
+      subXformsLen = -1;
+    }
+    renderer.draw(pass, subCrv!, subRws!, subInst!, instCount, xformsArg, clipArg, ideDataVersion);
+
+    // ── Caret overlay — per-frame blink/glide from a tiny buffer, so idle
+    // frames upload ~4 instances instead of rebuilding the whole IDE.
+    caretInst.length = 0; caretCrv.length = 0; caretRws.length = 0;
+    ed0.emitCaret(caretInst, caretCrv, caretRws, ed0.y0, ed0.y0 + editorH, 2, now, editorTh);
+    if (termH > 1 && termT > 0.85) terminal.emitCaret(caretInst, caretCrv, caretRws, dt, terminalTh, 2);
+    if (caretInst.length > 0) {
+      if (caretInst.length > caretFA.length) caretFA = new Float32Array(caretInst.length * 2);
+      if (cam3d) {
+        caretFA.set(caretInst);
+      } else {
+        const cx = w / 2, cy = h / 2;
+        for (let i = 0; i < caretInst.length; i += 16) {
+          caretFA[i] = caretInst[i] - cx;
+          caretFA[i + 1] = caretInst[i + 1] - cy;
+          for (let j = 2; j < 16; j++) caretFA[i + j] = caretInst[i + j];
+        }
+      }
+      if (caretCrv.length > caretCrvFA.length) caretCrvFA = new Float32Array(caretCrv.length * 2);
+      caretCrvFA.set(caretCrv);
+      if (caretRws.length > caretRwsUA.length) caretRwsUA = new Uint32Array(caretRws.length * 2);
+      caretRwsUA.set(caretRws);
+      // Cached subarrays — the caret count is near-constant, so these allocate
+      // only when it changes (no per-frame subarray garbage).
+      const cCount = caretInst.length / 16;
+      if (caretInst.length !== subCaretInstLen || subCaretInstBuf !== caretFA) { subCaretInst = caretFA.subarray(0, caretInst.length); subCaretInstLen = caretInst.length; subCaretInstBuf = caretFA; }
+      if (caretCrv.length !== subCaretCrvLen) { subCaretCrv = caretCrvFA.subarray(0, caretCrv.length); subCaretCrvLen = caretCrv.length; }
+      if (caretRws.length !== subCaretRwsLen) { subCaretRws = caretRwsUA.subarray(0, caretRws.length); subCaretRwsLen = caretRws.length; }
+      caretRenderer.setUniforms({ width: renderW, height: renderH, camScale: uCamScale, camCenter: uCamCenter, viewProj: vp });
+      caretRenderer.draw(pass, subCaretCrv!, subCaretRws!, subCaretInst!, cCount);
+    }
 
     // Toolbar + analytic menus — screen-space overlay (backing-store px + screen-
-    // ortho matrix), seeded with the atlas base so menu glyphs resolve.
-    screenHud.frame(pass, Cw, Ch, now, atlas.curves, atlas.rows);
+    // ortho matrix), seeded with the atlas base so menu glyphs resolve. HUD
+    // frame-skip: sig rebuilt only when its inputs actually change (no
+    // per-frame template strings — those were the idle-frame GC pressure).
+    const hudTh = toolbar.hoveredId;
+    const hudTick = (gate.open || qualityPanel.open) ? Math.floor(now / 50) : 0;
+    const chipMode = fpsChip ? fpsChip.mode : -1;
+    const chipStatus = fpsChip?.status ?? '';
+    const chipPressed = fpsChip?.pressed ? 1 : 0;
+    if (hudTh !== lastHudTh || hoverTab !== lastHudHT || hoverCloseTab !== lastHudHCT || hudTick !== lastHudTick
+      || blinkQ !== lastHudBlink || Cw !== lastHudCw || Ch !== lastHudCh || gate.open !== lastHudGate || qualityPanel.open !== lastHudPanel
+      || chipMode !== lastHudChipMode || chipStatus !== lastHudChipStatus || chipPressed !== lastHudChipPressed) {
+      ideHudSig = `${Cw}x${Ch}|${hudTh ?? ''}|${hoverTab},${hoverCloseTab}|${gate.open ? 'M' + hudTick : ''}|${qualityPanel.open ? 'P' + hudTick : ''}|${blinkQ}|c${chipMode},${chipPressed},${chipStatus}`;
+      lastHudTh = hudTh; lastHudHT = hoverTab; lastHudHCT = hoverCloseTab; lastHudTick = hudTick;
+      lastHudBlink = blinkQ; lastHudCw = Cw; lastHudCh = Ch; lastHudGate = gate.open; lastHudPanel = qualityPanel.open;
+      lastHudChipMode = chipMode; lastHudChipStatus = chipStatus; lastHudChipPressed = chipPressed;
+    }
+    screenHud.frame(pass, Cw, Ch, now, atlas.curves, atlas.rows, ideHudSig);
 
     pass.end();
     if (lowResSharpen) upscaler.resolve(enc, swapView, renderW, renderH, Cw, Ch, sharpenAmount);
     device.queue.submit([enc.finish()]);
 
     jsMs = performance.now() - t0;
+    fpsChip?.tick(now);
     if (now - lastFpsShown > 120) {
       lastFpsShown = now;
-      fpsEl.textContent = `${Math.round(1000 / fpsDt)} fps  ·  js ${jsMs.toFixed(1)}ms  ·  worst ${worstDt.toFixed(0)}ms`;
+      const fpsStr = `${Math.round(1000 / fpsDt)} fps`;
+      const fullStr = `${fpsStr}  ·  js ${jsMs.toFixed(1)}ms  ·  worst ${worstDt.toFixed(0)}ms  ·  b ${ideBuilds}`;
+      fpsEl.textContent = fullStr;
+      fpsChip?.update(fpsStr, fullStr, `ide ${jsMs.toFixed(2)}ms · inst ${Math.round(lastTotalInst / 16)} · builds ${ideBuilds} · gate ${skipGate}`);
       worstDt = 0;
     }
   }
@@ -987,6 +1177,8 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
       const sbx = sx * dpr, sby = sy * dpr;
       const tbHit = toolbar.hitTest(sbx, sby);
       if (tbHit) { tbHit.onClick(); return; }
+      // Fps chip: press starts click-vs-long-press detection (consumed).
+      if (fpsChip && fpsChip.pointerDown(sbx, sby, performance.now())) return;
       if (gate.open) {
         const [hx, hy] = menuWorldPose ? menuScreenToLocal(sbx, sby) : [sbx, sby];
         if (gate.overMenu(hx, hy)) return;
@@ -1176,6 +1368,7 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
   function onPointerUp(e: PointerEvent) {
     if (e.button === 2) { rg.release(); setOrbitPanChord(false); return; }
     if (e.button !== 0) return;
+    fpsChip?.pointerUp(performance.now());
     dragSel = false;
     qualityPanel.endDrag();
     if (cam3d && d3.active) {
@@ -1404,9 +1597,9 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
 
   const toolbar = new AnalyticToolbar([
     { id: 'back', icon: 'home', title: 'Back to launcher', onClick: onBack },
-    { id: 'debug', icon: 'stats', title: 'Toggle debug stats', onClick: () => {
-      showDebug = !showDebug;
-      fpsEl.style.display = showDebug ? '' : 'none';
+    { id: 'debug', icon: 'stats', title: 'Toggle debug stats', active: () => fpsChip.visible, onClick: () => {
+      fpsChip.visible = !fpsChip.visible;
+      showDebug = fpsChip.visible;
     }},
     { id: 'fx', icon: 'film', title: 'Shader FX', altIcon: 'play',
       active: () => fxMode !== 'off',
@@ -1441,6 +1634,7 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
       if (qb) qualityPanel.reposition(qb.x, qb.y + qb.s + 4 * dpr, Cw, Ch, dpr);
     }
     toolbar.render(hud.inst, hud.crv, hud.rws, now);
+    fpsChip?.render(hud.inst, hud.crv, hud.rws, font, atlas, dpr);
     qualityPanel.render(font, atlas, hud.inst, hud.crv, hud.rws, ANALYTIC_PANEL_THEME);
     if (gate.open && !menuWorldPose) gate.menu.render(font, atlas, hud.inst, hud.crv, hud.rws, ANALYTIC_MENU_THEME);
   };

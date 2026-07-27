@@ -91,6 +91,78 @@ If this file and the code disagree, investigate before trusting either.
   (overview decimates to ~50%, deep zoom refines up to 3×). Remaining
   structural cost = per-frame replay is still O(instances); the real fix is
   instance-buffer diffing / persistent static GPU buffers (Lane N).
+- 2026-07-28 — **IDE idle perf DONE: 13ms → 0.3ms avg (2D and settled 3D).**
+  Final fixes: (1) `tabTransT < 1` was permanently true at rest (it only
+  advances during a tab switch) — gated on `tabFrom >= 0`; (2) hidden
+  terminal's internal animation (boot residue / live widget) no longer blocks
+  the skip — gated on `termH > 1`; (3) 3D no longer blanket-excluded — orbit
+  pose (azimuth/polar/scale/target) is in the signature, so settled 3D skips
+  and orbiting builds. Chip extra line now ends `· gate X` (self-reported
+  skip blocker). Verified settled: gate ok, js 0.2-0.7ms, builds ~3-5/sec
+  (residual = pointer micro-motion while long-press-sampling; freezes with a
+  still pointer). worst ~9ms = occasional GC/encode stall, ≤1 dropped frame
+  at 120Hz. Floor is 2 pass encodes + caret overlay (~0.2ms) — stopping here.
+- 2026-07-28 — **Chip long-press = sampling log (user: "expect many values").**
+  Copying 5×/second only overwrites one clipboard slot — so the chip now
+  ACCUMULATES: after the 500ms hold it appends the readout to a log and
+  re-copies the GROWING log every 200ms while held (capped ~2 min); one paste
+  yields every sample of the hold. Status shows `copied ×N`. Also: the IDE
+  debug toolbar button (stats) now toggles the analytic chip's visibility
+  (it used to re-show the DOM #fps — the "broken duplicate" the user saw);
+  chip gained a `visible` flag (hidden = no render, no clicks).
+- 2026-07-28 — **IDE fps chip (user request): identical to the windgraph
+  demos.** IDE now renders the shared analytic `FpsChip` (DOM #fps hidden):
+  click cycles fps → full → full+diagnostics (`ide js · inst · builds`), long
+  press copies. New chip behaviour (both demos + IDE): **while the press is
+  held, it keeps copying at 5Hz** so the clipboard always carries the live
+  readout (Chromium grants clipboard-write without re-activation; elsewhere
+  only the first copy may succeed). HUD skip-sig extended with chip
+  mode/status/pressed so toggles redraw instantly.
+- 2026-07-28 — **IDE idle pass 3 (REGRESSION: sidebar/terminal wouldn't open).**
+  Bug: the quick-hash shortcut matched `quick === lastQuick` without the
+  canSkipBuild gate — non-skippable frames set both to -1, so every subsequent
+  animation frame matched -1===-1 and skipped: sidebar/terminal eased 1/60s
+  then froze. Fix: `if (canSkipBuild && quick === lastQuick)` (frame.ts never
+  had this bug — its else branch resets lastFrameSig). Also cached the caret
+  subarrays (no per-frame subarray allocs) and added `· b N` (cumulative main
+  builds) to the IDE fps line — frozen while idle = skip holds. OPEN: periodic
+  fps dips (worst 9-18) — need js-vs-fps during a dip to place it (JS/GC vs
+  GPU/compositor).
+- 2026-07-28 — **IDE idle pass 2 (0.4ms avg but periodic 4ms spikes report).**
+  The spikes were the 80ms quantum rebuilds — a full IDE build 12.5×/sec just
+  to flip carets. Fix: **carets moved to a per-frame overlay pass** —
+  `CodeEditor.emitCaret` (bloom + step blink from the offset cache) and
+  `Terminal.emitCaret` (glide easing + sinusoidal blink from geometry cached
+  in render) draw into a tiny buffer through a dedicated `caretRenderer`
+  (~4 instances/frame) after the main draw. Main build now runs ~never while
+  idle (sig has no time-dependent inputs; quantum is a 250ms collision net).
+  Also: IDE skip got a zero-allocation numeric pre-hash (string sig built only
+  on detected change — per-frame template strings were the GC pressure),
+  allocation-gated HUD sig, and cached draw subarrays. Terminal.sigState no
+  longer carries caret state. Expected idle: ~0.2-0.3ms flat, carets at full
+  60fps (terminal glide now perfectly smooth).
+- 2026-07-28 — **IDE idle <1ms (user request) + default FX → none.**
+  `ide.ts` default `fxMode` 'cloth' → 'off' (cloth ran a per-instance apply
+  loop every frame). IDE render got the same frame-skip as frame.ts:
+  signature over the full render state (cursor/anchor/doc version, ed.y0
+  scroll, fileTree hover + scrollOffset, terminal.sigState, tabs/hovers/
+  search/panel/menu, sidebarT/termT quanta, quality flags, 80ms blink
+  quantum) → on match, skip build + f64→f32 convert + uploads; the pass
+  redraws persistent buffers (ide renderer now passes `ideDataVersion`), and
+  the IDE screenHud got sig-skipping too. New accessors: `Terminal.animating`
+  + `Terminal.sigState`, `FileTree.scrollOffset`. Safety nets: continuous
+  motion (fx on, cam3d, tab/sidebar/term transitions, terminal boot/widgets,
+  search) disables skipping entirely; the 80ms quantum caps any staleness.
+  Caret blinks render natively (editor's is a 530ms step; terminal at 12.5fps).
+- 2026-07-27 — **Perf pass 7 (idle hit 0.2ms ✓; interactive >5ms report).**
+  `EmitCache` replay rebuilt: capture into typed arrays (Float32Array/
+  Uint32Array), replay via direct-indexed composition into pre-grown target
+  arrays — no per-frame `push(...spread)`. Replay was ~3.7μs/instance (the
+  whole interactive-frame cost, since unchanged boards replay while one board
+  rebuilds); contract tests unchanged + green. Known remaining spike: `worst`
+  ~8ms on fast pans = plots tile-crossing rebuilds re-run marching squares
+  (~5-10ms) — worker offload is Phase 5 (F3D-3); directCache tile is already
+  coarse (2400px) to limit crossing frequency.
 - 2026-07-27 — **Perf pass 6 — FRAME-LEVEL DIRTY TRACKING (the asymptotic
   fix, Lane N pulled forward; user granted sole frame.ts ownership).** A still
   scene now costs ~0 JS: `WindgraphWorld.frameSig(view)` + per-board `sigFor`
@@ -164,3 +236,12 @@ If this file and the code disagree, investigate before trusting either.
   IDE's per-instance `fxXforms` path — that needs `fxActive` on the whole-doc
   draw + an 8-float/instance upload per frame; true GPU glyph 3D deferred.
   tsc clean; build green; all `__test_*.ts` pass.
+- 2026-07-27 — **Reference-design pass 3 (user request).** 25 paired hover×
+  click concepts — each button is `hov-X clk-X`, the click the "release" of the
+  hover ("charge"): orbit/comet/vortex/helix/pendulum, aurora/prism/neon/
+  glitch/static, fuse/ember/torch/firework/radar, levitate/breathe/origami/
+  zipper/domino, wave/sonar/typewriter/matrix/barcode. New shared helpers in
+  frame.ts: `_shiftHue` (theme-matched multi-color via hue-rotation matrix),
+  `_ring`, `_bounce`. Levitate joins `HOVER_FX_MOVES_TEXT` (float+wobble, click
+  drops+bounces via `_bounce(pressT)`). Origami/prism fold real rotated quads
+  (`polygonQuads`). tsc clean; build green; all `__test_*.ts` pass.

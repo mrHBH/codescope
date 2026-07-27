@@ -1,7 +1,9 @@
 // ── Analytic fps / perf chip (screen-space HUD) ──────────────────────────────
 // Zero-DOM replacement for the #fps overlay, drawn through the screen HUD like
 // the toolbar. Click cycles three modes — fps only → full readout → full +
-// app diagnostics (s.hudDebugExtra) — and a long press copies the content.
+// app diagnostics — and a long press samples the readout: after a 500ms hold
+// it appends the readout to a log and re-copies the growing log 5×/second for
+// as long as the press lasts, so one paste yields every sample of the hold.
 // Hit-tested in backing-store px, same convention as the analytic toolbar.
 
 import { addRect, layoutStr, tw } from '../layout/metrics';
@@ -12,6 +14,8 @@ const HOLD_MS = 500;
 export class FpsChip {
   /** 0 = fps only · 1 = full readout · 2 = full + diagnostics. */
   mode = 0;
+  /** Debug toggle target — hidden chips render nothing and ignore clicks. */
+  visible = true;
 
   private short = '-- fps';
   private full = '';
@@ -19,8 +23,12 @@ export class FpsChip {
   private rect = { x0: 0, y0: 0, x1: 0, y1: 0 };
   private pressT = -1;
   private longFired = false;
+  private lastCopyT = 0;
   private statusMsg = '';
   private statusT = 0;
+  // Long-press sampling log: while held, the readout is appended 5×/second and
+  // the GROWING log is re-copied — one paste yields every sample of the hold.
+  private copyLog: string[] = [];
 
   /** Transient feedback ("copied" / "copy failed") — part of the HUD skip-sig. */
   get status(): string { return this.statusMsg; }
@@ -31,11 +39,25 @@ export class FpsChip {
     this.extra = extra;
   }
 
-  /** Per-frame tick: fires the long-press copy once, clears transient status. */
+  /** Per-frame tick: long-press sampling — after the hold threshold, append
+   *  the readout to the log and re-copy it at 5Hz for as long as the press
+   *  lasts. (Chromium grants clipboard-write without re-activation, so the
+   *  stream sustains; elsewhere the log may stop growing after the first
+   *  copy — the status shows the count either way.) */
   tick(now: number) {
-    if (this.pressT >= 0 && !this.longFired && now - this.pressT > HOLD_MS) {
-      this.longFired = true;
-      this.copy();
+    if (this.pressT >= 0) {
+      const held = now - this.pressT;
+      if (!this.longFired && held > HOLD_MS) {
+        this.longFired = true;
+        this.copyLog = [this.copyText()];
+        this.writeLog();
+        this.lastCopyT = now;
+      } else if (this.longFired && now - this.lastCopyT >= 200) {
+        this.copyLog.push(this.copyText());
+        if (this.copyLog.length > 600) this.copyLog.shift(); // cap ~2 min
+        this.writeLog();
+        this.lastCopyT = now;
+      }
     }
     if (this.statusMsg && now - this.statusT > 1200) this.statusMsg = '';
   }
@@ -47,7 +69,7 @@ export class FpsChip {
 
   /** Consumes the press when inside (click vs long-press resolved later). */
   pointerDown(x: number, y: number, now: number): boolean {
-    if (!this.hitTest(x, y)) return false;
+    if (!this.visible || !this.hitTest(x, y)) return false;
     this.pressT = now;
     this.longFired = false;
     return true;
@@ -63,12 +85,17 @@ export class FpsChip {
 
   get pressed(): boolean { return this.pressT >= 0; }
 
-  private copy() {
-    const text = this.extra ? `${this.full}\n${this.extra}` : this.full;
+  private copyText(): string {
+    return this.extra ? `${this.full}\n${this.extra}` : this.full;
+  }
+
+  private writeLog() {
+    const text = this.copyLog.join('\n');
+    const n = this.copyLog.length;
     const mark = (msg: string) => { this.statusMsg = msg; this.statusT = performance.now(); };
     try {
       const p = navigator.clipboard?.writeText(text);
-      if (p) p.then(() => mark('copied'), () => mark('copy failed'));
+      if (p) p.then(() => mark(`copied ×${n}`), () => mark(`copy failed ×${n}`));
       else mark('copy failed');
     } catch {
       mark('copy failed');
@@ -76,6 +103,7 @@ export class FpsChip {
   }
 
   render(inst: number[], crv: number[], rws: number[], font: FontFace, atlas: any, ui: number) {
+    if (!this.visible) return;
     const ds = 12 * ui, m = 10 * ui, padX = 10 * ui, padY = 6 * ui, lineH = ds * 1.4;
     const lines: string[] = this.mode === 0 ? [this.short]
       : this.mode === 1 ? [this.full]

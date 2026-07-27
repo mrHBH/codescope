@@ -8,7 +8,7 @@ import type { StyledEl, PageRect } from './types';
 // Hover effects that physically translate the button (face + label move as one
 // unit). Their label text is NOT baked into the static buffers (precompute skips
 // it) — the frame loop re-lays it out every frame so it tracks the moving face.
-export const HOVER_FX_MOVES_TEXT = new Set(['push', 'key', 'dent']);
+export const HOVER_FX_MOVES_TEXT = new Set(['push', 'key', 'dent', 'levitate']);
 
 export function walkDOM(el: Element, parent: StyledEl | null, styledEls: StyledEl[]): StyledEl | null {
   if (el.tagName==='STYLE'||el.tagName==='SCRIPT') return null;

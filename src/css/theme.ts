@@ -100,7 +100,12 @@ export function buildCSS(p: Palette): string {
 .hov-lift:hover, .hov-sweep:hover, .hov-underline:hover, .hov-glow:hover,
 .hov-border:hover, .hov-topbar:hover, .hov-ring:hover, .hov-corners:hover,
 .hov-push:hover, .hov-key:hover, .hov-dent:hover, .hov-tilt:hover, .hov-spotlight:hover,
-.hov-stack:hover, .hov-scan:hover, .hov-blink:hover, .hov-grow:hover, .hov-split:hover { background: ${p.hovFace}; }
+.hov-stack:hover, .hov-scan:hover, .hov-blink:hover, .hov-grow:hover, .hov-split:hover,
+.hov-orbit:hover, .hov-wave:hover, .hov-glitch:hover, .hov-radar:hover, .hov-fuse:hover,
+.hov-breathe:hover, .hov-aurora:hover, .hov-ember:hover, .hov-prism:hover, .hov-static:hover,
+.hov-comet:hover, .hov-origami:hover, .hov-sonar:hover, .hov-zipper:hover, .hov-typewriter:hover,
+.hov-levitate:hover, .hov-helix:hover, .hov-torch:hover, .hov-pendulum:hover, .hov-vortex:hover,
+.hov-matrix:hover, .hov-barcode:hover, .hov-neon:hover, .hov-domino:hover, .hov-firework:hover { background: ${p.hovFace}; }
 
 /* Inputs */
 .reference-input { width: 100%; padding: 7px 10px; font-size: 12px; color: ${p.text}; background: ${p.bg}; border: 1px solid ${p.border}; }

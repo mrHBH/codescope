@@ -17,10 +17,15 @@
 export class EmitCache {
   private sig = '';
   private valid = false;
-  private cInst: number[] = [];
-  private cCrv: number[] = [];
-  private cRws: number[] = [];
-  // Offsets (into cInst) of board-relative rowBase fields — patched at replay.
+  // Captured slices live in TYPED arrays: replay is direct-indexed composition
+  // into the (pre-grown) target number[]s — no push(...spread) per frame.
+  private cInstF = new Float32Array(0);
+  private cCrvF = new Float32Array(0);
+  private cRwsU = new Uint32Array(0);
+  private cInstLen = 0;
+  private cCrvLen = 0;
+  private cRwsLen = 0;
+  // Offsets (into cInstF) of board-relative rowBase fields — patched at replay.
   private cRelIdxs: number[] = [];
   /** Cumulative rebuild count — a cache that climbs while idle is thrashing. */
   misses = 0;
@@ -47,45 +52,57 @@ export class EmitCache {
 
   private capture(inst: number[], crv: number[], rws: number[], inst0: number, crv0: number, rws0: number) {
     const rowBase0 = rws0 / 5, quadBase0 = crv0 / 6;
-    this.cCrv.length = 0; this.cRws.length = 0; this.cInst.length = 0; this.cRelIdxs.length = 0;
-    for (let i = crv0; i < crv.length; i++) this.cCrv.push(crv[i]);
+    const nCrv = crv.length - crv0, nRws = rws.length - rws0, nInst = inst.length - inst0;
+    if (this.cCrvF.length < nCrv) this.cCrvF = new Float32Array(Math.max(nCrv, 64));
+    for (let i = 0; i < nCrv; i++) this.cCrvF[i] = crv[crv0 + i];
+    this.cCrvLen = nCrv;
+    if (this.cRwsU.length < nRws) this.cRwsU = new Uint32Array(Math.max(nRws, 32));
     // Rows: store `start` relative to the board's own curve base.
-    for (let i = rws0; i < rws.length; i += 5) {
-      this.cRws.push(rws[i] - quadBase0, rws[i + 1], rws[i + 2], rws[i + 3], rws[i + 4]);
+    for (let i = 0; i < nRws; i += 5) {
+      this.cRwsU[i] = rws[rws0 + i] - quadBase0;
+      this.cRwsU[i + 1] = rws[rws0 + i + 1];
+      this.cRwsU[i + 2] = rws[rws0 + i + 2];
+      this.cRwsU[i + 3] = rws[rws0 + i + 3];
+      this.cRwsU[i + 4] = rws[rws0 + i + 4];
     }
+    this.cRwsLen = nRws;
+    if (this.cInstF.length < nInst) this.cInstF = new Float32Array(Math.max(nInst, 64));
+    this.cRelIdxs.length = 0;
     // Instances: rowBase >= rowBase0 means the board created the rows itself
     // (store relative + remember the offset to patch); smaller values reference
     // the immutable atlas prefix and replay untouched.
-    for (let i = inst0; i < inst.length; i += 16) {
-      const o = i - inst0;
-      if (inst[i + 12] >= rowBase0) {
-        this.cRelIdxs.push(o + 12);
-        for (let j = 0; j < 16; j++) this.cInst.push(j === 12 ? inst[i + 12] - rowBase0 : inst[i + j]);
+    for (let i = 0; i < nInst; i += 16) {
+      const src = inst0 + i;
+      if (inst[src + 12] >= rowBase0) {
+        this.cRelIdxs.push(i + 12);
+        for (let j = 0; j < 16; j++) this.cInstF[i + j] = j === 12 ? inst[src + 12] - rowBase0 : inst[src + j];
       } else {
-        for (let j = 0; j < 16; j++) this.cInst.push(inst[i + j]);
+        for (let j = 0; j < 16; j++) this.cInstF[i + j] = inst[src + j];
       }
     }
+    this.cInstLen = nInst;
   }
 
   private replay(inst: number[], crv: number[], rws: number[]) {
     const quadOfs = crv.length / 6, rowOfs = rws.length / 5;
-    // Bulk appends (native) instead of per-float push loops; only the relative
-    // rowBases get patched in place afterwards. This is the idle-frame hot path
-    // for every cached board — it used to run 16 conditional pushes per instance.
-    pushAll(crv, this.cCrv);
-    for (let i = 0; i < this.cRws.length; i += 5) {
-      rws.push(this.cRws[i] + quadOfs, this.cRws[i + 1], this.cRws[i + 2], this.cRws[i + 3], this.cRws[i + 4]);
+    const cc = this.cCrvF, nC = this.cCrvLen;
+    const cb = crv.length;
+    crv.length = cb + nC;
+    for (let i = 0; i < nC; i++) crv[cb + i] = cc[i];
+    const rr = this.cRwsU, nR = this.cRwsLen;
+    const rb = rws.length;
+    rws.length = rb + nR;
+    for (let i = 0; i < nR; i += 5) {
+      rws[rb + i] = rr[i] + quadOfs;
+      rws[rb + i + 1] = rr[i + 1];
+      rws[rb + i + 2] = rr[i + 2];
+      rws[rb + i + 3] = rr[i + 3];
+      rws[rb + i + 4] = rr[i + 4];
     }
-    const base = inst.length;
-    pushAll(inst, this.cInst);
-    for (let k = 0; k < this.cRelIdxs.length; k++) inst[base + this.cRelIdxs[k]] += rowOfs;
+    const cf = this.cInstF, nI = this.cInstLen;
+    const ib = inst.length;
+    inst.length = ib + nI;
+    for (let i = 0; i < nI; i++) inst[ib + i] = cf[i];
+    for (let k = 0; k < this.cRelIdxs.length; k++) inst[ib + this.cRelIdxs[k]] += rowOfs;
   }
-}
-
-// Argument-count-safe bulk push (engines cap call arguments well below very
-// large array lengths).
-const CHUNK = 32768;
-function pushAll(dst: number[], src: number[]) {
-  if (src.length <= CHUNK) { dst.push(...src); return; }
-  for (let i = 0; i < src.length; i += CHUNK) dst.push(...src.slice(i, i + CHUNK));
 }

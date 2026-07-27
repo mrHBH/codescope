@@ -71,6 +71,9 @@ export class Terminal {
   // Smooth caret glide: current x eases toward the target x each frame.
   private caretX = -1;
   private caretBlinkPhase = 0;
+  // Prompt caret geometry cached by render() — emitCaret() draws from it every
+  // frame even while the main render is skipped (ide.ts frame-skip).
+  private caretGeo: { baseline: number; targetX: number } | null = null;
 
   private _promptLine: Line | null = null;
   private _body: Line[] = [];
@@ -357,6 +360,37 @@ export class Terminal {
   }
 
   // ── Render ───────────────────────────────────────────────────────────────
+  /** Frame-skip helpers (ide.ts): sigState covers everything that changes the
+   *  rendered output; animating = time-dependent motion in flight (boot typing,
+   *  dock widget) → ide.ts skips nothing while it's true. */
+  get animating(): boolean { return this.booting || this.typeQueue.length > 0 || this.widget !== null; }
+  get sigState(): string {
+    // Caret glide/blink are NOT here — emitCaret() draws them per frame as an
+    // overlay, so they never force a main rebuild.
+    return `${this.lines.length}|${this.cursorCol}|${this.widget ? this.widget.kind : ''}|${this.input}|${this.booting ? 1 : 0}|${this.typeQueue.length}`;
+  }
+
+  /** Caret overlay for the frame-skip path: smooth glide + soft sinusoidal
+   *  blink, run every frame from the geometry cached by render(). */
+  emitCaret(inst: number[], crv: number[], rws: number[], dt: number, th: TerminalTheme, caretW: number) {
+    const geo = this.caretGeo;
+    if (!geo) return;
+    // Ease the caret toward its target; snap on first placement.
+    if (this.caretX < 0) this.caretX = geo.targetX;
+    else this.caretX += (geo.targetX - this.caretX) * (1 - Math.pow(0.001, dt / 1000));
+    // Soft blink; reset to fully-on right after a move so it's visible.
+    const moved = Math.abs(geo.targetX - this.caretX) > 0.5;
+    this.caretBlinkPhase = moved ? 0 : this.caretBlinkPhase + dt;
+    const alpha = moved ? 1 : 0.55 + 0.45 * Math.cos(this.caretBlinkPhase / 530 * Math.PI);
+    const cwid = Math.max(caretW, this.fontSize * 0.11);
+    const top = geo.baseline - this.fontSize * 0.82, bot = geo.baseline + this.fontSize * 0.16;
+    // Center the bar on the boundary so it doesn't crowd the next glyph.
+    const cx = this.caretX - cwid / 2;
+    const cc = this._caretCol;
+    cc[0] = th.caret[0]; cc[1] = th.caret[1]; cc[2] = th.caret[2]; cc[3] = alpha;
+    addRect(cx, top, cx + cwid, bot, cc, crv, rws, inst);
+  }
+
   render(font: FontFace, atlas: GlyphAtlas, inst: number[], crv: number[], rws: number[], now: number, dt: number, th: TerminalTheme, caretW: number) {
     if (!this.font) this.font = font;
     TASSIGN(th);
@@ -443,28 +477,18 @@ export class Terminal {
       row++;
     }
 
-    // Smooth thin caret on the prompt line (glides to target, soft blink).
-    // Vertically centered on the glyph band (baseline sits at fontSize*0.95 below
-    // the row top; the visual glyph box spans roughly [-0.72fs, +0.12fs] around it).
+    // Prompt caret geometry — cached for emitCaret(), which ide.ts draws as a
+    // per-frame overlay (glide + blink at full rate while this render is
+    // skipped). Baseline sits fontSize*0.95 below the row top; the visual
+    // glyph band spans roughly [-0.72fs, +0.12fs] around it.
     if (showPrompt && this.focused) {
       const rowTop = startY + promptRow * lh;
       const baseline = rowTop + this.fontSize * 0.95;
       let targetX = left + this.lineWidth(this.prompt());
       for (let i = 0; i < this.cursorCol && i < this.input.length; i++) targetX += this.advance(this.input[i]);
-      // Ease the caret toward its target; snap on first placement.
-      if (this.caretX < 0) this.caretX = targetX;
-      else this.caretX += (targetX - this.caretX) * (1 - Math.pow(0.001, dt / 1000));
-      // Soft sinusoidal blink; reset to fully-on right after a move so it's visible.
-      const moved = Math.abs(targetX - this.caretX) > 0.5;
-      this.caretBlinkPhase = moved ? 0 : this.caretBlinkPhase + dt;
-      const alpha = moved ? 1 : 0.55 + 0.45 * Math.cos(this.caretBlinkPhase / 530 * Math.PI);
-      const cwid = Math.max(caretW, this.fontSize * 0.11);
-      const top = baseline - this.fontSize * 0.82, bot = baseline + this.fontSize * 0.16;
-      // Center the bar on the boundary so it doesn't crowd the next glyph.
-      const cx = this.caretX - cwid / 2;
-      const cc = this._caretCol;
-      cc[0] = th.caret[0]; cc[1] = th.caret[1]; cc[2] = th.caret[2]; cc[3] = alpha;
-      addRect(cx, top, cx + cwid, bot, cc, crv, rws, inst);
+      this.caretGeo = { baseline, targetX };
+    } else {
+      this.caretGeo = null;
     }
 
     // Widget dock (GPU-rect graphics, eased, sub-cell smooth) — directly below

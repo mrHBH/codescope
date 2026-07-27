@@ -347,19 +347,29 @@ export class CodeEditor {
         }
       }
 
-      // Caret — full line height, thickness scales with font size (min the
-      // passed-in screen-space width so it stays visible when zoomed out).
-      // Soft bloom layers behind the caret (concentric wider rects at low alpha).
-      if (this.focused && i === this.cursor.line && (now % 1060) < 530) {
-        const cx = this.colToX(i, this.cursor.col);
-        const cw = Math.max(caretW, this.fontSize * 0.12);
-        const bc = this._bloomCol;
-        bc[0] = th.caret[0]; bc[1] = th.caret[1]; bc[2] = th.caret[2];
-        bc[3] = 0.05; addRect(cx - cw * 4, top, cx + cw * 4, top + lh, bc, crv, rws, inst);
-        bc[3] = 0.10; addRect(cx - cw * 2, top, cx + cw * 2, top + lh, bc, crv, rws, inst);
-        addRect(cx, top, cx + cw, top + lh, th.caret, crv, rws, inst);
-      }
+      // The caret is drawn by emitCaret() (ide.ts draws it as a per-frame
+      // overlay so the main build can stay skipped while idle).
     }
+  }
+
+  /** Caret overlay for the frame-skip path: caret + soft bloom, drawn
+   *  independently of render(). Geometry comes from the line-offset cache —
+   *  valid while the doc is unchanged (version-gated by the caller's skip
+   *  signature). Full line height; thickness scales with font size (min the
+   *  screen-space width so it stays visible when zoomed out). */
+  emitCaret(inst: number[], crv: number[], rws: number[], worldTop: number, worldBottom: number, caretW: number, now: number, th: EditorTheme) {
+    if (!this.focused || (now % 1060) >= 530) return;
+    const i = this.cursor.line;
+    const top = this.lineTop(i);
+    const lh = this.lineHeight;
+    if (top + lh < worldTop || top > worldBottom) return;
+    const cx = this.colToX(i, this.cursor.col);
+    const cw = Math.max(caretW, this.fontSize * 0.12);
+    const bc = this._bloomCol;
+    bc[0] = th.caret[0]; bc[1] = th.caret[1]; bc[2] = th.caret[2];
+    bc[3] = 0.05; addRect(cx - cw * 4, top, cx + cw * 4, top + lh, bc, crv, rws, inst);
+    bc[3] = 0.10; addRect(cx - cw * 2, top, cx + cw * 2, top + lh, bc, crv, rws, inst);
+    addRect(cx, top, cx + cw, top + lh, th.caret, crv, rws, inst);
   }
 
   // Net {} () [] depth change of a line, ignoring brackets inside strings, line
