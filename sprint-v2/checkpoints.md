@@ -24,15 +24,20 @@ explainer timing intact, typecheck + all `src/authoring/**/__test_*.ts` green.
 ## CP2 — The drag feel (after Phase 1)
 
 **Purpose:** validate the board-adapter + primitives contract before 100 tasks build on it.
-**Steps:** `bun run dev` → `#playground` → toolbar button **"windgraph v2
-authored scene"** (triangle icon).
-1. Drag triangle vertices A/B/C — circumcircle, centroid G, midpoint M, angle
-   arc + degree readout, and the |BC| distance label must all recompute live.
-2. Drag the glider point P around the circumcircle (it must stay on the ring).
-3. Drag the two sliders (top-left): `amplitude` reshapes the teal `a·sin(x)`
-   wave; `radius` grows/shrinks the pink circle.
-4. Pan around the board, then zoom deep (1000×) onto a point label and onto the
-   wave curve — both must stay razor-sharp; panning must not stutter (cache).
+**Steps:** `bun run dev` → **`#windgraph`** (the dedicated infinite-canvas
+world; the playground's triangle button hosts the same scene).
+1. **Triangle board:** drag vertices A/B/C — circumcircle, centroid G, midpoint
+   M, angle arc + degree readout, and the |BC| distance label recompute live.
+   Drag the glider P around the circumcircle (must stay on the ring). Scrub the
+   `amplitude` slider (teal `a·sin(x)` wave) and `radius` (pink circle).
+2. **Geometry board:** drag A/B (the two lines pivot about their intersection
+   I), drag C — the perpendicular foot F slides along l1, the gold drop
+   segment, reflection C′, distance readout and angle at I all follow. Drag the
+   glider G along the teal line.
+3. **Plots board:** scrub `petals` (rose morphs) and `damping` (gold envelope
+   tightens); the lemniscate + vector field stay crisp.
+4. Pan the open canvas (dot grid glides), then zoom deep (1000×) onto a point
+   label and onto a curve — razor-sharp; panning must not stutter (caches).
 5. Hover points — gold ring + grab cursor.
 (REPL commands are headless-only at this stage — `wgRepl` is unit-tested;
 terminal wiring is Phase-6 chrome.)

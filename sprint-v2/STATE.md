@@ -66,3 +66,10 @@ If this file and the code disagree, investigate before trusting either.
   circle/slider/drag/remove/emit with validate+rollback+rebuild. Terminal
   hookup is Phase-6 chrome; mechanism tested headless (13 board tests total).
 - 2026-07-27 — Phase 1 complete → stopped at CP2.
+- 2026-07-27 — **windgraph world demo** (user request, pre-CP2): new `#windgraph`
+  route — infinite dot-grid canvas + masthead hosting three authored scenes:
+  the triangle port (demoDoc), a constraint-geometry catalog board, and a
+  plot-gallery board (rose/damping sliders, lemniscate, vector field).
+  `src/playground/windgraphWorld.ts` + demos.ts entry; pointer routes to the
+  board under it, empty canvas pans. Playground untouched. 6 world tests;
+  CP2 procedure updated to use `#windgraph`.

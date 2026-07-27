@@ -13,6 +13,7 @@ import { bootPlayground } from './playground';
 import { bootExplainer } from './explainer';
 import { bootAuthoring, bootExplainerV2, bootPages, bootLearning } from '../authoring/demo';
 import { bootIDE } from '../ide/ide';
+import { bootWindgraphWorld } from './windgraphWorld';
 import { IslandGallery } from '../authoring/islands/gallery';
 // Island registrations (side-effect import — ensures builtins register)
 import '../authoring/islands';
@@ -63,6 +64,11 @@ export const DEMOS: Demo[] = [
     id: 'learning', name: 'How a machine learns',
     blurb: 'Gradient descent from scratch — analytic math, a true-3D loss landscape you orbit, and bespoke procedural islands on one infinite canvas.',
     boot: bootLearning,
+  },
+  {
+    id: 'windgraph', name: 'windgraph',
+    blurb: 'An infinite canvas of living mathematics — draggable constraint geometry and a plot gallery with live sliders, every curve a closed-form integral, sharp at any zoom.',
+    boot: bootWindgraphWorld,
   },
   {
     id: 'pages', name: 'Pages / Layout',
