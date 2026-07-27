@@ -46,6 +46,10 @@ export class MenuGate {
   private readonly textW: (text: string, size: number) => number;
   private vpW = 0;
   private vpH = 0;
+  // Whether the menu was already open when the current left press began. The
+  // release uses this to tell a dismiss-click from the very gesture that opened
+  // the menu (e.g. a toolbar button) — which must never close it on release.
+  private openOnDown = false;
 
   constructor(textW: (text: string, size: number) => number) {
     this.menu = new AnalyticContextMenu();
@@ -80,6 +84,30 @@ export class MenuGate {
   resolveCursor(): string | null {
     if (!this.menu.open) return null;
     return this.menu.hovered >= 0 ? 'pointer' : 'default';
+  }
+
+  // ── Press lifecycle ────────────────────────────────────────────────────────
+  // The shared "polite popup" policy: a left drag pans/orbits without dismissing,
+  // a clean left click dismisses (or fires the hit item), and the gesture that
+  // opened the menu never closes it on its own release. Call `pressBegan` at the
+  // start of a left press, then `pressEnded` on release. Coordinates are in the
+  // menu's own space — callers that project the menu into world space transform
+  // the pointer first (the gate stays projection-agnostic).
+
+  /** Record, at the start of a left press, whether the menu was open. */
+  pressBegan() { this.openOnDown = this.menu.open; }
+
+  /** True if the point is over the open menu — caller should block fall-through. */
+  overMenu(wx: number, wy: number): boolean {
+    return this.menu.open && this.menu.hitTest(wx, wy) >= 0;
+  }
+
+  /** On left release: if the menu was open when the press began and the gesture
+   *  wasn't a drag, consume the click (fire the hit item's action, or dismiss on
+   *  a miss). Returns true if the event was consumed. */
+  pressEnded(wx: number, wy: number, wasDrag: boolean): boolean {
+    if (!this.menu.open || !this.openOnDown || wasDrag) return false;
+    return this.consumeClick(wx, wy);
   }
 }
 

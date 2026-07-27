@@ -147,6 +147,10 @@ export interface AppState {
 
   // GPU-rendered context menu (shared between input.ts and frame.ts)
   analyticMenu: AnalyticContextMenu | null;
+  // World-space peel pose for the context menu in 3D (mirrors the IDE): when set,
+  // frame.ts emits the menu into the world buffer so it pans/zooms with the
+  // document; null = plain screen overlay (2D).
+  menuWorldPose: { pose: import('./camera/screenWorld').ScreenPose; Wv: number; Hv: number } | null;
 
   // code editor
   editor: CodeEditor | null;
@@ -244,6 +248,7 @@ export function createAppState(partial: Partial<AppState>): AppState {
     crvFA: new Float32Array(4096), rwsUA: new Uint32Array(1024), instFA: new Float32Array(16384),
     instJS: [], activeEdit: null, pressed: null, selecting: false,
     analyticMenu: null,
+    menuWorldPose: null,
     editor: null, editorMode: false, editorSelecting: false,
     terminal: null, terminalMode: false,
     fileTree: null, fileTreeMode: false,

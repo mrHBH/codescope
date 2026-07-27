@@ -16,6 +16,8 @@ import type { TerminalTheme } from './editor/terminal';
 import type { FileTreeTheme } from './editor/fileTree';
 import { DEPTH_FORMAT } from './windfoil/mesh3d';
 import { EmitCache } from './windfoil/emitCache';
+import { ANALYTIC_MENU_THEME } from './ui/analyticMenu';
+import { poseXform } from './camera/screenWorld';
 
 const _hoveredSet = new Set<StyledEl>();
 const _tmpColor: number[] = [0, 0, 0, 0];
@@ -487,9 +489,17 @@ export function runFrame(s: AppState): () => void {
     }
     mark('bench');
 
-    // The analytic context menu now renders as a screen-space overlay through
-    // s.screenHud (below), not into the world instance buffer — so it stays fixed
-    // to the screen instead of panning/zooming with the document.
+    // Analytic context menu: in 3D it peels into world space (like the IDE) —
+    // emitted into the world instance buffer with the captured camera pose, so it
+    // pans/zooms with the document. In 2D (menuWorldPose null) it stays a screen
+    // overlay drawn by s.screenHud below. A stale pose is dropped once the menu
+    // closes so a later 2D open starts clean.
+    if (s.analyticMenu?.open && s.menuWorldPose) {
+      const mp = s.menuWorldPose;
+      s.analyticMenu.render(s.font, s.atlas, inst, crv, rws, ANALYTIC_MENU_THEME, poseXform(mp.pose, mp.Wv, mp.Hv));
+    } else if (s.menuWorldPose && !s.analyticMenu?.open) {
+      s.menuWorldPose = null;
+    }
 
     // Deferred cursor write: mutating style.cursor every frame dirties style and
     // makes each incoming pointer event pay a synchronous style-recalc — a classic

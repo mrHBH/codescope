@@ -5,7 +5,8 @@
 import type { AppState } from '../state';
 import type { StyledEl } from '../layout/types';
 import { bufCoords, scrToWorld, scrToDoc, goToPage, fitDocument, cameraScale, uiScale } from './camera';
-import { setOrbitEnabled, setOrbitPanChord, orbitTruck, orbitZoomToRect } from './orbit';
+import { setOrbitEnabled, setOrbitPanChord, orbitTruck, orbitZoomToRect, orbitTargetLocal, orbitScale } from './orbit';
+import { screenLockedPose, worldToPose } from './screenWorld';
 import { hitTest, findEditableAncestor } from '../layout/walk';
 import { layoutEditable, placeCaretAtPoint, caretIndexAtPoint } from '../layout/editable';
 import { type AnalyticMenuItem } from '../ui/analyticMenu';
@@ -74,6 +75,27 @@ export function attachInput(s: AppState): () => void {
   const menu = gate.menu;
   s.analyticMenu = menu;
   const rg = new RightGesture();
+  // Left-press anchor for the menu lifecycle: a release beyond this threshold is
+  // a drag (pans/orbits) and must NOT dismiss the open menu; a clean click does.
+  let menuDownX = 0, menuDownY = 0;
+
+  // In 3D the context menu peels into world space (like the IDE): capture the
+  // camera pose when it opens so frame.ts can emit it into the world buffer and
+  // it pans/zooms with the document. In 2D it stays a screen overlay (pose null).
+  function captureMenuWorldPose() {
+    if (!s.cam3d.active) { s.menuWorldPose = null; return; }
+    const Cw = s.tCanvas.width, Ch = s.tCanvas.height;
+    const tgt = orbitTargetLocal();
+    s.menuWorldPose = { pose: screenLockedPose(Cw, Ch, tgt.x, tgt.y, orbitScale(Ch)), Wv: Cw, Hv: Ch };
+  }
+  // Screen backing-px → menu-local backing-px, routing through doc space when the
+  // menu is world-projected (so hover/click track it as it moves with the camera).
+  function menuScreenToLocal(sx: number, sy: number): [number, number] {
+    const mp = s.menuWorldPose;
+    if (!mp) return [sx, sy];
+    const p = scrToDoc(s, sx, sy);
+    return worldToPose(mp.pose, mp.Wv, mp.Hv, p.x, p.y);
+  }
 
   // Slider drag state: the DOM slider being dragged + the last integer percent
   // we rebuilt at (so a drag rebuilds at most ~once per visible step).
@@ -108,10 +130,16 @@ export function attachInput(s: AppState): () => void {
 
   on(rCanvas, 'pointerdown', (e) => {
     if (e.button !== 0) return;
+    gate.pressBegan();
     if (menu.open) {
-      // The menu is a screen-space overlay: hit-test in backing-store px.
+      // The menu is a screen-space overlay: absorb the press entirely (no scene
+      // interaction, no camera pan) and resolve dismissal on release via
+      // pressEnded — so a drag never dismisses, only a clean click does.
+      menuDownX = e.clientX; menuDownY = e.clientY;
       const b = bufCoords(s, e.clientX, e.clientY);
-      if (gate.consumeClick(b.x, b.y)) return;
+      const [hx, hy] = menuScreenToLocal(b.x, b.y);
+      gate.updateHover(hx, hy);
+      return;
     }
     // Analytic toolbar is screen-space chrome: hit-test in backing-store px and
     // fire the button regardless of the pointer/camera input kill-switches.
@@ -258,7 +286,8 @@ export function attachInput(s: AppState): () => void {
     rg.move(e.clientX, e.clientY);
     if (menu.open) {
       const b = bufCoords(s, e.clientX, e.clientY);
-      gate.updateHover(b.x, b.y);
+      const [hx, hy] = menuScreenToLocal(b.x, b.y);
+      gate.updateHover(hx, hy);
     }
     // Analytic settings panel: drive an active slider drag (screen-space), else
     // update hover so rows highlight. A drag returns early so the camera doesn't pan.
@@ -386,19 +415,31 @@ export function attachInput(s: AppState): () => void {
   };
   on(rCanvas, 'pointerup', rel);
   on(rCanvas, 'pointercancel', rel);
+  // Menu lifecycle release: a clean left click dismisses (or fires the hit item);
+  // a drag does not. Mirrors the IDE's polite-popup behaviour via the shared gate.
+  on(rCanvas, 'pointerup', (e) => {
+    if (e.button !== 0 || !gate.open) return;
+    const wasDrag = Math.abs(e.clientX - menuDownX) > 6 || Math.abs(e.clientY - menuDownY) > 6;
+    const b = bufCoords(s, e.clientX, e.clientY);
+    const [hx, hy] = menuScreenToLocal(b.x, b.y);
+    gate.pressEnded(hx, hy, wasDrag);
+  });
 
   s.lastWheelT = 0;
   s.rightDown = false;
   on(rCanvas, 'pointerdown', (e) => {
     if (e.button !== 2) return;
-    if (s.cam3d.active) { setOrbitPanChord(true); return; }
     rg.press(e.clientX, e.clientY);
     s.rightDown = rg.down;
     gate.dismiss();
+    // In 3D the right button also drives orbit-pan: a drag orbits, but a short
+    // press still opens the menu on release (the gesture's moved flag tells them
+    // apart), so the context menu works in both 2D and 3D.
+    if (s.cam3d.active) setOrbitPanChord(true);
   });
   on(rCanvas, 'pointerup', (e) => {
     if (e.button !== 2) return;
-    if (s.cam3d.active) { setOrbitPanChord(false); return; }
+    if (s.cam3d.active) setOrbitPanChord(false);
     const wasShort = rg.release();
     s.rightDown = rg.down;
     if (wasShort && s.pointerInput) {
@@ -408,6 +449,7 @@ export function attachInput(s: AppState): () => void {
       const b = bufCoords(s, e.clientX, e.clientY);
       gate.setViewport(s.tCanvas.width, s.tCanvas.height);
       gate.show(b.x, b.y, buildMenuItems(), uiScale(s));
+      captureMenuWorldPose();
     }
   });
   on(rCanvas, 'pointercancel', (e) => { if (e.button === 2) { rg.release(); s.rightDown = rg.down; setOrbitPanChord(false); } });
@@ -552,6 +594,7 @@ export function attachInput(s: AppState): () => void {
   on(rCanvas, 'pointerup', (e) => {
     if (e.button !== 0 || !d3.active) return;
     d3.active = false;
+    if (gate.open) return; // the open menu absorbs the click — no scene pick
     if (d3.moved || performance.now() - d3.t > 400) return; // was a truck drag, not a click
     const b = bufCoords(s, e.clientX, e.clientY);
     handle3DPick(scrToDoc(s, b.x, b.y), e.shiftKey);

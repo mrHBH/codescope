@@ -354,7 +354,7 @@ export function bootPlayground(engine: Engine, onBack?: () => void): () => void 
         s.perf.copyRect = null;
       }
     }
-    if (s.analyticMenu?.open) s.analyticMenu.render(font, atlas, hud.inst, hud.crv, hud.rws, ANALYTIC_MENU_THEME);
+    if (s.analyticMenu?.open && !s.menuWorldPose) s.analyticMenu.render(font, atlas, hud.inst, hud.crv, hud.rws, ANALYTIC_MENU_THEME);
   };
 
   const onResize = () => setSize(s);

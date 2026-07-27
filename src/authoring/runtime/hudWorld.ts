@@ -8,6 +8,7 @@ import { type EmitBuffers } from '../islands/draw';
 import type { SceneRuntime } from './runtime';
 import type { FontFace } from '../../windfoil/font';
 import type { GlyphAtlas } from '../../windfoil/bands';
+import { screenLockedPose, poseXform, worldToPose } from '../../camera/screenWorld';
 
 export interface HudWorldSlot {
   x: number; y: number; w: number; h: number;
@@ -29,10 +30,7 @@ export function screenLockedHudPose(
   canvasW: number, canvasH: number,
   cx: number, cy: number, zoom: number,
 ): HudWorldSlot {
-  const z = Math.max(zoom, 1e-6);
-  const w = canvasW / z;
-  const h = canvasH / z;
-  return { x: cx - w / 2, y: cy - h / 2, w, h };
+  return screenLockedPose(canvasW, canvasH, cx, cy, zoom);
 }
 
 /** Smoothstep spatial morph screen-locked → slot. */
@@ -49,13 +47,7 @@ export function lerpSlot(a: HudWorldSlot, b: HudWorldSlot, t: number): HudWorldS
 
 /** Uniform contain: map virtual (Wv×Hv) into pose without stretching. */
 export function poseToXform(pose: HudWorldSlot, Wv: number, Hv: number) {
-  const s = Math.min(pose.w / Math.max(Wv, 1), pose.h / Math.max(Hv, 1));
-  return {
-    ox: pose.x + (pose.w - Wv * s) / 2,
-    oy: pose.y + (pose.h - Hv * s) / 2,
-    sx: s,
-    sy: s,
-  };
+  return poseXform(pose, Wv, Hv);
 }
 
 export function emitHudWorld(
@@ -80,6 +72,5 @@ export function hudWorldToScreen(
   wx: number, wy: number,
   peel: HudPeelState,
 ): [number, number] {
-  const xform = poseToXform(peel.pose, peel.Wv, peel.Hv);
-  return [(wx - xform.ox) / xform.sx, (wy - xform.oy) / xform.sy];
+  return worldToPose(peel.pose, peel.Wv, peel.Hv, wx, wy);
 }
