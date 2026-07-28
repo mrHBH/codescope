@@ -248,6 +248,29 @@ from the code lives here. Newest entries at the bottom of each section.
   console on any wiring mistake, so a mis-wire is loud, not a silent visual
   regression — the user flips the toggle to try, flips off to revert with no code
   round. 382 green; tsc clean.
+- **D19 — CP3 round-6: the two hand-rolled GPU features were fragile → made robust by
+  construction (user: MSAA→black, real shadows→black flicker).** (a) **MSAA resolve
+  black-screened:** a multisample color attachment with a `resolveTarget` does NOT get
+  `clearValue`/`loadOp:'clear'` applied to the MSAA view — WebGPU clears the *resolve
+  target*, so the 4× color buffer was never cleared → garbage/black. Replaced the
+  whole multisample path with **2× supersampling**: the AA toggle drives `renderScale`
+  (same proven tech as the resolution slider). `makeQualityPanel.setAA` stashes the
+  prior resolution on enable, sets max(2,base), restores on disable, disables the
+  resolution slider while AA is on. Deleted resolve targets / `ensureMSAAViews` /
+  `_aaCount` / `s.rebuildRenderers` (dead). Mesh curves still get true edge AA. (b)
+  **Real-shadow flicker = the SOLIDS self-sampling the map** (the box's own lit top
+  shimmered — classic co-planar acne no sane bias kills). The grounded shadow (dark
+  ring under the cylinder = the catcher working) is the payoff, so **fsTri no longer
+  samples**; only `fsCatch` (flat ground, no self-shadow) samples; solids keep baked
+  Lambert. (c) **Bind-group layout must track each pipeline's ACTUAL group-1 use —
+  editing a fragment's resources invalidates the auto-layout bind group built from
+  it.** Removing `shadowFactor` from `fsTri` collapsed triPipeS group-1 from {0,1,2}
+  to {0}, but `triShadowBind` was still 3-entry `mkShadowBind` → "binding 1 not
+  present" → invalid bind group → 250 SetBindGroup errors → black. Fix:
+  `uniformOnlyBind(triPipeS)` + `uniformOnlyBind(linePipe)`; only `catchPipe` (still
+  samples) keeps `mkShadowBind`. Rule: after changing which resources a fragment
+  reads, rebuild that pipeline's bind groups from its NEW getBindGroupLayout. 382
+  green; tsc clean.
 - **D11 — Plot-catalog wiring pattern (Lane A, Phase 4).** Each of the 18 A-kinds
   is a full vertical slice: math helper in `src/windgraph/plot/<area>.ts` (pure,
   data-space, unit-tested in `plot/__test_plot.ts`) + an `ObjectSpec` kind wired
