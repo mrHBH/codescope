@@ -252,6 +252,11 @@ const VALID_KINDS = new Set([
   'wg-line-through','wg-perpendicular','wg-parallel','wg-circumcircle',
   'wg-angle','wg-distance',
   'wg-plot-fn','wg-plot-parametric','wg-plot-polar','wg-plot-implicit','wg-field',
+  'wg-plot-piecewise','wg-plot-inequality','wg-plot-sequence','wg-plot-spline',
+  'wg-plot-tangent','wg-plot-accumulation','wg-plot-riemann','wg-streamlines',
+  'wg-plot-ode','wg-plot-bifurcation','wg-plot-fourier','wg-histogram',
+  'wg-boxplot','wg-plot-cells','wg-contours','wg-regression',
+  'wg-chart-fin','wg-chart-multi',
 ]);
 
 function validateSpec(key: string, s: Record<string, unknown>, errs: string[]) {
@@ -368,6 +373,8 @@ function wgObjectRefs(s: Record<string, unknown>): string[] {
     case 'wg-circumcircle': one(s.a); one(s.b); one(s.c); break;
     case 'wg-angle': one(s.a); one(s.vertex); one(s.b); break;
     case 'wg-distance': one(s.a); one(s.b); break;
+    case 'wg-plot-spline': many(s.points); break;
+    case 'wg-plot-ode': many(s.through); break;
   }
   return refs;
 }
@@ -522,6 +529,169 @@ function validateWgSpec(key: string, s: Record<string, unknown>, errs: string[])
       expr('yExpr');
       if (s.density !== undefined && (typeof s.density !== 'number' || s.density <= 0))
         errs.push(`objects.${key}.density: must be > 0`);
+      if (s.color !== undefined && !isColor(s.color)) errs.push(`objects.${key}.color: invalid color`);
+      break;
+    case 'wg-plot-piecewise': {
+      const pieces = s.pieces;
+      if (!Array.isArray(pieces) || pieces.length < 1) errs.push(`objects.${key}.pieces: array of {cond, expr} (>= 1)`);
+      else pieces.forEach((p, i) => {
+        if (!p || typeof p !== 'object') { errs.push(`objects.${key}.pieces[${i}]: must be an object`); return; }
+        if (typeof p.cond !== 'string' || !p.cond) errs.push(`objects.${key}.pieces[${i}].cond: required non-empty string`);
+        else { const e = checkExpr(p.cond); if (e) errs.push(`objects.${key}.pieces[${i}].cond: ${e}`); }
+        if (typeof p.expr !== 'string' || !p.expr) errs.push(`objects.${key}.pieces[${i}].expr: required non-empty string`);
+        else { const e = checkExpr(p.expr); if (e) errs.push(`objects.${key}.pieces[${i}].expr: ${e}`); }
+      });
+      if (s.domain !== undefined) range('domain');
+      samples(); optStrokeFill();
+      break;
+    }
+    case 'wg-plot-inequality': {
+      const exprs = s.exprs;
+      if (!Array.isArray(exprs) || exprs.length < 1) errs.push(`objects.${key}.exprs: array of expressions (>= 1)`);
+      else exprs.forEach((e2, i) => {
+        if (typeof e2 !== 'string' || !e2) errs.push(`objects.${key}.exprs[${i}]: required non-empty string`);
+        else { const e = checkExpr(e2); if (e) errs.push(`objects.${key}.exprs[${i}]: ${e}`); }
+      });
+      if (s.cmps !== undefined) {
+        const nExpr = Array.isArray(exprs) ? exprs.length : 0;
+        if (!Array.isArray(s.cmps) || s.cmps.length !== nExpr) errs.push(`objects.${key}.cmps: must match exprs length`);
+        else s.cmps.forEach((c2, i) => { if (!['>', '<', '>=', '<='].includes(c2)) errs.push(`objects.${key}.cmps[${i}]: must be >|<|>=|<=`); });
+      }
+      if (s.fill !== undefined && !isColor(s.fill)) errs.push(`objects.${key}.fill: invalid color`);
+      if (s.gridRes !== undefined && (typeof s.gridRes !== 'number' || s.gridRes <= 0)) errs.push(`objects.${key}.gridRes: must be > 0`);
+      break;
+    }
+    case 'wg-plot-sequence':
+      expr('expr');
+      if (s.nRange !== undefined) range('nRange');
+      if (s.cobweb !== undefined && typeof s.cobweb !== 'boolean') errs.push(`objects.${key}.cobweb: must be boolean`);
+      if (s.x0 !== undefined && !isWgNum(s.x0)) errs.push(`objects.${key}.x0: must be number or $param`);
+      if (s.iters !== undefined && (typeof s.iters !== 'number' || s.iters < 1)) errs.push(`objects.${key}.iters: must be >= 1`);
+      optPointLike(); optStrokeFill();
+      break;
+    case 'wg-plot-spline': {
+      const pts = s.points;
+      if (!Array.isArray(pts) || pts.length < 2) errs.push(`objects.${key}.points: array of points (>= 2)`);
+      else pts.forEach((p, i) => { if (!isWgPoint(p)) errs.push(`objects.${key}.points[${i}]: invalid point`); });
+      if (s.spline !== undefined && !['catmull', 'cubic', 'bspline'].includes(s.spline as string))
+        errs.push(`objects.${key}.spline: must be catmull|cubic|bspline`);
+      samples(); optStrokeFill();
+      break;
+    }
+    case 'wg-plot-tangent':
+      expr('expr');
+      if (!isWgNum(s.at)) errs.push(`objects.${key}.at: required number or $param`);
+      if (s.domain !== undefined) range('domain');
+      if (s.showNormal !== undefined && typeof s.showNormal !== 'boolean') errs.push(`objects.${key}.showNormal: must be boolean`);
+      if (s.showDerivatives !== undefined && typeof s.showDerivatives !== 'boolean') errs.push(`objects.${key}.showDerivatives: must be boolean`);
+      samples(); optStrokeFill();
+      if (s.color !== undefined && !isColor(s.color)) errs.push(`objects.${key}.color: invalid color`);
+      break;
+    case 'wg-plot-accumulation':
+      expr('expr');
+      if (!isWgNum(s.from)) errs.push(`objects.${key}.from: required number or $param`);
+      if (s.domain !== undefined) range('domain');
+      samples(); optStrokeFill();
+      break;
+    case 'wg-plot-riemann':
+      expr('expr'); range('domain');
+      if (!isWgNum(s.n)) errs.push(`objects.${key}.n: required number or $param`);
+      if (s.mode !== undefined && !['left', 'right', 'midpoint', 'trapezoid', 'simpson'].includes(s.mode as string))
+        errs.push(`objects.${key}.mode: must be left|right|midpoint|trapezoid|simpson`);
+      optStrokeFill();
+      break;
+    case 'wg-streamlines':
+      expr('xExpr'); expr('yExpr');
+      if (s.density !== undefined && (typeof s.density !== 'number' || s.density <= 0)) errs.push(`objects.${key}.density: must be > 0`);
+      if (s.steps !== undefined && (typeof s.steps !== 'number' || s.steps < 1)) errs.push(`objects.${key}.steps: must be >= 1`);
+      if (s.color !== undefined && !isColor(s.color)) errs.push(`objects.${key}.color: invalid color`);
+      break;
+    case 'wg-plot-ode': {
+      expr('yExpr');
+      if (s.xExpr !== undefined) expr('xExpr');
+      const through = s.through;
+      if (!Array.isArray(through) || through.length < 1) errs.push(`objects.${key}.through: array of points (>= 1)`);
+      else through.forEach((p, i) => { if (!isWgPoint(p)) errs.push(`objects.${key}.through[${i}]: invalid point`); });
+      if (s.domain !== undefined) range('domain');
+      if (s.h !== undefined && (typeof s.h !== 'number' || s.h <= 0)) errs.push(`objects.${key}.h: must be > 0`);
+      optStrokeFill();
+      break;
+    }
+    case 'wg-plot-bifurcation':
+      expr('expr'); range('rRange');
+      if (s.iters !== undefined && (typeof s.iters !== 'number' || s.iters < 1)) errs.push(`objects.${key}.iters: must be >= 1`);
+      if (s.transient !== undefined && (typeof s.transient !== 'number' || s.transient < 0)) errs.push(`objects.${key}.transient: must be >= 0`);
+      if (s.rSteps !== undefined && (typeof s.rSteps !== 'number' || s.rSteps < 1)) errs.push(`objects.${key}.rSteps: must be >= 1`);
+      if (s.color !== undefined && !isColor(s.color)) errs.push(`objects.${key}.color: invalid color`);
+      break;
+    case 'wg-plot-fourier':
+      expr('expr');
+      if (!isWgNum(s.terms)) errs.push(`objects.${key}.terms: required number or $param`);
+      if (s.period !== undefined && !isWgNum(s.period)) errs.push(`objects.${key}.period: must be number or $param`);
+      if (s.domain !== undefined) range('domain');
+      if (s.epicycles !== undefined && typeof s.epicycles !== 'boolean') errs.push(`objects.${key}.epicycles: must be boolean`);
+      samples(); optStrokeFill();
+      if (s.color !== undefined && !isColor(s.color)) errs.push(`objects.${key}.color: invalid color`);
+      break;
+    case 'wg-histogram':
+      if (!Array.isArray(s.data) || s.data.length < 1) errs.push(`objects.${key}.data: array of numbers (>= 1)`);
+      else s.data.forEach((v, i) => { if (typeof v !== 'number' || !isFinite(v)) errs.push(`objects.${key}.data[${i}]: must be finite`); });
+      if (s.method !== undefined && !['sturges', 'fd'].includes(s.method as string)) errs.push(`objects.${key}.method: must be sturges|fd`);
+      if (s.bins !== undefined && (typeof s.bins !== 'number' || s.bins < 1)) errs.push(`objects.${key}.bins: must be >= 1`);
+      optStrokeFill();
+      break;
+    case 'wg-boxplot':
+      if (!Array.isArray(s.data) || s.data.length < 1) errs.push(`objects.${key}.data: array of numbers (>= 1)`);
+      else s.data.forEach((v, i) => { if (typeof v !== 'number' || !isFinite(v)) errs.push(`objects.${key}.data[${i}]: must be finite`); });
+      if (s.variant !== undefined && !['box', 'violin', 'strip', 'beeswarm'].includes(s.variant as string))
+        errs.push(`objects.${key}.variant: must be box|violin|strip|beeswarm`);
+      if (s.at !== undefined && !isWgNum(s.at)) errs.push(`objects.${key}.at: must be number or $param`);
+      optStrokeFill();
+      if (s.color !== undefined && !isColor(s.color)) errs.push(`objects.${key}.color: invalid color`);
+      break;
+    case 'wg-plot-cells':
+      if (!['bubble', 'heatmap', 'hexbin'].includes(s.cell as string)) errs.push(`objects.${key}.cell: must be bubble|heatmap|hexbin`);
+      if (s.points !== undefined && !Array.isArray(s.points)) errs.push(`objects.${key}.points: must be an array`);
+      if (s.sizes !== undefined && !Array.isArray(s.sizes)) errs.push(`objects.${key}.sizes: must be an array`);
+      if (s.matrix !== undefined && !Array.isArray(s.matrix)) errs.push(`objects.${key}.matrix: must be an array`);
+      if (s.size !== undefined && !isWgNum(s.size)) errs.push(`objects.${key}.size: must be number or $param`);
+      optStrokeFill();
+      break;
+    case 'wg-contours':
+      expr('expr');
+      if (s.levels !== undefined && !Array.isArray(s.levels)) errs.push(`objects.${key}.levels: must be an array`);
+      if (s.count !== undefined && (typeof s.count !== 'number' || s.count < 1)) errs.push(`objects.${key}.count: must be >= 1`);
+      if (s.filled !== undefined && typeof s.filled !== 'boolean') errs.push(`objects.${key}.filled: must be boolean`);
+      if (s.labels !== undefined && typeof s.labels !== 'boolean') errs.push(`objects.${key}.labels: must be boolean`);
+      if (s.gridRes !== undefined && (typeof s.gridRes !== 'number' || s.gridRes <= 0)) errs.push(`objects.${key}.gridRes: must be > 0`);
+      optStrokeFill();
+      break;
+    case 'wg-regression':
+      if (!Array.isArray(s.points) || s.points.length < 2) errs.push(`objects.${key}.points: array of [x,y] (>= 2)`);
+      else s.points.forEach((p, i) => { if (!isVec2(p)) errs.push(`objects.${key}.points[${i}]: invalid [x,y]`); });
+      if (!['linear', 'poly', 'exp', 'logistic', 'power'].includes(s.fit as string))
+        errs.push(`objects.${key}.fit: must be linear|poly|exp|logistic|power`);
+      if (s.degree !== undefined && (typeof s.degree !== 'number' || s.degree < 1)) errs.push(`objects.${key}.degree: must be >= 1`);
+      if (s.showResiduals !== undefined && typeof s.showResiduals !== 'boolean') errs.push(`objects.${key}.showResiduals: must be boolean`);
+      if (s.showBand !== undefined && typeof s.showBand !== 'boolean') errs.push(`objects.${key}.showBand: must be boolean`);
+      optStrokeFill();
+      if (s.color !== undefined && !isColor(s.color)) errs.push(`objects.${key}.color: invalid color`);
+      break;
+    case 'wg-chart-fin':
+      if (!['candle', 'waterfall', 'funnel', 'radar', 'windrose'].includes(s.chart as string))
+        errs.push(`objects.${key}.chart: must be candle|waterfall|funnel|radar|windrose`);
+      if (s.chart === 'candle') {
+        if (!Array.isArray(s.ohlc) || s.ohlc.length < 1) errs.push(`objects.${key}.ohlc: required for candle charts`);
+      } else if (s.values !== undefined && !Array.isArray(s.values)) errs.push(`objects.${key}.values: must be an array`);
+      optStrokeFill();
+      if (s.color !== undefined && !isColor(s.color)) errs.push(`objects.${key}.color: invalid color`);
+      break;
+    case 'wg-chart-multi':
+      if (!['ternary', 'parallel', 'scattermatrix'].includes(s.chart as string))
+        errs.push(`objects.${key}.chart: must be ternary|parallel|scattermatrix`);
+      if (s.columns !== undefined && !Array.isArray(s.columns)) errs.push(`objects.${key}.columns: must be an array`);
+      if (s.triples !== undefined && !Array.isArray(s.triples)) errs.push(`objects.${key}.triples: must be an array`);
+      optStrokeFill();
       if (s.color !== undefined && !isColor(s.color)) errs.push(`objects.${key}.color: invalid color`);
       break;
     default:

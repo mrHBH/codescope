@@ -6,7 +6,7 @@ import type { AppState } from '../state';
 import { type Mat4 } from './mat4';
 import {
   enterOrbit, flattenOrbit, updateOrbit, orbitViewProj, orbitScale,
-  orbitPolar, orbitTargetLocal, disableOrbit, screenToDocLocal,
+  orbitPolar, orbitTargetLocal, disableOrbit, screenToDocLocal, tiltOrbit,
 } from './orbit';
 
 export function setSize(s: AppState) {
@@ -152,4 +152,15 @@ export function exit3D(s: AppState) {
 
 export function toggle3D(s: AppState) {
   if (s.cam3d.active && !s.cam3d.exiting) exit3D(s); else enter3D(s);
+}
+
+// Continuous 2D↔3D tilt (task 2.4): glide between the flat top-down view and a
+// tilted orbit with no snap. enter3D is pixel-identical to 2D at top-down (OQ-9),
+// then tiltOrbit eases the polar via the camera-controls transition.
+export function isTilted(s: AppState): boolean {
+  return s.cam3d.active && !s.cam3d.exiting;
+}
+export function toggleTilt(s: AppState, polar = 0.9) {
+  if (isTilted(s)) exit3D(s);
+  else { enter3D(s); tiltOrbit(polar, true); }
 }

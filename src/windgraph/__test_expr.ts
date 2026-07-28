@@ -47,6 +47,56 @@ test('nested: a*sin(x)+x^2', () => {
 test('unknown var → NaN', () => assert(Number.isNaN(compileExpr('q')({})), 'expected NaN'));
 test('decimal + leading dot: .5 + 1.5 = 2', () => approx(compileExpr('.5+1.5')({}), 2));
 
+test('comparisons return 1/0', () => {
+  approx(compileExpr('3 > 2')({}), 1);
+  approx(compileExpr('2 > 3')({}), 0);
+  approx(compileExpr('2 < 3')({}), 1);
+  approx(compileExpr('3 < 2')({}), 0);
+  approx(compileExpr('3 >= 3')({}), 1);
+  approx(compileExpr('2 >= 3')({}), 0);
+  approx(compileExpr('3 <= 3')({}), 1);
+  approx(compileExpr('4 <= 3')({}), 0);
+  approx(compileExpr('2 == 2')({}), 1);
+  approx(compileExpr('2 == 3')({}), 0);
+  approx(compileExpr('2 != 3')({}), 1);
+  approx(compileExpr('2 != 2')({}), 0);
+});
+
+test('logical && || ! treat nonzero as true', () => {
+  approx(compileExpr('1 && 1')({}), 1);
+  approx(compileExpr('1 && 0')({}), 0);
+  approx(compileExpr('3 && 4')({}), 1);
+  approx(compileExpr('0 || 1')({}), 1);
+  approx(compileExpr('0 || 0')({}), 0);
+  approx(compileExpr('!0')({}), 1);
+  approx(compileExpr('!5')({}), 0);
+  approx(compileExpr('!(1 && 0)')({}), 1);
+});
+
+test('comparison precedence: additive binds tighter', () => {
+  approx(compileExpr('1 + 2 > 2')({}), 1);   // (1+2) > 2 → 3 > 2
+  approx(compileExpr('2 * 3 == 6')({}), 1);
+  approx(compileExpr('x^2 > 4')({ x: 3 }), 1); // (x^2) > 4
+});
+
+test('logical precedence: && tighter than ||', () => {
+  approx(compileExpr('1 || 0 && 0')({}), 1);  // 1 || (0 && 0)
+  approx(compileExpr('0 && 0 || 1')({}), 1);  // (0 && 0) || 1
+  approx(compileExpr('0 || 1 && 1')({}), 1);
+});
+
+test('comparison tighter than logical', () => {
+  approx(compileExpr('2 > 1 && 3 > 2')({}), 1);
+  approx(compileExpr('2 > 1 && 3 < 2')({}), 0);
+});
+
+test('piecewise-style condition over a variable', () => {
+  const f = compileExpr('x > 0 && x < 2');
+  approx(f({ x: 1 }), 1);
+  approx(f({ x: 3 }), 0);
+  approx(f({ x: -1 }), 0);
+});
+
 test('error: empty', () => assert(checkExpr('') !== null));
 test('error: dangling op "2+"', () => assert(checkExpr('2+') !== null));
 test('error: unbalanced "sin("', () => assert(checkExpr('sin(') !== null));
@@ -55,7 +105,9 @@ test('error: adjacent ids "x y"', () => assert(checkExpr('x y') !== null));
 test('error: unknown function "foo(1)"', () => assert(checkExpr('foo(1)') !== null));
 test('error: bad char "x$"', () => assert(checkExpr('x$') !== null));
 test('error: bad number "1.2.3"', () => assert(checkExpr('1.2.3') !== null));
+test('error: bare assignment "x = 1"', () => assert(checkExpr('x = 1') !== null));
 test('checkExpr: null on success', () => assert(checkExpr('sin(x)^2 + cos(x)^2') === null));
+test('checkExpr: null on comparisons', () => assert(checkExpr('x > 0 && x <= 2 || x == -1') === null));
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) throw new Error(`${failed} tests failed`);

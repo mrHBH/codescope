@@ -145,6 +145,14 @@ export function flattenOrbit(): boolean {
   return true;
 }
 
+// Ease the polar angle to `polar` with the library's smooth transition (no snap).
+// Generalizes the 🗻 ctx.tilt(polar) pattern to any board (task 2.4): the camera
+// glides between top-down (2D) and a tilted orbit, so 2D↔3D is one continuous
+// motion. Azimuth is held; only the tilt changes.
+export function tiltOrbit(polar: number, animate = true) {
+  if (ready) controls.rotateTo(controls.azimuthAngle, polar, animate);
+}
+
 export function orbitPolar() { return ready ? controls.polarAngle : 0; }
 export function orbitAzimuth() { return ready ? controls.azimuthAngle : 0; }
 

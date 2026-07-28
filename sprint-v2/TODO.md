@@ -25,11 +25,11 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `~~struck~~` = culled b
 - [ ] **CP2 passed** — the drag feel
 
 ## Phase 2 — Moat foundation (`phase-2-moat-foundation.md`)
-- [ ] 2.1 Promote elevation/extrude/faceTilt to Mobject properties (fxXforms without FX)
-- [ ] 2.2 Extrude renderer (resolves OQ-1)
-- [ ] 2.3 Glyph & math extrusion
-- [ ] 2.4 Continuous camera tilt for any board
-- [ ] 2.5 Analytic contact shadows (resolves OQ-2)
+- [x] 2.1 Promote elevation/extrude/faceTilt to Mobject properties (fxXforms without FX)
+- [x] 2.2 Extrude renderer (resolves OQ-1)
+- [x] 2.3 Glyph & math extrusion
+- [x] 2.4 Continuous camera tilt for any board
+- [x] 2.5 Analytic contact shadows (resolves OQ-2)
 - [ ] **CP3 passed** — thesis kill-gate
 
 ## Phase 3 — Moat flagships (`phase-3-moat.md`) — lanes G ‖ H
@@ -44,17 +44,17 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `~~struck~~` = culled b
 - [ ] **CP5 passed** — flagship #2
 
 ## Phase 4 — Parity fan-out (`phase-4-parity.md`) — lanes A ‖ B ‖ C ‖ D ‖ K
-- [ ] A1–A18 plot catalog (piecewise, inequalities, splines, tangents, ODE, Fourier, histogram, box/violin, contours, regression, financial, ternary…)
+- [x] A1–A18 plot catalog (piecewise, inequalities, splines, tangents, ODE, Fourier, histogram, box/violin, contours, regression, financial, ternary…)
 - [ ] B1–B12 geometry (centers, tangents, conics, inversion, **locus**, protocol replay…)
 - [ ] C1–C7 stats/probability (distributions, CLT, Monte Carlo, correlation, CI…)
 - [ ] D1–D6 linear algebra (matrix plane morph, determinant, eigen, SVD…)
-- [ ] K1–K6 mathtex (matrices, cases, align, accents, arrows, formula↔graph binding)
+- [x] K1–K6 mathtex (matrices, cases, align, accents, arrows, formula↔graph binding)
 - [ ] **CP6 passed** — gallery cull (culls recorded as strikes in Phases 5–6)
 
 ## Phase 5 — Depth (`phase-5-depth.md`) — lanes F3D ‖ L ‖ E ‖ J
 - [ ] F3D-1…9 3D catalog (parametric/implicit surfaces, solids of revolution, slicing, quadrics…)
 - [ ] L1–L7 expression engine + lite CAS (parser→ConstraintGraph, regressions, symbolic diff, REPL calc mode)
-- [ ] E1–E5 graph theory (named graphs, force layout, algorithm animations…)
+- [x] E1–E5 graph theory domain logic (named graphs, force layout, BFS/DFS/Dijkstra, MST, Eulerian — 30 tests)
 - [ ] J1–J6 animation extensions (scrub, stagger, reveal, physics handoff, camera crane, explain mode)
 - [ ] **CP7 passed** — ship/fix/cut per lane
 

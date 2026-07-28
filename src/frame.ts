@@ -17,7 +17,7 @@ import { cameraViewProj, cameraScale, scrToDoc, uiScale } from './camera/camera'
 import type { EditorTheme } from './editor/editor';
 import type { TerminalTheme } from './editor/terminal';
 import type { FileTreeTheme } from './editor/fileTree';
-import { DEPTH_FORMAT } from './windfoil/mesh3d';
+import { DEPTH_FORMAT, lightViewProj } from './windfoil/mesh3d';
 import { EmitCache } from './windfoil/emitCache';
 import { ANALYTIC_MENU_THEME } from './ui/analyticMenu';
 import { poseXform } from './camera/screenWorld';
@@ -30,6 +30,10 @@ const _fxC: number[] = [0, 0, 0, 0];
 const ZERO_COLOR: number[] = [0, 0, 0, 0];
 const SHIMMER_COLOR: number[] = [1, 1, 1, 0.12];
 const _boardView = { zoom: 1, left: 0, right: 0, top: 0, bottom: 0 };
+// Persistent scratch for padding a board's per-instance-z buffer up to the full
+// frame instance count (trailing instances — e.g. the world-projected 3D context
+// menu appended after the board emits — are flat and take zero xform).
+let _xfPad = new Float32Array(0);
 
 // Rotate a color's hue by `deg` (standard hue-rotation matrix) into `out` — lets
 // the multi-color effects (aurora/prism/firework/…) derive theme-matched palettes
@@ -1414,6 +1418,26 @@ export function runFrame(s: AppState): () => void {
     // backdrop is painted here instead of showing a CSS background through a
     // transparent canvas (which cost a full-screen compositor blend per frame).
     const bd = s.themeCol.backdrop;
+    // Real cast shadows (Phase 2 quality dial): a depth-only pass from the light
+    // direction into the shadow map, run BEFORE the main pass so the ground catcher
+    // can sample it. beginShadow stamps the on-flag (off → no sampling, no catcher).
+    // Only the GROUND samples the map (the grounded shadow is the payoff); the solids
+    // do NOT self-sample — that produced shadow acne + flicker on lit faces. Gated to
+    // tilted 3D with an extrude board present; top-down stays the flat 2D read (OQ-9).
+    // NOTE: the "anti-aliasing" dial is 2× SUPERSAMPLING (it drives renderScale in the
+    // quality panel), not a multisample resolve — a resolve target left the MSAA color
+    // buffer uncleared (WebGPU applies the clear to the resolve target, not the MSAA
+    // view) which rendered black. Supersampling is the proven, robust AA path.
+    const ib: any = s.interactive;
+    const imesh: Float32Array | null = ib?.getMesh?.() ?? null;
+    const ground: Float32Array | null = ib?.getGround?.() ?? null;
+    const bounds = ib?.getBounds?.() ?? null;
+    const shadowOn = !!s.realShadows && s.cam3d.active && !!imesh && imesh.length > 0 && !!ground && !!bounds;
+    if (s.meshRenderer) {
+      const lv = bounds ? lightViewProj(bounds) : new Float32Array(16);
+      const sp = s.meshRenderer.beginShadow(enc, lv, shadowOn, 0.0012);
+      if (sp) { s.meshRenderer.castVerts(sp, imesh!); s.meshRenderer.castVerts(sp, ground!); sp.end(); }
+    }
     const pass = enc.beginRenderPass({
       colorAttachments: [{ view: colorView, clearValue: { r: bd[0], g: bd[1], b: bd[2], a: 1 }, loadOp: 'clear', storeOp: 'store' }],
       depthStencilAttachment: { view: depthView, depthClearValue: 1, depthLoadOp: 'clear', depthStoreOp: 'store' },
@@ -1445,8 +1469,46 @@ export function runFrame(s: AppState): () => void {
         s.meshRenderer.drawLines(pass, m.lines);
       }
     }
-    s.renderer.setUniforms({ width: renderW, height: renderH, camScale: [camScale, camScale], camCenter: [0, 0], viewProj });
-    s.renderer.draw(pass, s.crvFA.subarray(0, lastCrvLen), s.rwsUA.subarray(0, lastRwsLen), s.instFA.subarray(0, lastInstLen), lastInstLen / 16, undefined, undefined, s.frameDataVersion);
+    // Depth-tested extrusion walls (Phase 2 moat): an interactive board (the
+    // extrude demo, standalone or inside the windgraph world) may expose getMesh()
+    // — real triangles for the prism/cylinder/glyph side walls. Drawn here, BEFORE
+    // the analytic pass, into the shared depth buffer, so the solids are watertight
+    // at every camera angle and the analytic top faces (drawn next, depth-tested)
+    // keep their razor-sharp silhouettes. In 2D the flat ortho VP collapses the
+    // vertical walls to zero area → nothing draws → seamless flat read (OQ-9).
+    if (s.meshRenderer) {
+      const imesh: Float32Array | null = (s.interactive as any)?.getMesh?.() ?? null;
+      if (imesh && imesh.length) {
+        let meshVP: ArrayLike<number> = viewProj;
+        if (!s.cam3d.active) {
+          const sx = (2 * s.viewZ) / Cw, sy = (2 * s.viewZ) / Ch;
+          meshVP = [sx, 0, 0, 0, 0, -sy, 0, 0, 0, 0, 0, 0, -sx * s.viewX, sy * s.viewY, 0.5, 1];
+        }
+        s.meshRenderer.setViewProj(meshVP);
+        s.meshRenderer.drawTris(pass, imesh);
+        // Grounded shadow: a transparent darkening quad on the ground plane, sampled
+        // from the shadow map. After the solids (so it hides behind them) and with no
+        // depth write (so the analytic chrome/tops drawn next still show).
+        if (shadowOn && ground) s.meshRenderer.drawCatcher(pass, ground);
+      }
+    }
+    // Per-instance 3D (D10): an interactive board may expose xfBuffer() — the
+    // shader's fxXforms layout for the instances IT emitted. The frame buffer can
+    // be longer (the world-projected 3D context menu is appended afterwards); those
+    // trailing instances are flat, so pad their xform slots with zeros instead of
+    // dropping fxActive (which previously flattened the whole scene whenever the
+    // menu was open). Flat scenes leave xfSrc null → fxActive off → no cost.
+    const xfSrc: Float32Array | null = (s.interactive as any)?.xfBuffer?.() ?? null;
+    const xfNeed = (lastInstLen >> 4) << 3;
+    let xf: Float32Array | undefined;
+    if (xfSrc && xfSrc.length > 0) {
+      if (_xfPad.length < xfNeed) _xfPad = new Float32Array(Math.max(xfNeed, xfSrc.length));
+      _xfPad.fill(0, 0, xfNeed);
+      _xfPad.set(xfSrc.subarray(0, Math.min(xfSrc.length, xfNeed)), 0);
+      xf = _xfPad.subarray(0, xfNeed);
+    }
+    s.renderer.setUniforms({ width: renderW, height: renderH, camScale: [camScale, camScale], camCenter: [0, 0], viewProj, fxActive: xf ? 1 : 0 });
+    s.renderer.draw(pass, s.crvFA.subarray(0, lastCrvLen), s.rwsUA.subarray(0, lastRwsLen), s.instFA.subarray(0, lastInstLen), lastInstLen / 16, xf, undefined, s.frameDataVersion);
     // Screen-space cinematic HUD overlay (letterbox + sleek timeline + controls +
     // caption), drawn through a dedicated renderer with a screen-ortho matrix, on
     // top of the 3D scene. This composites correctly in the same pass because the

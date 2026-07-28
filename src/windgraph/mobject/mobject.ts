@@ -8,7 +8,11 @@ import { strokeInto, strokeQuadPath, fillQuads, type StrokeStyle, type Pt } from
 import { layoutStr, tw } from '../../layout/metrics';
 import type { FontFace } from '../../windfoil/font';
 
-export interface RenderCtx { font: FontFace; atlas: any; inst: number[]; crv: number[]; rws: number[]; }
+// `xf` (optional) is a parallel per-instance 3D-transform buffer in the shader's
+// `fxXforms` layout (8 floats/instance: rotX, rotY, z, scale, qx, qy, qz, qw).
+// When present, emit writes the mobject's accumulated elevation/faceTilt into it
+// so elevated content rises in the orbit camera WITHOUT the IDE FX system (D10).
+export interface RenderCtx { font: FontFace; atlas: any; inst: number[]; crv: number[]; rws: number[]; xf?: number[]; }
 
 export interface FillOp { kind: 'fill'; quads: number[]; color: number[]; }
 export interface StrokeOp { kind: 'stroke'; points?: Pt[]; quads?: number[]; closed?: boolean; style: StrokeStyle; color: number[]; }
@@ -26,6 +30,14 @@ export abstract class Mobject {
   visible = true;
   /** Draw-on fraction 0..1 (Create/Draw): trims strokes by arc length, fades fills. */
   reveal = 1;
+  /** Per-instance 3D (D10, animatable): elevation lifts the whole mobject along z;
+   *  faceTilt rotates it about the x axis (toward a tilted camera); extrude is the
+   *  prism height for primitives that support it (Polygon/Circle). Zero at rest. */
+  elevation = 0;
+  faceTilt = 0;
+  extrude = 0;
+  /** Cast an analytic contact shadow on the ground plane (task 2.5). */
+  castShadow = false;
   /** Per-frame callbacks (dependent animation); run by the Scene each tick. */
   updaters: Updater[] = [];
   children: Mobject[] = [];
@@ -52,16 +64,21 @@ export abstract class Mobject {
 
   moveTo(x: number, y: number): this { this.position = [x, y]; return this; }
 
-  emit(ctx: RenderCtx, parent: Aff = identity()) {
+  emit(ctx: RenderCtx, parent: Aff = identity(), pz = 0, prx = 0, pry = 0) {
     if (!this.visible || this.opacity <= 0.0005 || this.reveal <= 0.0005) {
       // Still descend so children with their own opacity render (a hidden group
       // is fully hidden though).
       if (!this.visible) return;
     }
     const m = mul(parent, this.localMatrix());
+    // Per-instance 3D accumulates down the tree (a group's elevation lifts its
+    // children too); z is additive, faceTilt composes about x.
+    const z = pz + this.elevation;
+    const rx = prx + this.faceTilt;
+    const ry = pry;
     if (!this._ops) this._ops = this.build();
-    for (const op of this._ops) emitOp(ctx, op, m, this.opacity, this.reveal);
-    for (const c of this.children) c.emit(ctx, m);
+    for (const op of this._ops) emitOp(ctx, op, m, this.opacity, this.reveal, z, rx, ry);
+    for (const c of this.children) c.emit(ctx, m, z, rx, ry);
   }
 }
 
@@ -105,8 +122,23 @@ function trimPolyline(pts: Pt[], frac: number): Pt[] {
   return out;
 }
 
-function emitOp(ctx: RenderCtx, op: DrawOp, m: Aff, opacity: number, reveal = 1) {
+// Pad ctx.xf to cover instances [i0, i1) and, when the mobject is elevated/tilted,
+// write its (rotX, rotY, z, scale) into the shader's fxXforms layout (Euler path;
+// quaternion slots stay 0 → the shader falls to Euler when |A.xyz| > 1e-6). Flat
+// instances get zeros (a no-op transform even with fxActive on).
+function writeXf(xf: number[], i0: number, i1: number, z: number, rx: number, ry: number) {
+  const need = i1 * 8;
+  while (xf.length < need) xf.push(0);
+  if (z === 0 && rx === 0 && ry === 0) return;
+  for (let k = i0; k < i1; k++) {
+    const b = k * 8;
+    xf[b] = rx; xf[b + 1] = ry; xf[b + 2] = z; xf[b + 3] = 1;
+  }
+}
+
+function emitOp(ctx: RenderCtx, op: DrawOp, m: Aff, opacity: number, reveal = 1, z = 0, rx = 0, ry = 0) {
   const { inst, crv, rws } = ctx;
+  const i0 = inst.length >> 4;
   if (op.kind === 'fill') {
     // Fills fade in during a draw-on reveal (clipping a fill is ill-defined).
     fillQuads(tq(m, op.quads), withAlpha(op.color, opacity * reveal), inst, crv, rws);
@@ -131,6 +163,7 @@ function emitOp(ctx: RenderCtx, op: DrawOp, m: Aff, opacity: number, reveal = 1)
     }
     layoutStr(inst, op.text, withAlpha(op.color, opacity * reveal), ctx.atlas.table, ctx.font, { x, y, size: op.size * s });
   }
+  if (ctx.xf) writeXf(ctx.xf, i0, inst.length >> 4, z, rx, ry);
 }
 
 /** A plain container that only composes transforms over its children. */

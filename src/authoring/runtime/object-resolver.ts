@@ -22,7 +22,16 @@ import { plotVectorField, plotSlopeField } from '../../windgraph/plot/field';
 import { EmitCache } from '../../windfoil/emitCache';
 import { compileExpr } from '../../windgraph/expr';
 import { DragController } from '../../windgraph/interact/drag';
-import type { Pt } from '../../windgraph/stroke/stroke';
+import { strokeInto, fillQuads, circleQuads, type Pt } from '../../windgraph/stroke/stroke';
+import { spline as splineInterp } from '../../windgraph/plot/spline';
+import { sequenceSamples, cobweb } from '../../windgraph/plot/sequence';
+import { sampleFn, tangentLine, normalLine, accumulation, quadratureColumns, type QuadMode } from '../../windgraph/plot/calculus';
+import { rk4Ode, rk4System, streamlines, bifurcation } from '../../windgraph/plot/ode';
+import { fourierCoeffs, fourierCurve, epicycles } from '../../windgraph/plot/fourier';
+import { histogram, boxStats, kde, beeswarm, hexbin, regression, residuals } from '../../windgraph/plot/stats';
+import { contourLevels, plotContourLines, plotFilledContours, contourLabelAnchors } from '../../windgraph/plot/contour';
+import { plotInequality, type Cmp } from '../../windgraph/plot/inequality';
+import { candlestick, waterfall, funnel, radar, windrose, ternaryToXY, ternaryFrame, parallelCoords, scatterMatrix } from '../../windgraph/plot/charts';
 
 const COL_POINT = [0.97, 0.73, 0.33, 1];
 const COL_DERIVED = [0.40, 0.82, 0.95, 1];
@@ -189,6 +198,8 @@ export class WgScene {
       case 'wg-circumcircle': one(s.a); one(s.b); one(s.c); break;
       case 'wg-angle': one(s.a); one(s.vertex); one(s.b); break;
       case 'wg-distance': one(s.a); one(s.b); break;
+      case 'wg-plot-spline': many(s.points); break;
+      case 'wg-plot-ode': many(s.through); break;
     }
     return refs;
   }
@@ -538,6 +549,474 @@ export class WgScene {
         }
         break;
       }
+      case 'wg-plot-piecewise': {
+        const pieces = (s.pieces as { cond: string; expr: string }[]).map((p) => ({ cond: compileExpr(p.cond), expr: compileExpr(p.expr) }));
+        const d0 = this.num((s.domain?.[0] ?? plane.xMin) as WgNum);
+        const d1 = this.num((s.domain?.[1] ?? plane.xMax) as WgNum);
+        const base = s.samples ?? 240;
+        const props = { ...this.strokeProps(s, COL_PLOT), join: 'miter' as const };
+        const group = new Group();
+        this.register(id, group, s);
+        const resample = () => {
+          const n = Math.max(48, Math.round(base * this.lodScale));
+          group.children.length = 0;
+          for (const seg of this.sampleCurve(d0(), d1(), n, (x) => {
+            const sc = this.scope({ x });
+            for (const p of pieces) if (p.cond(sc) !== 0) return { y: p.expr(sc) };
+            return { y: NaN };
+          })) group.add(new Polyline(seg, props));
+        };
+        this.plotResamples.push(resample);
+        resample();
+        this.track(group, () => this.lastParamSig + '|' + this.lodScale);
+        break;
+      }
+      case 'wg-plot-inequality': {
+        const fns = (s.exprs as string[]).map((e) => compileExpr(e));
+        const cmps = (s.cmps as Cmp[] | undefined) ?? (s.exprs as string[]).map(() => '>' as Cmp);
+        const fill = s.fill ?? [0.30, 0.85, 0.75, 0.16];
+        const gridRes = typeof s.gridRes === 'number' ? s.gridRes : 0.5;
+        const deps = this.exprDeps((s.exprs as string[]).join(' '));
+        this.directDraws.push({
+          deps,
+          draw: (ctx, view) => plotInequality(fns.map((fn) => (x: number, y: number) => fn(this.scope({ x, y }))), cmps, plane, view, ctx, fill, gridRes),
+        });
+        break;
+      }
+      case 'wg-plot-sequence': {
+        const fn = compileExpr(s.expr);
+        const n0 = this.num((s.nRange?.[0] ?? 0) as WgNum);
+        const n1 = this.num((s.nRange?.[1] ?? 10) as WgNum);
+        const color = s.color ?? COL_POINT;
+        const radius = s.radius ?? 5;
+        const group = new Group();
+        this.register(id, group, s);
+        const resample = () => {
+          group.children.length = 0;
+          if (s.cobweb) {
+            const x0v = typeof s.x0 === 'number' ? s.x0 : (this.params.get((s.x0 as any)?.$param) ?? 0.5);
+            const iters = s.iters ?? 30;
+            const path = cobweb((x) => fn(this.scope({ x, n: x })), x0v, iters, n0(), n1());
+            const props = this.strokeProps(s, COL_LINE);
+            group.add(new Polyline(this.toWorld(path), props));
+          } else {
+            for (const [nx, ny] of sequenceSamples((n) => fn(this.scope({ n, x: n })), n0(), n1())) {
+              group.add(new Dot(plane.dToWx(nx), plane.dToWy(ny), radius, color));
+            }
+          }
+        };
+        this.plotResamples.push(resample);
+        resample();
+        this.track(group, () => this.lastParamSig + '|' + this.lodScale);
+        break;
+      }
+      case 'wg-plot-spline': {
+        const srcs = (s.points as WgPoint[]).map((p) => this.pt(p, who));
+        const kind = s.spline ?? 'catmull';
+        const perSeg = Math.max(4, Math.round((s.samples ?? 24)));
+        const props = { ...this.strokeProps(s, COL_PLOT), join: 'miter' as const };
+        const group = new Group();
+        this.register(id, group, s);
+        let lastSig = '';
+        const rebuild = () => {
+          const ctrl = srcs.map((g) => g());
+          const curve = splineInterp(kind, ctrl, perSeg);
+          group.children.length = 0;
+          if (curve.length >= 2) group.add(new Polyline(curve, props));
+          for (const c of ctrl) group.add(new Dot(c[0], c[1], 5, COL_POINT));
+        };
+        rebuild();
+        this.track(group, () => {
+          const sig = srcs.map((g) => g().join(',')).join(';') + '|' + kind;
+          if (sig !== lastSig) { rebuild(); lastSig = sig; }
+          return sig;
+        });
+        break;
+      }
+      case 'wg-plot-tangent': {
+        const fn = compileExpr(s.expr);
+        const at = this.num(s.at as WgNum);
+        const d0 = this.num((s.domain?.[0] ?? plane.xMin) as WgNum);
+        const d1 = this.num((s.domain?.[1] ?? plane.xMax) as WgNum);
+        const base = s.samples ?? 200;
+        const color = s.color ?? COL_POINT;
+        const props = { ...this.strokeProps(s, COL_PLOT), join: 'miter' as const };
+        const group = new Group();
+        this.register(id, group, s);
+        const resample = () => {
+          const n = Math.max(48, Math.round(base * this.lodScale));
+          const f = (x: number) => fn(this.scope({ x }));
+          const xv = at();
+          const half = (d1() - d0()) * 0.5;
+          group.children.length = 0;
+          for (const seg of this.sampleCurve(d0(), d1(), n, (x) => ({ y: f(x) }))) group.add(new Polyline(seg, props));
+          group.add(new Polyline(this.toWorld(tangentLine(f, xv, half)), { color, width: props.width, cap: 'butt', join: 'miter' }));
+          if (s.showNormal) group.add(new Polyline(this.toWorld(normalLine(f, xv, half)), { color: COL_DERIVED, width: props.width, cap: 'butt', join: 'miter' }));
+          group.add(new Dot(plane.dToWx(xv), plane.dToWy(f(xv)), 6, color));
+          if (s.showDerivatives) {
+            const h = (d1() - d0()) / n;
+            for (const seg of this.sampleCurve(d0(), d1(), n, (x) => ({ y: (f(x + h) - f(x - h)) / (2 * h) }))) group.add(new Polyline(seg, { color: COL_DERIVED, width: props.width * 0.7, cap: 'butt', join: 'miter' }));
+          }
+        };
+        this.plotResamples.push(resample);
+        resample();
+        this.track(group, () => this.lastParamSig + '|' + this.lodScale);
+        break;
+      }
+      case 'wg-plot-accumulation': {
+        const fn = compileExpr(s.expr);
+        const from = this.num(s.from as WgNum);
+        const d0 = this.num((s.domain?.[0] ?? plane.xMin) as WgNum);
+        const d1 = this.num((s.domain?.[1] ?? plane.xMax) as WgNum);
+        const base = s.samples ?? 200;
+        const props = { ...this.strokeProps(s, COL_PLOT), join: 'miter' as const };
+        const group = new Group();
+        this.register(id, group, s);
+        const resample = () => {
+          const n = Math.max(48, Math.round(base * this.lodScale));
+          const f = (x: number) => fn(this.scope({ x }));
+          group.children.length = 0;
+          const pts = accumulation(f, from(), d0(), d1(), n);
+          const seg = this.toWorld(pts);
+          if (seg.length >= 2) group.add(new Polyline(seg, props));
+        };
+        this.plotResamples.push(resample);
+        resample();
+        this.track(group, () => this.lastParamSig + '|' + this.lodScale);
+        break;
+      }
+      case 'wg-plot-riemann': {
+        const fn = compileExpr(s.expr);
+        const d0 = this.num(s.domain[0] as WgNum);
+        const d1 = this.num(s.domain[1] as WgNum);
+        const nSrc = this.num(s.n as WgNum);
+        const mode = (s.mode ?? 'midpoint') as QuadMode;
+        const fill = s.fill ?? [0.30, 0.85, 0.75, 0.22];
+        const props = this.strokeProps(s, COL_PLOT);
+        const group = new Group();
+        this.register(id, group, s);
+        const resample = () => {
+          const n = Math.max(1, Math.round(nSrc()));
+          const f = (x: number) => fn(this.scope({ x }));
+          group.children.length = 0;
+          for (const col of quadratureColumns(f, d0(), d1(), n, mode)) {
+            const x0 = plane.dToWx(col.x), x1 = plane.dToWx(col.x + col.w);
+            const wy = plane.dToWy(col.y), wy0 = plane.dToWy(0);
+            group.add(new Polygon([[x0, wy0], [x1, wy0], [x1, wy], [x0, wy]], props, { color: fill }));
+          }
+        };
+        this.plotResamples.push(resample);
+        resample();
+        this.track(group, () => this.lastParamSig + '|' + this.lodScale);
+        break;
+      }
+      case 'wg-streamlines': {
+        const fx = compileExpr(s.xExpr), fy = compileExpr(s.yExpr);
+        const color = s.color ?? COL_LINE;
+        const steps = s.steps ?? 120;
+        const density = typeof s.density === 'number' ? s.density : 1;
+        const deps = this.exprDeps(s.xExpr + ' ' + s.yExpr);
+        this.directDraws.push({
+          deps,
+          draw: (ctx, view) => {
+            const seeds: Pt[] = [];
+            const cell = 1 / density;
+            for (let x = Math.ceil(plane.xMin / cell) * cell; x <= plane.xMax; x += cell)
+              for (let y = Math.ceil(plane.yMin / cell) * cell; y <= plane.yMax; y += cell) seeds.push([x, y]);
+            const V = (x: number, y: number): Pt => [fx(this.scope({ x, y })), fy(this.scope({ x, y }))];
+            const h = cell * 0.25;
+            const w = Math.max(2 / Math.max(view.zoom, 1e-6), 0.4);
+            for (const line of streamlines(V, seeds, steps, h)) {
+              if (line.length < 2) continue;
+              strokeInto(this.toWorld(line), { width: w, cap: 'butt', join: 'miter' }, color, ctx.inst, ctx.crv, ctx.rws);
+            }
+          },
+        });
+        break;
+      }
+      case 'wg-plot-ode': {
+        const fy = compileExpr(s.yExpr);
+        const fx = s.xExpr ? compileExpr(s.xExpr) : null;
+        const srcs = (s.through as WgPoint[]).map((p) => this.pt(p, who));
+        const d0 = this.num((s.domain?.[0] ?? plane.xMin) as WgNum);
+        const d1 = this.num((s.domain?.[1] ?? plane.xMax) as WgNum);
+        const h = typeof s.h === 'number' ? s.h : 0.02;
+        const props = { ...this.strokeProps(s, COL_PLOT), join: 'miter' as const };
+        const group = new Group();
+        this.register(id, group, s);
+        let lastSig = '';
+        const rebuild = () => {
+          group.children.length = 0;
+          for (const src of srcs) {
+            const w = src();
+            const dx0 = (w[0] - plane.worldX0) / plane.unitX;
+            const dy0 = (plane.worldY0 - w[1]) / plane.unitY;
+            let line: Pt[];
+            if (fx) {
+              const F = (p: Pt): Pt => [fx(this.scope({ x: p[0], y: p[1] })), fy(this.scope({ x: p[0], y: p[1] }))];
+              line = rk4System(F, [dx0, dy0], 0, (d1() - d0()), h);
+            } else {
+              line = rk4Ode((x, y) => fy(this.scope({ x, y })), dx0, dy0, d1(), h);
+            }
+            const seg = this.toWorld(line);
+            if (seg.length >= 2) group.add(new Polyline(seg, props));
+            group.add(new Dot(w[0], w[1], 6, COL_POINT));
+          }
+        };
+        rebuild();
+        this.track(group, () => {
+          const sig = srcs.map((g) => g().join(',')).join(';') + '|' + this.lastParamSig;
+          if (sig !== lastSig) { rebuild(); lastSig = sig; }
+          return sig;
+        });
+        break;
+      }
+      case 'wg-plot-bifurcation': {
+        const fn = compileExpr(s.expr);
+        const r0 = this.num(s.rRange[0] as WgNum);
+        const r1 = this.num(s.rRange[1] as WgNum);
+        const iters = s.iters ?? 80;
+        const transient = s.transient ?? 200;
+        const rSteps = s.rSteps ?? 400;
+        const color = s.color ?? COL_PLOT;
+        const deps = this.exprDeps(s.expr);
+        this.directDraws.push({
+          deps,
+          draw: (ctx, view) => {
+            const pts = bifurcation((r, x) => fn(this.scope({ r, x })), r0(), r1(), rSteps, iters, transient);
+            const rad = 1.2 / Math.max(view.zoom, 1e-6);
+            for (const [rx, xx] of pts) {
+              fillQuads(circleQuads(plane.dToWx(rx), plane.dToWy(xx), rad, 6), color, ctx.inst, ctx.crv, ctx.rws);
+            }
+          },
+        });
+        break;
+      }
+      case 'wg-plot-fourier': {
+        const fn = compileExpr(s.expr);
+        const terms = this.num(s.terms as WgNum);
+        const period = this.num((s.period ?? Math.PI * 2) as WgNum);
+        const d0 = this.num((s.domain?.[0] ?? 0) as WgNum);
+        const d1 = this.num((s.domain?.[1] ?? Math.PI * 2) as WgNum);
+        const base = s.samples ?? 240;
+        const color = s.color ?? COL_PLOT;
+        const props = { ...this.strokeProps(s, COL_PLOT), join: 'miter' as const };
+        const group = new Group();
+        this.register(id, group, s);
+        const resample = () => {
+          const n = Math.max(48, Math.round(base * this.lodScale));
+          const f = (x: number) => fn(this.scope({ x }));
+          const coeffs = fourierCoeffs(f, Math.max(0, Math.round(terms())), period(), 400);
+          group.children.length = 0;
+          const curve = fourierCurve(coeffs, d0(), d1(), n, period());
+          const seg = this.toWorld(curve);
+          if (seg.length >= 2) group.add(new Polyline(seg, props));
+          if (s.epicycles) {
+            const cyc = epicycles(coeffs, d0(), period());
+            for (const e of cyc) {
+              const cx = plane.dToWx(e.cx), cy = plane.dToWy(e.cy), r = e.r * plane.unitX;
+              group.add(new Arc(cx, cy, r, 0, Math.PI * 2, { color: COL_LINE, width: 1 }));
+            }
+          }
+          void color;
+        };
+        this.plotResamples.push(resample);
+        resample();
+        this.track(group, () => this.lastParamSig + '|' + this.lodScale);
+        break;
+      }
+      case 'wg-histogram': {
+        const data = s.data as number[];
+        const bins = histogram(data, s.method ?? 'fd', s.bins);
+        const fill = s.fill ?? [0.36, 0.62, 0.98, 0.5];
+        const props = this.strokeProps(s, COL_PLOT);
+        const group = new Group();
+        this.register(id, group, s);
+        for (const b of bins) {
+          const x0 = plane.dToWx(b.x0), x1 = plane.dToWx(b.x1);
+          const wy = plane.dToWy(b.count), wy0 = plane.dToWy(0);
+          group.add(new Polygon([[x0, wy0], [x1, wy0], [x1, wy], [x0, wy]], props, { color: fill }));
+        }
+        this.track(group, () => 'hist');
+        break;
+      }
+      case 'wg-boxplot': {
+        const data = s.data as number[];
+        const variant = s.variant ?? 'box';
+        const at = typeof s.at === 'number' ? s.at : (this.params.get((s.at as any)?.$param) ?? 0);
+        const color = s.color ?? COL_PLOT;
+        const fill = s.fill ?? [0.36, 0.62, 0.98, 0.35];
+        const props = this.strokeProps(s, color);
+        const group = new Group();
+        this.register(id, group, s);
+        const ax = plane.dToWx(at);
+        if (variant === 'strip' || variant === 'beeswarm') {
+          const offs = variant === 'beeswarm' ? beeswarm(data, 0.08) : data.map(() => 0);
+          data.forEach((v, i) => group.add(new Dot(ax + offs[i] * plane.unitX, plane.dToWy(v), 4, color)));
+        } else if (variant === 'violin') {
+          const st = boxStats(data);
+          const ys: number[] = [];
+          for (let i = 0; i <= 40; i++) ys.push(st.min + (st.max - st.min) * (i / 40));
+          const dens = kde(data, ys);
+          const maxD = Math.max(...dens, 1e-9);
+          const left: Pt[] = ys.map((y, i) => [plane.dToWx(at - dens[i] / maxD * 0.5), plane.dToWy(y)] as Pt);
+          const right: Pt[] = ys.map((y, i) => [plane.dToWx(at + dens[i] / maxD * 0.5), plane.dToWy(y)] as Pt).reverse();
+          group.add(new Polygon([...left, ...right], props, { color: fill }));
+        } else {
+          const st = boxStats(data);
+          const w = 0.5;
+          const x0 = plane.dToWx(at - w / 2), x1 = plane.dToWx(at + w / 2);
+          group.add(new Polygon([[x0, plane.dToWy(st.q1)], [x1, plane.dToWy(st.q1)], [x1, plane.dToWy(st.q3)], [x0, plane.dToWy(st.q3)]], props, { color: fill }));
+          group.add(new Segment([ax, plane.dToWy(st.min)], [ax, plane.dToWy(st.q1)], { color, width: props.width }));
+          group.add(new Segment([ax, plane.dToWy(st.q3)], [ax, plane.dToWy(st.max)], { color, width: props.width }));
+          group.add(new Segment([plane.dToWx(at - w / 2), plane.dToWy(st.median)], [plane.dToWx(at + w / 2), plane.dToWy(st.median)], { color, width: props.width }));
+          for (const o of st.outliers) group.add(new Dot(ax, plane.dToWy(o), 3, color));
+        }
+        this.track(group, () => 'box');
+        break;
+      }
+      case 'wg-plot-cells': {
+        const color = s.fill ?? COL_PLOT;
+        const props = this.strokeProps(s, COL_PLOT);
+        const group = new Group();
+        this.register(id, group, s);
+        if (s.cell === 'bubble') {
+          const pts = (s.points ?? []) as [number, number][];
+          const sizes = (s.sizes ?? pts.map(() => 1)) as number[];
+          const maxS = Math.max(...sizes, 1e-9);
+          pts.forEach((p, i) => group.add(new Circle(plane.dToWx(p[0]), plane.dToWy(p[1]), Math.sqrt(sizes[i] / maxS) * plane.unitX * 0.4, props, { color })));
+        } else if (s.cell === 'heatmap') {
+          const m = (s.matrix ?? []) as number[][];
+          let lo = Infinity, hi = -Infinity;
+          for (const row of m) for (const v of row) { if (v < lo) lo = v; if (v > hi) hi = v; }
+          const span = hi - lo || 1;
+          m.forEach((row, r) => row.forEach((v, c) => {
+            const t = (v - lo) / span;
+            const col: number[] = [0.2 + 0.7 * t, 0.4 + 0.3 * (1 - t), 0.9 - 0.6 * t, 0.85];
+            const x0 = plane.dToWx(c), x1 = plane.dToWx(c + 1), y0 = plane.dToWy(r), y1 = plane.dToWy(r + 1);
+            group.add(new Polygon([[x0, y0], [x1, y0], [x1, y1], [x0, y1]], { color: col, width: 0.5 }, { color: col }));
+          }));
+        } else {
+          const pts = (s.points ?? []) as Pt[];
+          const size = typeof s.size === 'number' ? s.size : 0.5;
+          for (const cell of hexbin(pts, size)) {
+            const poly: Pt[] = [];
+            for (let k = 0; k < 6; k++) {
+              const a = Math.PI / 180 * (60 * k - 30);
+              poly.push([plane.dToWx(cell.cx + size * Math.cos(a)), plane.dToWy(cell.cy + size * Math.sin(a))]);
+            }
+            const t = Math.min(1, cell.count / 5);
+            group.add(new Polygon(poly, props, { color: [color[0], color[1], color[2], 0.2 + 0.6 * t] }));
+          }
+        }
+        this.track(group, () => 'cells');
+        break;
+      }
+      case 'wg-contours': {
+        const fn = compileExpr(s.expr);
+        const F = (x: number, y: number) => fn(this.scope({ x, y }));
+        const levels = s.levels ?? contourLevels(F, plane, s.count ?? 6);
+        const stroke = s.stroke?.color ?? COL_PLOT;
+        const widthPx = s.stroke?.width ?? 2;
+        const gridRes = typeof s.gridRes === 'number' ? s.gridRes : 0.5;
+        const palette = s.palette ?? [[0.20, 0.35, 0.55, 0.5], [0.25, 0.55, 0.55, 0.5], [0.45, 0.70, 0.45, 0.5], [0.75, 0.75, 0.40, 0.5], [0.85, 0.55, 0.35, 0.5], [0.80, 0.35, 0.35, 0.5], [0.60, 0.30, 0.55, 0.5]];
+        const deps = this.exprDeps(s.expr);
+        this.directDraws.push({
+          deps,
+          draw: (ctx, view) => {
+            if (s.filled) plotFilledContours(F, levels, palette, plane, view, ctx, gridRes);
+            plotContourLines(F, levels, plane, view, ctx, { color: stroke, widthPx, gridRes });
+          },
+        });
+        if (s.labels) {
+          const anchors = contourLabelAnchors(F, levels, plane);
+          const group = new Group();
+          this.register(id + ':labels', group, s);
+          this.order.push(id + ':labels');
+          for (const a of anchors) {
+            group.add(new Label(a.level.toFixed(1), plane.dToWx(a.pos[0]), plane.dToWy(a.pos[1]), plane.unitX * 0.2, COL_LABEL, 'middle'));
+          }
+          this.track(group, () => 'clabels');
+        }
+        break;
+      }
+      case 'wg-regression': {
+        const pts = s.points as [number, number][];
+        const res = regression(pts, s.fit, s.degree ?? 2);
+        const color = s.color ?? COL_PLOT;
+        const props = { ...this.strokeProps(s, color), join: 'miter' as const };
+        const group = new Group();
+        this.register(id, group, s);
+        const xs = pts.map((p) => p[0]);
+        const x0 = Math.min(...xs), x1 = Math.max(...xs);
+        const curve = sampleFn(res.fn, x0, x1, 120);
+        const seg = this.toWorld(curve);
+        if (seg.length >= 2) group.add(new Polyline(seg, props));
+        for (const [px, py] of pts) group.add(new Dot(plane.dToWx(px), plane.dToWy(py), 4, COL_POINT));
+        if (s.showResiduals) for (const [rx, ry] of residuals(pts, res.fn)) group.add(new Segment([plane.dToWx(rx), plane.dToWy(ry + res.fn(rx))], [plane.dToWx(rx), plane.dToWy(ry)], { color: COL_DERIVED, width: 1 }));
+        const r2 = res.r2;
+        group.add(new Label(`R²=${r2.toFixed(3)}`, plane.dToWx(x1), plane.dToWy(res.fn(x1)), plane.unitX * 0.22, COL_LABEL));
+        this.track(group, () => 'reg');
+        break;
+      }
+      case 'wg-chart-fin': {
+        const color = s.color ?? COL_PLOT;
+        const props = this.strokeProps(s, color);
+        const group = new Group();
+        this.register(id, group, s);
+        if (s.chart === 'candle') {
+          for (const c of candlestick(s.ohlc ?? [], 0.6)) {
+            const col = c.up ? [0.35, 0.80, 0.55, 1] : [0.90, 0.45, 0.45, 1];
+            group.add(new Segment([plane.dToWx(c.wick[0][0]), plane.dToWy(c.wick[0][1])], [plane.dToWx(c.wick[1][0]), plane.dToWy(c.wick[1][1])], { color: col, width: 1 }));
+            group.add(new Polygon(this.toWorld(c.body), { color: col, width: 1 }, { color: col }));
+          }
+        } else if (s.chart === 'waterfall') {
+          const steps = ((s.values ?? []) as number[]).map((v, i) => ({ label: (s.labels as string[] | undefined)?.[i] ?? `${i}`, value: v }));
+          for (const w of waterfall(steps)) {
+            const col = w.kind === 'up' ? [0.35, 0.80, 0.55, 0.7] : w.kind === 'down' ? [0.90, 0.45, 0.45, 0.7] : [0.5, 0.6, 0.8, 0.7];
+            group.add(new Polygon(this.toWorld(w.bar), props, { color: col }));
+          }
+        } else if (s.chart === 'funnel') {
+          for (const poly of funnel(s.values ?? [])) group.add(new Polygon(this.toWorld(poly), props, { color: s.fill ?? [0.36, 0.62, 0.98, 0.5] }));
+        } else if (s.chart === 'radar') {
+          const r = radar(s.values ?? []);
+          for (const ax of r.axes) group.add(new Segment([plane.dToWx(ax[0][0]), plane.dToWy(ax[0][1])], [plane.dToWx(ax[1][0]), plane.dToWy(ax[1][1])], { color: COL_LINE, width: 1 }));
+          group.add(new Polygon(this.toWorld(r.poly), props, { color: s.fill ?? [0.36, 0.62, 0.98, 0.4] }));
+        } else {
+          for (const wedge of windrose(s.values ?? [])) group.add(new Polygon(this.toWorld(wedge), props, { color: s.fill ?? [0.36, 0.62, 0.98, 0.5] }));
+        }
+        this.track(group, () => 'fin');
+        break;
+      }
+      case 'wg-chart-multi': {
+        const color = s.color ?? COL_PLOT;
+        const props = this.strokeProps(s, color);
+        const group = new Group();
+        this.register(id, group, s);
+        if (s.chart === 'ternary') {
+          const frame = ternaryFrame();
+          group.add(new Polygon(this.toWorld(frame.frame), props));
+          for (const g of frame.grid) group.add(new Segment([plane.dToWx(g[0][0]), plane.dToWy(g[0][1])], [plane.dToWx(g[1][0]), plane.dToWy(g[1][1])], { color: COL_LINE, width: 0.5 }));
+          for (const t of s.triples ?? []) {
+            const p = ternaryToXY(t[0], t[1], t[2]);
+            group.add(new Dot(plane.dToWx(p[0]), plane.dToWy(p[1]), 4, color));
+          }
+        } else if (s.chart === 'parallel') {
+          const pc = parallelCoords(s.columns ?? []);
+          for (const ax of pc.axes) group.add(new Segment([plane.dToWx(ax[0][0]), plane.dToWy(ax[0][1])], [plane.dToWx(ax[1][0]), plane.dToWy(ax[1][1])], { color: COL_LINE, width: 1 }));
+          for (const line of pc.lines) { const seg = this.toWorld(line); if (seg.length >= 2) group.add(new Polyline(seg, { color: [color[0], color[1], color[2], 0.5], width: 1, cap: 'butt', join: 'miter' })); }
+        } else {
+          const sm = scatterMatrix(s.columns ?? []);
+          for (const f of sm.facets) {
+            const c0 = plane.dToWx(f.origin[0]), r0 = plane.dToWy(f.origin[1]);
+            const c1 = plane.dToWx(f.origin[0] + sm.cell), r1 = plane.dToWy(f.origin[1] + sm.cell);
+            group.add(new Polygon([[c0, r0], [c1, r0], [c1, r1], [c0, r1]], { color: COL_LINE, width: 0.5 }));
+            for (const p of f.points) group.add(new Dot(plane.dToWx(p[0]), plane.dToWy(p[1]), 2.5, color));
+          }
+        }
+        this.track(group, () => 'multi');
+        break;
+      }
       case 'wg-conic':
         throw new Error(`${who}: live conics resolve in Phase 4 (B5) — not yet supported`);
       default:
@@ -562,6 +1041,14 @@ export class WgScene {
       m.a = na; m.b = nb;
       return `${l.x0},${l.y0},${l.dx},${l.dy}`;
     });
+  }
+
+  private toWorld(pts: Pt[]): Pt[] { return pts.map(([x, y]) => [this.plane.dToWx(x), this.plane.dToWy(y)] as Pt); }
+
+  private curveGroup(segs: Pt[][], props: { color: number[]; width: number; cap: 'butt'; join: 'miter' }): Group {
+    const g = new Group();
+    for (const seg of segs) if (seg.length >= 2) g.add(new Polyline(seg, props));
+    return g;
   }
 
   /** Sample a curve in DATA space → world polylines, split at discontinuities.

@@ -43,12 +43,26 @@ function tokenize(src: string): Tok[] {
       i = j; continue;
     }
     if ('+-*/^(),'.includes(c)) { toks.push({ t: 'op', v: c }); i++; continue; }
+    if (c === '>' || c === '<' || c === '=' || c === '!') {
+      const nx = src[i + 1];
+      if (nx === '=') { toks.push({ t: 'op', v: c + '=' }); i += 2; continue; }
+      if (c === '=') throw new Error('unexpected "=" (did you mean "=="?)');
+      toks.push({ t: 'op', v: c }); i++; continue;
+    }
+    if ((c === '&' && src[i + 1] === '&') || (c === '|' && src[i + 1] === '|')) {
+      toks.push({ t: 'op', v: c + c }); i += 2; continue;
+    }
     throw new Error(`unexpected character "${c}"`);
   }
   return toks;
 }
 
-const PREC: Record<string, number> = { '+': 1, '-': 1, '*': 2, '/': 2, '^': 4 };
+const PREC: Record<string, number> = {
+  '||': 1, '&&': 2,
+  '>': 3, '<': 3, '>=': 3, '<=': 3, '==': 3, '!=': 3,
+  '+': 4, '-': 4, '*': 5, '/': 5, '^': 7,
+};
+const RIGHT_ASSOC = new Set(['^']);
 
 export function compileExpr(src: string): ExprFn {
   const toks = tokenize(src);
@@ -67,23 +81,34 @@ export function compileExpr(src: string): ExprFn {
       if (!t || t.t !== 'op' || PREC[t.v] === undefined || PREC[t.v] < minPrec) return left;
       const op = t.v;
       pos++;
-      // ^ is right-associative: recurse at same prec; others at prec+1
-      const right = binary(op === '^' ? PREC[op] : PREC[op] + 1);
+      const right = binary(RIGHT_ASSOC.has(op) ? PREC[op] : PREC[op] + 1);
       const l = left, r = right;
-      left = op === '+' ? (s) => l(s) + r(s)
-        : op === '-' ? (s) => l(s) - r(s)
-        : op === '*' ? (s) => l(s) * r(s)
-        : op === '/' ? (s) => l(s) / r(s)
-        : (s) => Math.pow(l(s), r(s));
+      switch (op) {
+        case '+': left = (s) => l(s) + r(s); break;
+        case '-': left = (s) => l(s) - r(s); break;
+        case '*': left = (s) => l(s) * r(s); break;
+        case '/': left = (s) => l(s) / r(s); break;
+        case '^': left = (s) => Math.pow(l(s), r(s)); break;
+        case '>': left = (s) => (l(s) > r(s) ? 1 : 0); break;
+        case '<': left = (s) => (l(s) < r(s) ? 1 : 0); break;
+        case '>=': left = (s) => (l(s) >= r(s) ? 1 : 0); break;
+        case '<=': left = (s) => (l(s) <= r(s) ? 1 : 0); break;
+        case '==': left = (s) => (l(s) === r(s) ? 1 : 0); break;
+        case '!=': left = (s) => (l(s) !== r(s) ? 1 : 0); break;
+        case '&&': left = (s) => (l(s) !== 0 && r(s) !== 0 ? 1 : 0); break;
+        case '||': left = (s) => (l(s) !== 0 || r(s) !== 0 ? 1 : 0); break;
+      }
     }
   }
 
   function unary(): ExprFn {
     const t = peek();
-    if (t && t.t === 'op' && (t.v === '-' || t.v === '+')) {
+    if (t && t.t === 'op' && (t.v === '-' || t.v === '+' || t.v === '!')) {
       pos++;
-      const operand = binary(3); // binds tighter than + - * / , looser than ^
-      return t.v === '-' ? (s) => -operand(s) : operand;
+      const operand = binary(6); // binds tighter than * / , looser than ^
+      if (t.v === '-') return (s) => -operand(s);
+      if (t.v === '!') return (s) => (operand(s) !== 0 ? 0 : 1);
+      return operand;
     }
     return primary();
   }

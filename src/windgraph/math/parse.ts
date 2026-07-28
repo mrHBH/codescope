@@ -16,7 +16,14 @@ export type Node =
   | { t: 'scripted'; base: Node; sup?: Node; sub?: Node }
   | { t: 'frac'; num: Node; den: Node }
   | { t: 'sqrt'; body: Node }
-  | { t: 'bigop'; ch: string; sub?: Node; sup?: Node; mult?: number; over?: boolean };
+  | { t: 'bigop'; ch: string; sub?: Node; sup?: Node; mult?: number; over?: boolean }
+  | { t: 'leftright'; open: string; close: string; body: Node }
+  | { t: 'matrix'; rows: Node[][]; open: string; close: string }
+  | { t: 'cases'; rows: Node[][] }
+  | { t: 'align'; rows: Node[][]; numbered: boolean }
+  | { t: 'accent'; accent: 'hat' | 'bar' | 'vec' | 'tilde' | 'dot'; body: Node }
+  | { t: 'brace'; over: boolean; body: Node; label?: Node }
+  | { t: 'xarrow'; dir: '→' | '←'; text?: Node; label?: Node };
 
 const GREEK: Record<string, string> = {
   alpha: 'α', beta: 'β', gamma: 'γ', delta: 'δ', epsilon: 'ε', varepsilon: 'ε', zeta: 'ζ', eta: 'η',
@@ -37,6 +44,11 @@ const FUNCS = new Set(['sin', 'cos', 'tan', 'cot', 'sec', 'csc', 'log', 'ln', 'e
 const LIMOPS: Record<string, string> = { lim: 'lim', max: 'max', min: 'min', sup: 'sup', inf: 'inf', det: 'det', gcd: 'gcd', limsup: 'lim sup', liminf: 'lim inf', Pr: 'Pr' };
 const BIGOPS: Record<string, string> = { sum: '∑', int: '∫', prod: '∏', oint: '∮', bigcup: '⋃', bigcap: '⋂', coprod: '∐' };
 const SPACES = new Set([',', ';', ':', '!', ' ', 'quad', 'qquad', 'thinspace']);
+const ACCENTS = new Set(['hat', 'bar', 'vec', 'tilde', 'dot', 'ddot', 'breve', 'check', 'acute', 'grave']);
+const MATRIX_ENVS: Record<string, [string, string]> = {
+  matrix: ['', ''], pmatrix: ['(', ')'], bmatrix: ['[', ']'], Bmatrix: ['{', '}'],
+  vmatrix: ['|', '|'], Vmatrix: ['‖', '‖'], smallmatrix: ['', ''],
+};
 
 function classify(ch: string): Cls {
   if (/[0-9.]/.test(ch)) return 'num';
@@ -54,6 +66,90 @@ export function parseMath(src: string): Node {
   const s = src;
 
   function readCmd(): string { let n = ''; while (i < s.length && /[a-zA-Z]/.test(s[i])) n += s[i++]; return n; }
+
+  function skipSpaces() { while (i < s.length && s[i] === ' ') i++; }
+
+  function readDelim(): string {
+    skipSpaces();
+    if (i >= s.length) return '.';
+    if (s[i] === '\\') {
+      i++;
+      if (i < s.length && !/[a-zA-Z]/.test(s[i])) { const c = s[i++]; return c; }
+      const nm = readCmd();
+      if (nm === 'lbrace') return '{';
+      if (nm === 'rbrace') return '}';
+      if (nm === 'vert') return '|';
+      if (nm === 'Vert') return '‖';
+      if (nm === 'langle') return '⟨';
+      if (nm === 'rangle') return '⟩';
+      return '.';
+    }
+    return s[i++];
+  }
+
+  function parseLeftRight(open: string): Node {
+    const items: Node[] = [];
+    for (;;) {
+      skipSpaces();
+      if (i >= s.length || s[i] === '}') break;
+      if (s[i] === '\\') {
+        let k = i + 1; let nm = ''; while (k < s.length && /[a-zA-Z]/.test(s[k])) nm += s[k++];
+        if (nm === 'right') { i = k; const close = readDelim(); return { t: 'leftright', open, close, body: { t: 'row', items } }; }
+      }
+      const atom = parseAtom();
+      if (atom) items.push(atom);
+    }
+    return { t: 'leftright', open, close: '.', body: { t: 'row', items } };
+  }
+
+  function parseCell(): Node {
+    const items: Node[] = [];
+    for (;;) {
+      skipSpaces();
+      if (i >= s.length || s[i] === '&' || s[i] === '}') break;
+      if (s[i] === '\\' && s[i + 1] === '\\') break;
+      if (s[i] === '\\') {
+        let k = i + 1; let nm = ''; while (k < s.length && /[a-zA-Z]/.test(s[k])) nm += s[k++];
+        if (nm === 'end') break;
+      }
+      const atom = parseAtom();
+      if (atom) items.push(atom);
+    }
+    return { t: 'row', items };
+  }
+
+  function parseGrid(): Node[][] {
+    const rows: Node[][] = [];
+    let cells: Node[] = [parseCell()];
+    for (;;) {
+      skipSpaces();
+      if (i < s.length && s[i] === '&') { i++; cells.push(parseCell()); continue; }
+      if (i + 1 < s.length && s[i] === '\\' && s[i + 1] === '\\') { i += 2; rows.push(cells); cells = [parseCell()]; continue; }
+      break;
+    }
+    rows.push(cells);
+    return rows;
+  }
+
+  function consumeEnd() {
+    skipSpaces();
+    if (i < s.length && s[i] === '\\') {
+      let k = i + 1; let nm = ''; while (k < s.length && /[a-zA-Z]/.test(s[k])) nm += s[k++];
+      if (nm === 'end') {
+        i = k; skipSpaces();
+        if (s[i] === '{') { i++; while (i < s.length && s[i] !== '}') i++; if (s[i] === '}') i++; }
+      }
+    }
+  }
+
+  function parseEnv(name: string): Node {
+    const grid = parseGrid();
+    consumeEnd();
+    if (name === 'cases' || name === 'dcases') return { t: 'cases', rows: grid };
+    if (name === 'align' || name === 'align*' || name === 'aligned') return { t: 'align', rows: grid, numbered: name === 'align' };
+    const dm = MATRIX_ENVS[name] ?? ['', ''];
+    return { t: 'matrix', rows: grid, open: dm[0], close: dm[1] };
+  }
 
   // Parse until a closing '}' or end (or a stop set). Returns a row.
   function parseRow(stopBrace: boolean): Node {
@@ -78,6 +174,7 @@ export function parseMath(src: string): Node {
     // Big operators + limit-style operators keep scripts as their own limits.
     if (base.t === 'bigop' || base.t === 'limop') { if (isSup) base.sup = arg; else base.sub = arg; items.push(base); return; }
     if (base.t === 'scripted') { if (isSup) base.sup = arg; else base.sub = arg; items.push(base); return; }
+    if (base.t === 'brace') { base.label = arg; items.push(base); return; }
     items.push({ t: 'scripted', base, [isSup ? 'sup' : 'sub']: arg } as Node);
   }
 
@@ -112,7 +209,22 @@ export function parseMath(src: string): Node {
       if (GREEK[name]) return { t: 'char', ch: GREEK[name], cls: 'var' };
       if (SYMBOL[name]) return { t: 'char', ch: SYMBOL[name][0], cls: SYMBOL[name][1] };
       if (FUNCS.has(name)) return { t: 'func', name };
-      if (name === 'left' || name === 'right') { if (i < s.length && '()[]{}|.'.includes(s[i])) { const d = s[i++]; if (d === '.') return null; return { t: 'char', ch: d, cls: d === '(' || d === '[' || d === '{' ? 'open' : 'close' }; } return null; }
+      if (name === 'left') { const open = readDelim(); return parseLeftRight(open); }
+      if (name === 'right') { readDelim(); return null; }
+      if (name === 'begin') {
+        skipSpaces(); let env = '';
+        if (s[i] === '{') { i++; while (i < s.length && s[i] !== '}') env += s[i++]; if (s[i] === '}') i++; }
+        return parseEnv(env);
+      }
+      if (ACCENTS.has(name)) { const body = parseAtom() ?? empty(); const a = (name === 'ddot' ? 'dot' : name) as 'hat' | 'bar' | 'vec' | 'tilde' | 'dot'; return { t: 'accent', accent: a, body }; }
+      if (name === 'overbrace' || name === 'underbrace') { const body = parseAtom() ?? empty(); return { t: 'brace', over: name === 'overbrace', body }; }
+      if (name === 'xrightarrow' || name === 'xleftarrow') {
+        let text: Node | undefined;
+        skipSpaces();
+        if (s[i] === '[') { i++; const items: Node[] = []; while (i < s.length && s[i] !== ']') { const a = parseAtom(); if (a) items.push(a); } if (s[i] === ']') i++; text = { t: 'row', items }; }
+        const label = parseAtom() ?? empty();
+        return { t: 'xarrow', dir: name === 'xrightarrow' ? '→' : '←', text, label };
+      }
       if (name === 'quad') return { t: 'space', w: 1.0 };
       if (name === 'qquad') return { t: 'space', w: 2.0 };
       if (name === 'thinspace' || name === 'thin') return { t: 'space', w: 0.17 };

@@ -17,13 +17,14 @@ export interface GlyphRendererOptions {
   code: string;
   format: GPUTextureFormat;
   constants?: Record<string, number>;
+  sampleCount?: number;
 }
 
 export function createGlyphRenderer(
   device: GPUDevice,
   opts: GlyphRendererOptions,
 ) {
-  const { code, format, constants } = opts;
+  const { code, format, constants, sampleCount = 1 } = opts;
   const module = device.createShaderModule({ code });
 
   const pipeline = device.createRenderPipeline({
@@ -42,6 +43,7 @@ export function createGlyphRenderer(
       }],
     },
     primitive: { topology: 'triangle-strip' },
+    multisample: { count: sampleCount },
     depthStencil: { format: DEPTH_FORMAT, depthWriteEnabled: false, depthCompare: 'less-equal' },
   });
 

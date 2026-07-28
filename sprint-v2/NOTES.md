@@ -58,6 +58,228 @@ from the code lives here. Newest entries at the bottom of each section.
   methods (texFor, grabbedHandleName). External API unchanged; tsc + all 58
   authoring tests green.
 
+- **D9 — Extrude side-walls = analytic fills, NOT mesh3d (settles OQ-1, 2.2).**
+  The moat is "silhouette sharp at any zoom / grazing orbit"; mesh3d triangles
+  alias their silhouette edges (the very thing CP3 zooms 1000× onto). So walls
+  stay in the SINGLE analytic windfoil pass: each wall is one flat fill quad
+  stood vertical by a per-instance quaternion in `fxXforms` (the shader's quat
+  path, `windfoil.wgsl:94-101`). A wall along unit edge `e=(ex,ey,0)` rising h
+  uses the rotation with columns (+x→e, +y→up=+z, +z→(ey,−ex,0)); emitted as an
+  axis-aligned rect centered at the edge midpoint (width=edgeLen, height=h) with
+  A=(0,0,h/2,1), B=that quaternion. The coverage integral gives the rectangle a
+  razor-sharp boundary at any zoom. Per-face flat Lambert shade (LIGHT_DIR·normal)
+  — one color per instance (windfoil has no per-fragment lighting). Painter order:
+  a CONVEX prism's visible faces tile the silhouette with no interior overlap, so
+  emit top face + camera-facing walls; sort back-to-front by `project3d.depthOf`
+  (az/el from the live orbit pose) as a safety net. Top face = the polygon fill
+  translated by z=extrude (Euler path, `fxXforms` A.z). Compositing risk noted in
+  OQ-1 is moot: everything is one pass, one depth-agnostic blend.
+- **D10 — Per-instance z wiring without the IDE FX system (2.1).** `Mobject`
+  gains `elevation/extrude/faceTilt`; `RenderCtx` gains an optional `xf:number[]`
+  (the `fxXforms` layout, 8 floats/instance). `emitOp` pads `xf` to match the
+  instance count and writes (rotX,rotY,z,scale) for elevated ops (Euler path;
+  quat slots 0 → shader falls to Euler when |A.xyz|>1e-6). The windgraph world
+  composes a parallel `cXf` comp buffer alongside `cInst`, then builds a FULL
+  `xfBuf:Float32Array` covering prefix+world instances (prefix zeroed) and exposes
+  `xfBuffer()`; frame.ts passes it to `renderer.draw(..., xforms)` + sets
+  `fxActive:1`. Under the 2D ortho VP the shader's clip-z row is zero, so elevation
+  is invisible in 2D and reveals continuously on tilt (OQ-9 seamlessness). The IDE
+  FX path is untouched — it still owns `fxXforms` when `fxActive` is set by ide.ts;
+  the windgraph world sets it independently via the same uniform. Constraint:
+  `xfBuf` must cover EVERY instance the frame draws (prefix included) or the shader
+  reads garbage for un-covered instances — the world zeroes the prefix region.
+- **D11 — Contact shadows = layered analytic fills (settles OQ-2, 2.5).** See OQ-2
+  resolution. Silhouette projected along LIGHT_DIR to z=0; ~4 concentric fills,
+  alpha `strength·0.55^i`, penumbra widens with height. Sharp at any zoom (each
+  edge is a coverage integral). Drawn first so the prism paints over the core.
+- **D12 — Back-face culling IS required; depth-sign convention (CP3 round 1).**
+  First CP3 build emitted ALL walls → a short cylinder's far wall poked through as
+  a dark crescent. Fix: cull walls whose outward normal faces away from the camera
+  (`nx·sinA + ny·cosA > 0` = visible). The painter-depth sign was ALSO flipped in
+  the first build (nearer objects drew first → a flat caption painted over a box
+  top). Correct convention, derived from GROUND_MODEL=rotX(90) (doc (x,y,z)→world
+  (x,−z,y)) + the orbit spherical pose + the shader feeding doc-z=−(per-inst z):
+  `camDepth(x,y,z,az,po) = −sinP·(x·sinA + y·cosA) − cosP·z` (smaller = nearer;
+  top-down → −z, so a raised face is nearer ✓). Inter-object order = two passes
+  (all ground shadows, then bodies sorted far→near by min camDepth). Culling test
+  in `__test_extrude.ts` (az=0 → only the +y wall survives).
+- **D13 — Extruded text = a z-loft, not a translated glyph (CP3 round 1).** A glyph
+  lifted by z only floats flat ("elevated + shadow, flat" — user). Fix: `Tex` with
+  extrude>0 stacks L=clamp(ex/10,2,7) copies from the back face (z=base+0.25·ex) to
+  the lit front face (z=base+ex); back copies use a 0.42× "wall" colour, the front
+  the lit face, drawn far→near. Tilted, the offset copies fill the letter's
+  thickness (reads as a solid 3D glyph); top-down they coincide into one sharp flat
+  glyph (seamless, OQ-9 — the loft never changes the 2D read). Blob shadow grounds
+  it. Applied to the headline only; the caption stays flat on the ground, placed
+  clear of the prisms' footprints so painter order never has to hide it.
+- **D14 — A standalone board must own its xf buffer + expose xfBuffer() (CP3 r1).**
+  The standalone `#extrude` route rendered flat because frame.ts only sets
+  `fxActive`/uploads xforms when `s.interactive.xfBuffer()` returns a buffer — and
+  the board only wrote z when the WORLD handed it `xfTarget`. Fix: the board owns
+  `_xf/_xfFA/_xfLen`; in emit it uses `xfTarget` if present (world comp path) else
+  `_xf`, zero-pads the leading prefix gap, and pads the trailing chrome gap at the
+  end so the buffer covers every drawn instance 1:1 (the same invariant the world's
+  `padXf` enforces for the comp path). `xfBuffer()` returns the exact-length slice
+  (or null when extrude=0 → flat → fxActive off → seamless 2D). Regression tests in
+  `__test_windgraphWorld.ts` cover standalone alignment, the flat null case, and the
+  world comp-buffer path.
+- **D15 — CP3 round-2: shadow halo + text comb were the real defects.** User round-2:
+  (a) "portions hidden near top" + (c) "don't like the shadows" traced to ONE bug:
+  `emitShadow` scaled the silhouette by `sc = 1+(i+1)*(spread+h·0.0006)` → at h=130
+  the outer layer was ~1.74× the object = a dark HALO bigger than the shape, reading
+  as a hole that swallowed the base/walls (the perceived "hidden portions"). Fix:
+  penumbra is now an ABSOLUTE feather (`expandPoly` by i·(feather+h·0.02) world px,
+  not a scale factor), 3 layers, strength 0.42→0.20, offset 0.45→0.35 — a tight
+  grounded contact shadow that stays footprint-sized at any height. (b) The text
+  "comb" was the loft using too few copies (cap 7) AND the wrong overlap trig:
+  copies separate on screen by dz·sin(polar) but a ground-plane glyph's vertical
+  thickness foreshortens to stroke·cos(polar), so overlap needs dz < stroke/tan(polar)
+  — the binding ratio is **tan(polar)**, not sin. `glyphLoftLayers(ex, stroke, polar)`
+  (exported, headless-tested) gives the count; at the screenshot's ~24° tilt it now
+  yields 8 (overlapping) instead of 7 (gapped). Copies overlap → one smooth shaded
+  side under a lit top cap (wall shade 0.55×); top-down → 1 copy → flat (OQ-9). At
+  grazing the edge-on glyph is thin so the cap is 96 (a slight comb only where the
+  letter is already illegible edge-on — acceptable). Culling sign re-verified
+  analytically at az=0 (camera on +docY sees the +y wall); the round-1 "dark
+  crescent" was the far wall, correctly gone after culling — so the round-2 hidden
+  look was the halo, not culling. If a genuine occlusion gap reappears post-shadow-
+  fix, re-examine `wallFacing` sign vs the live azimuth next.
+- **D16 — CP3 round-3: extrusion walls moved to the depth-tested mesh3d pipeline
+  (the real fix; supersedes the analytic-wall attempts in D9/D12).** The user's
+  "rotating notch / filled from the side" + "text still stacked" + "gaps at some
+  angles" all trace to ONE root: analytic fills with painter-order + back-face
+  culling are NOT watertight — at some angle a culled wall or an open cap shows
+  through, and the culling seam itself is the rotating notch. Stacked glyph copies
+  are also wrong: the z-step is in world units, so the comb gets WORSE on zoom
+  (fundamentally unfixable by density). The fix uses the depth buffer that already
+  exists for graph3d (`mesh3d.ts`): `pushWalls(mesh, loops, z0v, z1v, color)` builds
+  real triangles for the vertical side walls (per-edge quads, flat-Lambert shaded),
+  drawn by frame.ts BEFORE the analytic pass into the shared depth buffer. The
+  analytic pass then draws only the SHARP top faces (polygon fill / glyph) with
+  depth-test (less-equal, no write) — so silhouettes stay razor-sharp while the
+  body is watertight at EVERY angle (no culling, no painter sort). Vertex-z
+  convention = −elevation (matches the analytic shader's `vec4(…,−z,…)` + the orbit
+  GROUND_MODEL, verified against `surface3dDemo`'s P()). In 2D the flat ortho VP
+  collapses vertical walls to zero area → mesh3d draws nothing → seamless flat read
+  (OQ-9); no bottom cap needed (depth occludes the opening). Shadows are sunk to
+  z=−1 so the walls occlude them, and gated off at top-down (polar<0.12) so a flat
+  shape never casts an offset shadow. **Text extrusion = true geometry, not a
+  stack:** the glyph OUTLINE is now stored on the math atlas entries at bake time
+  (`bands.ts` `quadsToContours` from the opentype path that `glyphQuads` already
+  flattens — no font needed at draw time); `MathTex.outlineLoops` → `Tex.wallLoops`
+  feeds those contours (transformed to world coords with the same placement as the
+  analytic top glyph) to `pushWalls`. Result: a solid extruded letter (sharp top +
+  depth-tested side tube), resolution-independent. The board caches the wall mesh
+  on extrude-height change (`buildMesh`/`getMesh`); the world exposes it via
+  `getMesh()`; frame.ts draws `(s.interactive).getMesh()` like graph3d; `app.ts`
+  now hands every demo the engine's `meshRenderer`. This is consistent with D3
+  (extruded solids are 3D content → sampled/depth-tested is the sanctioned path;
+  the analytic guarantee is for the 2D top faces, which stay analytic). Tests
+  rewritten for the new split (pushWalls vert/z/shade, top-only emitPrism, shadow
+  z=−1, outlineLoops transform); 379 green.
+- **D17 — CP3 round-4: hybrid was the wrong tool for flat 3D shapes (user verdict,
+  accepted).** Three concrete bugs + the strategic call. (1) "Lost faces on right-
+  click" = `frame.ts` turned `fxActive` OFF whenever the buffer was longer than the
+  board's xf buffer — and the world-projected 3D context menu is appended AFTER the
+  board emits, so opening the menu flattened the whole scene (tops dropped to z=0,
+  hid inside their mesh walls; mesh3d walls, independent of fxActive, stayed →
+  exactly the screenshot). Fix: pad the board's xf with zeros up to the full frame
+  count (`_xfPad`); trailing flat instances get zero xform, fxActive stays on. (2)
+  Double context menu = `app.ts` screen-HUD rendered the menu unconditionally AND
+  frame.ts rendered it world-projected in 3D; gate the HUD copy on `!menuWorldPose`.
+  (3) The analytic-top-vs-mesh-wall silhouette seam (the sliver) + the user's
+  strategic point: a flat-colored box/cylinder top gains NOTHING from the coverage
+  integral — its 3D edges don't need analytic AA — and the two-pipeline hybrid is
+  what mis-seams. So per the user: **box + cylinder = closed pure-mesh solids**
+  (`pushWalls` + `pushCap` top + bottom from ONE loop → shared verts → watertight,
+  no seam possible). The analytic top is kept ONLY as a 2D sharpness overlay, gated
+  to near-top-down (polar<0.06) where no wall is visible to seam with; above 0.06
+  the mesh solid owns the body (a curved cylinder top aliasing at extreme zoom is
+  the accepted trade — D3 sanctions sampled/depth-tested 3D). The grounded shadow is
+  gated to polar>0.06 (mutually exclusive with the analytic top → no double). The
+  TEXT keeps the hybrid (sharp analytic glyph top IS the moat) but its mesh wall
+  loop is `insetLoop`'d 0.75px so the wall tucks under the glyph and never z-fights
+  it. `pushCap`/`insetLoop` exported + tested. Net: 3D shapes are now plain meshes
+  (simple, watertight), analytic sharpness reserved for the one place it matters
+  (text) + the 2D flat read. 381 green.
+- **D18 — CP3 round-5: universal quality panel + smooth + plug + MSAA + real shadows
+  (user: "all behind a universal settings panel like the IDE quality panel").**
+  Reused the existing `AnalyticPanel` (src/ui/analyticPanel.ts) via two new helpers
+  in app.ts — `makeQualityPanel(s, include3D)` (res + low-res-sharpen dials, plus a
+  "3D extrusion" group: smooth walls / MSAA / real shadows) and
+  `qualityToolbarButton(s, panel)` (reads s.toolbar at click time so it anchors
+  under itself though the toolbar is built after extras). finishApp now renders
+  `s.panel` + repositions it (so any demo that sets s.panel gets it free); wired
+  into bootWindgraphWorld + bootExtrude. State flags on AppState: `meshSmooth`
+  (default ON — facets were the complaint), `meshAA` (off), `realShadows` (off);
+  the board reads smooth/realShadows via getters on `this.app` (fallbacks for
+  headless). **Smooth** = per-vertex outward normals in `pushWalls` (average of the
+  two incident edge normals → radial on a circle); the mesh fragment shader already
+  interpolates per-vertex color, so Gouraud is free — box stays flat (correct crisp
+  faces), cylinder + glyph sides smooth. **Plug** = the analytic glyph top is raised
+  by `EXTRUDE_PLUG_EPS` (1.5 world px) above the mesh wall top; since the camera is
+  clamped above the horizon (orbit maxPolar=π/2), higher = nearer = wins the depth
+  test at the shared silhouette → the sliver is gone; the wall inset was REMOVED
+  (it was the sliver's cause). **MSAA** = `sampleCount` added to createGlyphRenderer
+  + createMeshRenderer; frame.ts recreates both via `s.rebuildRenderers` when
+  `meshAA` flips (old GPU buffers leak — acceptable for a rare manual toggle) and
+  renders the shared pass into lazily-cached 4× color+depth targets that resolve to
+  the normal colorView (format-safe: every demo pipeline + the swapchain target
+  rgba8unorm). **Real shadows** = a depth-only caster pass (`mesh3d.beginShadow`/
+  `castVerts`) from `lightViewProj` (a lookAt+ortho in doc space, exported from
+  mesh3d) into a 1024² depth32float map; the solid pass samples it via
+  `textureSampleCompare`('less', reference = ndc.z − bias) and a transparent
+  ground-catcher pass (`drawCatcher`, depthWrite OFF, depthCompare 'less') paints
+  the grounded shadow; the caster set = solids + the ground quad (board.getGround)
+  so open ground isn't self-shadowed; polygon-offset depthBias on the caster + a
+  tiny shader bias (0.0012) handle acne. When real shadows are ON the analytic fake
+  blobs are skipped (board gates on `!realShadows`). Gated to `realShadows &&
+  cam3d.active` so top-down stays the clean flat 2D read (OQ-9). **Bind-group
+  gotchas (would be silent validation errors):** the caster vertex shader uses only
+  group 1 (the shadow uniform) → its bind group is built from getBindGroupLayout(1)
+  and set at index 1; the LINE pipeline's group 1 holds ONLY the uniform (fsLine
+  never samples the map) → its shadow bind group has a single entry (binding the
+  texture/sampler there fails validation). Every pipeline whose vs references the
+  shadow uniform must setBindGroup(1,…) or the draw errors. **Shadow-precision
+  lesson:** a frustum sized to the whole board wastes depth range → detached
+  shadows at any sane bias; tightened getBounds to the shapes + a height-scaled
+  margin. **Honesty note:** MSAA + real shadows are GPU-only and I cannot see them;
+  they default OFF (known-good baseline) and WebGPU logs validation errors to the
+  console on any wiring mistake, so a mis-wire is loud, not a silent visual
+  regression — the user flips the toggle to try, flips off to revert with no code
+  round. 382 green; tsc clean.
+- **D11 — Plot-catalog wiring pattern (Lane A, Phase 4).** Each of the 18 A-kinds
+  is a full vertical slice: math helper in `src/windgraph/plot/<area>.ts` (pure,
+  data-space, unit-tested in `plot/__test_plot.ts`) + an `ObjectSpec` kind wired
+  through `ir/types.ts` → `validate.ts` → `builder/objects.ts` →
+  `runtime/object-resolver.ts buildOne` → `emitTS`. The object-like/field-like
+  split (D1) holds for the new kinds: function-shaped plots (piecewise, spline,
+  tangent, accumulation, riemann, ODE trajectories, fourier, histogram, box/violin,
+  cells, regression, charts) resolve to **Mobject groups** (animatable/morphable);
+  per-pixel/field content (inequality shading, streamlines, bifurcation splats,
+  contours) resolve to **view-dependent direct draws** registered in
+  `WgScene.directDraws` with `exprDeps` (so unrelated sliders never re-run them —
+  same caching as implicit/field). Point-id-driven curves (spline ctrl pts, ODE
+  initial points) gate their rebuild on a point-position sig inside the `track()`
+  sync so idle frames stay byte-identical; param-driven curves reuse the
+  `plotResamples` + `lastParamSig|lodScale` sig. New plot modules: `spline.ts`,
+  `sequence.ts`, `calculus.ts`, `ode.ts`, `fourier.ts`, `stats.ts`, `contour.ts`
+  (reuses `plotImplicit` for line levels + per-triangle slab clipping for filled
+  bands), `inequality.ts`, `charts.ts`.
+- **D12 — Growing delimiters as analytic vector paths (Lane K).** `\left(…\right)`,
+  matrices, `\cases` delimiters are NOT scaled glyphs — `layout.ts growDelim`
+  draws each as a stroked Bézier/rule path spanning the body's height, so they stay
+  razor-sharp at any zoom (the brand) instead of stretching a glyph bitmap. Parens
+  = quadratic Bézier, brackets/angles = polylines, braces = 5-pt path, `|`/`‖` =
+  rules. Mathtex also gained `matrix/cases/align/accent/brace/xarrow` AST nodes +
+  layout (vertical row stacking centered on the math axis; `align` right-aligns the
+  LHS column at the `&`). K6 binding = `MathTex.locate(char)` returns the world box
+  of the first matching glyph (a board hit-tests it to focus a param slider — the
+  Phase-1 parameter system does the rest). **Prereq pulled forward:** `expr.ts`
+  grew comparison/logical operators (`> < >= <= == != && || !`, precedence
+  `||`<`&&`<cmp<`+`<`*`<unary<`^`) so piecewise conditions `{x>0: …}` compile — this
+  is the Lane-L grammar extension; Lane L should extend, not re-add it.
+
 ## 2. Technical tips (file:line anchored)
 
 **The 3D substrate already exists — extend, don't rebuild:**
@@ -215,15 +437,23 @@ from the code lives here. Newest entries at the bottom of each section.
 
 ## 3. Open questions (answer → move to decisions log)
 
-- **OQ-1 — Extruded side-walls: mesh3d or analytic fills?** mesh3d triangles
-  get depth occlusion right but lose analytic AA on wall silhouette edges;
-  analytic fill quads with per-instance z keep AA but need painter ordering
-  against the depth-tested surface pass. Prototype both inside 2.2; CP3 verdict
-  decides. (Hybrid is possible: analytic walls for isolated extrusions, mesh3d
-  when interleaving with true-3D surfaces.)
-- **OQ-2 — Contact shadow technique (2.5).** Project elevated silhouette to the
-  ground plane as a blurred analytic fill (penumbra via widened coverage
-  falloff)? Needs a prototype; keep it one draw-call-friendly pass.
+- ~~**OQ-1 — Extruded side-walls: mesh3d or analytic fills?**~~ **Resolved
+  2026-07-28 → D9 (analytic fills).** mesh3d walls alias their silhouette edges
+  (the exact thing CP3 zooms 1000× onto); analytic quaternion-oriented wall quads
+  stay in the single windfoil pass → razor-sharp silhouettes + seamless orbit-VP
+  alignment. Convex opaque prism: emit all walls depth-sorted back-to-front +
+  top face last (no cull — azimuth-sign robust). `space3d/extrude.ts` `emitPrism`;
+  5 geometry tests (`__test_extrude.ts`) verify the quaternion walls stand vertical.
+- ~~**OQ-2 — Contact shadow technique (2.5).**~~ **Resolved 2026-07-28 → D11
+  (layered analytic fills).** Project the elevated silhouette along `LIGHT_DIR` to
+  the ground plane (z=0), then draw it as a stack of concentric analytic fills
+  whose alpha falls off outward (`0.55^i`) — a penumbra where EVERY layer edge is a
+  coverage integral, so it stays razor-sharp at 1000× (never a raster blur). Offset,
+  spread and strength all scale with height ⇒ the shadow animates continuously with
+  elevation. Batched: ~4 fills per shadow, drawn first (painter order, under the
+  prism). `space3d/extrude.ts` `emitShadow` (polygon) + `emitBlobShadow` (glyph
+  ellipse); `Mobject.castShadow` → `emitPrism({shadow})`. CP3 may ask for a
+  shader-based coverage-falloff penumbra instead (single fill) — swap-in if so.
 - **OQ-3 — Expression engine vs authored specs (lane L).** Live calculator
   expressions and static SceneDoc parameters must coexist: spec parameter
   values should be allowed to *be* expressions evaluated per frame. Decide the
@@ -254,6 +484,68 @@ from the code lives here. Newest entries at the bottom of each section.
 - ~~**OQ-7 — runtime.ts split seams (0.1).**~~ **Resolved 2026-07-27 → D8.**
   Seams confirmed as hypothesized, minus camera/playback/layout (too
   state-entangled to separate cleanly; they stay on the class).
+- **OQ-9 — 2D↔3D must be indistinguishable at top-down (user, 2026-07-28).**
+  User report: in the playground, toggling 2D↔3D changes the v1 surface EVEN
+  top-down — "continuous" means top-down 3D should be indistinguishable from 2D.
+  Root cause: the v1 graph3d renders TWO geometries — frame.ts:1440 flattens it
+  in 2D (`meshVP` row 2 → z=0.5, height ignored = flat colour map) while 3D uses
+  real height, so the CONTENT pops, not just the camera. **Design rule for the
+  moat (2.1/2.2/2.3/2.4):** elevated content must ALWAYS carry its true z; only
+  the projection changes. Under the 2D ortho VP the shader's clip-z row is zero
+  (`cameraViewProj` ortho: only [0],[5],[15] set), so per-instance z is invisible
+  → flat-looking; tilting to the perspective orbit reveals height continuously.
+  No flat↔raised geometry switch ⇒ top-down 3D ≡ 2D by construction. CP3 verdict
+  must check this: at polar≈0 the extrude board should read identical to 2D. The
+  v1 graph3d flat-map path is out of Phase-2 scope (not a moat file); revisit if
+  CP3 demands it. Residual camera-handoff mismatch = `enterOrbit` eps=0.0015 tilt
+  (orbit.ts:137) + perspective foreshortening of off-ground content — keep the
+  toggle easing polar continuously (2.4) so any residual is a glide, not a snap.
+
+- **Concurrent tracks (2026-07-28).** Phase 2 runs alongside Track B (IR/plot:
+  `ir/types.ts`, `ir/validate.ts`, `builder/objects.ts`, `windgraph/plot/*`) and
+  Track C (`windgraph/interact/*`), plus new `plot/` + `linalg/` + `stats/` files
+  landing in the same tree. `bunx tsc --noEmit` may show TRANSIENT errors in those
+  files (e.g. `validate.ts:556 'exprs' is of type 'unknown'` from the in-flight
+  `wg-plot-inequality` kind) that are NOT Phase-2 regressions. Phase-2's bar: the
+  only tsc errors are in non-owned files; `src/windgraph/mobject|space3d`,
+  `src/windfoil/windfoil.wgsl`, `src/playground/windgraphWorld.ts` +
+  `boards/windgraphExtrude.ts` stay clean. Don't "fix" another track's WIP.
+
+- **Phase 4 B+C+D+E domain logic notes (2026-07-28).** Architecture decisions
+  for the IR-wiring session:
+  - Lane B (`constraints.ts`): all new classes follow the GObject pattern.
+    Conics (`GConic` subclasses) expose `sample(n): Vec2[]` for polyline
+    rendering. `LocusCurve.sweep(path)` mutates the driver + calls
+    `graph.update()` — the wiring session should call it once on param change,
+    not per frame. `ConstructionProtocol` is stateful (step counter) — wire as
+    a board-level controller, not a GObject. `TangentsFromPoint` and
+    `CommonTangents` produce child `GLine` instances NOT added to the graph —
+    the wiring session must add them or read `.lines` directly.
+  - Lane C (`stats/`): all pure functions, seeded RNG via `rng` param for
+    deterministic tests. `inverseSample` uses bisection on CDF (60 iters) —
+    fine for interactive rates (n≤10k). Distributions return a `Distribution`
+    interface `{pdf, cdf, mean, variance}`.
+  - Lane D (`linalg/`): `Vec2` type lives in `matrix.ts`; `products.ts`
+    imports it (no duplicate export). SVD is analytic 2×2 only (no Jacobi for
+    n×n — not needed for the plane-morph boards). `transformGrid` returns line
+    segments + transformed basis vectors for the 3b1b shot.
+  - Lane E (`graph/`): `Graph` is `{nodes, edges, directed}` with integer
+    node IDs. Force layout uses simple Euler integration (no Barnes-Hut — fine
+    for n<200). `WeightedGraph` is separate from `Graph` (explicit weight
+    field). Hierholzer's algorithm for Eulerian paths handles both circuit and
+    path cases.
+  - **Ambiguity noted:** B5 "tangent to curve at point" — implemented for
+    circles only (GObject context). General parametric curve tangents are a
+    pure-function concern for the plot wiring session. B2 `Median`/`Altitude`
+    added as bonus (WINDGRAPH.md §B P0 lists them).
+- **OQ-10 — Plot gallery board slot (Lane A, 2026-07-28).** `plotGalleryDoc()`
+  (in `playground/boards/windgraphScene.ts`) showcases the A-catalog on one plane
+  and is validated + resolver-tested, but has no playground button / world board —
+  `demos.ts` and `windgraphWorld.ts` are Track A's files. Track A: host it as a
+  `WindgraphSceneBoard` (e.g. `new WindgraphSceneBoard(plotGalleryDoc())`) in the
+  world masthead or a toolbar button when convenient. Also open: A5's tangent is
+  y=f(x)-only (matches the B5 note above); a tangent to an arbitrary *parametric*
+  Mobject curve would reuse `calculus.derivative` on the curve's sampling.
 
 ## 4. Lessons (digest of oldsprintplan/POSTMORTEM.md + v1 sprint)
 

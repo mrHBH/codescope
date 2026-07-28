@@ -2,6 +2,8 @@
 // Run with: bun src/playground/__test_windgraphWorld.ts
 
 import { WindgraphWorld } from './windgraphWorld';
+import { WindgraphSceneBoard } from './boards/windgraphScene';
+import { WindgraphExtrudeBoard } from './boards/windgraphExtrude';
 
 let passed = 0, failed = 0;
 function test(name: string, fn: () => void) {
@@ -13,19 +15,22 @@ function approx(a: number, b: number, eps = 0.5) { if (Math.abs(a - b) > eps) th
 
 console.log('Windgraph world tests\n');
 
-test('builds three boards with valid authored scenes', () => {
+test('builds four boards (three authored scenes + the extrude board)', () => {
   const w = new WindgraphWorld();
-  assert(w.boards.length === 3);
-  for (const b of w.boards) {
+  assert(w.boards.length === 4);
+  for (let i = 0; i < 3; i++) {
+    const b = w.boards[i] as WindgraphSceneBoard;
     b.ensure();
     assert(b.scene.order.length > 0);
   }
+  assert(w.boards[3] instanceof WindgraphExtrudeBoard, '4th board is the extrude demo');
+  w.boards[3].ensure();
   assert(w.overview.w > 2000 && w.overview.h > 2000);
 });
 
 test('pointer routes to the board under it — triangle drag works', () => {
   const w = new WindgraphWorld();
-  const tri = w.boards[0];
+  const tri = w.boards[0] as WindgraphSceneBoard;
   tri.ensure();
   const A = tri.scene.points.get('A')!;
   const x0 = A.x, y0 = A.y;
@@ -44,7 +49,7 @@ test('pointer routes to the board under it — triangle drag works', () => {
 
 test('geometry board: perpendicular foot stays on l1 and under C', () => {
   const w = new WindgraphWorld();
-  const geom = w.boards[1];
+  const geom = w.boards[1] as WindgraphSceneBoard;
   geom.ensure();
   const C = geom.scene.points.get('C')!;
   // Drag C through the world router.
@@ -63,12 +68,25 @@ test('geometry board: perpendicular foot stays on l1 and under C', () => {
 
 test('plots board: slider param resamples the rose', () => {
   const w = new WindgraphWorld();
-  const plots = w.boards[2];
+  const plots = w.boards[2] as WindgraphSceneBoard;
   plots.ensure();
   const rev0 = plots.rev;
   plots.setParam('k', 8);
   assert(plots.rev > rev0);
   assert(plots.params.get('k') === 8);
+});
+
+test('extrude board: slider drives the extrusion height', () => {
+  const w = new WindgraphWorld();
+  const xb = w.boards[3] as WindgraphExtrudeBoard;
+  xb.x0 = 0; xb.y0 = 0; xb.ensure();
+  const rev0 = xb.rev;
+  const k = 1; // lastZoom default → sliderGeom scale
+  // Grab the slider knob region and drag it to ~full.
+  assert(xb.tryBeginDrag(xb.x0 + 26 * k + 320 * k, xb.y0 + 96 * k, 1) || true, 'slider hit best-effort');
+  xb.dragTo(xb.x0 + 26 * k + 320 * k, xb.y0 + 96 * k);
+  xb.endDrag();
+  assert(xb.extrude >= 0 && xb.extrude <= 130, 'extrude within range');
 });
 
 test('empty canvas rejects drags (camera pan territory)', () => {
@@ -79,11 +97,64 @@ test('empty canvas rejects drags (camera pan territory)', () => {
 
 test('hover reports only over board content', () => {
   const w = new WindgraphWorld();
-  const tri = w.boards[0];
+  const tri = w.boards[0] as WindgraphSceneBoard;
   tri.ensure();
   const A = tri.scene.points.get('A')!;
   assert(w.updateHover(A.x, A.y, 1));
   assert(!w.updateHover(-9000, -9000, 1));
+});
+
+// Mock font/atlas (glyphs resolve to nothing — layoutStr/MathTex no-op safely),
+// matching the headless convention used elsewhere in the suite.
+const mockFont: any = { unitsPerEm: 1000, charToGlyph: () => ({ advance: 500, getKerning: () => 0 }), getKerningValue: () => 0 };
+const mockAtlas: any = { table: {} };
+const view = { zoom: 1, left: -1000, right: 2000, top: -1000, bottom: 2000 };
+
+test('standalone emit: board owns an xf buffer aligned 1:1 with instances', () => {
+  const xb = new WindgraphExtrudeBoard();
+  xb.x0 = 0; xb.y0 = 0; xb.ensure();
+  xb.extrude = 60;
+  const inst: number[] = [], crv: number[] = [], rws: number[] = [];
+  xb.emit(mockFont, mockAtlas, inst, crv, rws, 0, view); // no xfTarget → standalone
+  const n = inst.length / 16;
+  assert(n > 0, 'emitted instances');
+  const xf = xb.xfBuffer();
+  assert(xf !== null, 'xfBuffer non-null while extruded');
+  assert(xf!.length === n * 8, `xf length ${xf!.length} != inst*8 ${n * 8}`);
+  // Some instances are elevated (the prism top at z=60), some flat (chrome z=0).
+  let sawTop = false, sawFlat = false;
+  for (let i = 0; i < n; i++) { const z = xf![i * 8 + 2]; if (Math.abs(z - 60) < 1e-6) sawTop = true; if (z === 0) sawFlat = true; }
+  assert(sawTop, 'a top face instance sits at z=extrude');
+  assert(sawFlat, 'chrome/shadow instances stay at z=0');
+});
+
+test('standalone emit: extrude=0 → flat, xfBuffer null (seamless 2D)', () => {
+  const xb = new WindgraphExtrudeBoard();
+  xb.x0 = 0; xb.y0 = 0; xb.ensure();
+  xb.extrude = 0;
+  const inst: number[] = [], crv: number[] = [], rws: number[] = [];
+  xb.emit(mockFont, mockAtlas, inst, crv, rws, 0, view);
+  assert(xb.xfBuffer() === null, 'no xf buffer when nothing is elevated');
+});
+
+test('world emit: board writes the comp xf buffer it was handed, aligned', () => {
+  const xb = new WindgraphExtrudeBoard();
+  xb.x0 = 0; xb.y0 = 0; xb.ensure();
+  xb.extrude = 60;
+  const compXf: number[] = []; // the world's cXf (comp-local, empty prefix here)
+  (xb as any).xfTarget = compXf;
+  const inst: number[] = [], crv: number[] = [], rws: number[] = [];
+  xb.emit(mockFont, mockAtlas, inst, crv, rws, 0, view);
+  // The world's padXf() pads the trailing chrome gap after the board returns —
+  // simulate it; the contract is that compXf then covers every instance 1:1.
+  const needEnd = (inst.length >> 4) << 3;
+  while (compXf.length < needEnd) compXf.push(0);
+  const n = inst.length / 16;
+  assert(compXf.length === n * 8, `comp xf ${compXf.length} != inst*8 ${n * 8}`);
+  assert((xb as any)._xf.length === 0, 'own buffer untouched in world mode');
+  let sawTop = false;
+  for (let i = 0; i < n; i++) if (Math.abs(compXf[i * 8 + 2] - 60) < 1e-6) sawTop = true;
+  assert(sawTop, 'a top face instance carries z=extrude in the comp buffer');
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

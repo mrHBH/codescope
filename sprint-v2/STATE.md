@@ -5,12 +5,70 @@ If this file and the code disagree, investigate before trusting either.
 
 ## Current position
 
-- **Phase:** 1 — **all 6 tasks done, awaiting CP2 verdict**
-- **Next task:** 🔍 **CP2** — the drag feel (`checkpoints.md`; board lives in
-  `#playground` → "windgraph v2 authored scene" button). On pass → Phase 2.
+- **Phase:** 4 — **Lanes A+B+C+D+E+K complete** (A+K this session: 56 new tests;
+  B+C+D+E domain logic prior: 147 tests)
+- **Next task:** IR wiring of Lane B/C/D/E domain functions into ObjectSpec
+  kinds (separate session, Track B). CP2 still pending.
+- **Track A (Phase 2, concurrent):** **2.1–2.5 DONE + extrude demo + CP3 polish.**
+  Per-instance z wiring (D10); analytic extrude renderer (D9); glyph/math extrusion;
+  continuous tilt; contact shadows (D11). Demo `boards/windgraphExtrude.ts` (4th
+  world board + `#extrude`). CP3 rounds: pure-mesh closed solids + analytic-top
+  overlay (D16/D17); round-5 universal quality panel + Gouraud smooth walls +
+  analytic-top plug fix (sliver gone) + MSAA toggle + real depth-mapped shadows
+  toggle (D18). Defaults smooth ON / MSAA OFF / shadows OFF (GPU features
+  unverified-by-me, console-loud on error). **Awaiting CP3 verdict. STOPPED.**
+  382 tests green; tsc clean.
+- 2026-07-28 — **Track A CP3 round-1 fixes (3 user-reported bugs).** (1) Standalone
+  `#extrude` rendered flat → board now owns its xf buffer + `xfBuffer()` (D14);
+  frame.ts enables fxActive for it. (2) "Depth wrong" → back-face culling added
+  (the cylinder's far wall was showing through) + the painter-depth sign was
+  flipped and is now correct (`camDepth`, D12); bodies draw in two passes
+  (shadows, then far→near). (3) Extruded text read as flat → `Tex` now z-lofts the
+  glyphs into a solid 3D letter (D13); caption relocated clear of the prisms.
+  Cylinder bumped to 64-gon. 3 new alignment tests + culling test; **371 tests
+  green across 22 files; tsc clean.** Awaiting CP3 re-verdict (still STOPPED).
+- 2026-07-28 — **Track A CP3 round-2 fixes (3 more user notes).** (a)+(c) the
+  "hidden portions near top" AND the disliked shadows were ONE bug: `emitShadow`
+  scaled the silhouette up to ~1.74× at h=130 → a dark halo bigger than the object
+  = a fake hole swallowing the base. Now an ABSOLUTE-feather penumbra (3 layers,
+  strength 0.20, footprint-sized) — a tight grounded contact shadow (D15). (b) the
+  text comb = too few copies + wrong trig; overlap needs `tan(polar)` not `sin`, so
+  `glyphLoftLayers` now yields overlapping copies → one smooth shaded side under a
+  lit cap, collapsing to flat at top-down. **380 tests green across 22 files; tsc
+  clean.** Awaiting CP3 re-verdict (still STOPPED).
+- 2026-07-28 — **Track A CP3 round-3: extrusion walls → depth-tested mesh3d (D16,
+  the real fix).** User: rotating notch + gaps at some angles + text still stacked.
+  Root cause = analytic painter-order walls are never watertight, and stacked
+  glyphs comb worse on zoom. Now the side walls are REAL triangles (`pushWalls`)
+  drawn through the existing mesh3d depth buffer before the analytic pass; the
+  analytic pass keeps only the razor-sharp top faces (depth-tested over the mesh).
+  Watertight at every angle, no culling/painter fragility. Text is now a TRUE
+  extrusion: the glyph outline is stored on the math atlas at bake time
+  (`bands.ts quadsToContours`) → `MathTex.outlineLoops`/`Tex.wallLoops` → wall
+  tubes; sharp top + solid depth-tested side, resolution-independent. Shadows sunk
+  to z=−1 + gated off at top-down. Board caches the wall mesh; world.getMesh() +
+  frame.ts draw it like graph3d; app.ts gives every demo the meshRenderer.
+  Consistent with D3 (3D content = depth-tested; 2D tops stay analytic). Tests
+  rewritten; **379 green across 22 files; tsc clean.** Awaiting CP3 re-verdict
+  (still STOPPED).
+- 2026-07-28 — **Track A CP3 round-4 (D17): flat 3D shapes → pure mesh; 3 bugs
+  fixed.** (1) right-click flattened the scene because the world-projected menu
+  (appended after the board's xf buffer) tripped the fxActive length check → now
+  frame.ts zero-pads xf to the full frame count. (2) double context menu → app.ts
+  HUD copy gated on `!menuWorldPose`. (3) per the user's verdict, box+cylinder are
+  now CLOSED pure-mesh solids (`pushWalls`+`pushCap`, watertight, no seam); the
+  analytic top survives only as a top-down sharpness overlay (polar<0.06), shadow
+  gated polar>0.06. Text keeps the hybrid (sharp glyph = the moat) with its wall
+  loop inset 0.75px so it never z-fights the glyph. **381 green across 22 files;
+  tsc clean.** Awaiting CP3 re-verdict (still STOPPED).
+- **Lane A+K (Phase 4, this session):** all 18 plot-catalog kinds (A1–A18) +
+  all 6 mathtex extensions (K1–K6) shipped — 9 new `plot/*` modules, 18 IR kinds
+  wired end-to-end (types/validate/builder/resolver/emitTS), `expr.ts` gained
+  comparison/logical ops (piecewise prereq), growing delimiters drawn as analytic
+  vector paths. `plotGalleryDoc()` ready for a board slot. 312 tests green, tsc clean.
 - **Checkpoints passed:** CP1 (2026-07-27)
 - **Blockers:** none
-- **Last updated:** 2026-07-27 (Phase 1 complete; 127 tests green)
+- **Last updated:** 2026-07-28 (Phase 4 Lane A + K complete; 312 tests green)
 
 ## Update protocol (every agent, every task)
 
@@ -300,3 +358,120 @@ If this file and the code disagree, investigate before trusting either.
   `_ring`, `_bounce`. Levitate joins `HOVER_FX_MOVES_TEXT` (float+wobble, click
   drops+bounces via `_bounce(pressT)`). Origami/prism fold real rotated quads
   (`polygonQuads`). tsc clean; build green; all `__test_*.ts` pass.
+- 2026-07-28 — **Phase 4 Lanes B+C+D+E domain logic (147 tests).** Lane B:
+  `constraints.ts` extended with 30+ GObject classes — triangle centers
+  (circumcenter/incenter/orthocenter/excenters/Euler line/nine-point circle),
+  bisectors/tangents, more circles (diameter/incircle/excircles), radical
+  axis/polar/Apollonius/common tangents, conics (ellipse/parabola/hyperbola/
+  5-point), transforms (rotate/translate/dilate), circle inversion + Möbius,
+  trace/locus, drag constraints (H/V lock, grid/angle snap), measurements
+  (length/angle/area/slope/radius), construction protocol, regular n-gon.
+  Lane C: `src/windgraph/stats/` — distributions (normal/binomial/Poisson/
+  exponential/uniform/geometric/χ²/t/F with PDF+CDF), sampling + histogram,
+  CLT simulation, random walks 1D/2D + Brownian motion, Monte Carlo π +
+  Buffon's needle, correlation + regression + Anscombe, confidence intervals +
+  hypothesis tests. Lane D: `src/windgraph/linalg/` — Mat2 ops (apply/det/
+  inverse/mul/rotation/scale/shear), grid transform, eigenvectors (analytic
+  2×2 + power iteration), dot/cross/projection/angle, Gram-Schmidt, SVD,
+  change of basis. Lane E: `src/windgraph/graph/` — named graphs (Petersen/
+  Kₙ/Cₙ/grid/star/wheel/tree/G(n,p)), force-directed layout (Hooke+Coulomb),
+  BFS/DFS/Dijkstra, Kruskal/Prim MST, Eulerian path/circuit (Hierholzer).
+  All pure domain logic, no IR wiring. tsc clean (my files); 147 new tests
+  green; all pre-existing tests unaffected.
+- 2026-07-28 — **Track A 2.1 done (Phase 2 moat foundation).** `Mobject` gains
+  `elevation/extrude/faceTilt`; `RenderCtx.xf` carries the shader's `fxXforms`
+  layout (8 floats/instance) and `emitOp` writes (rotX,rotY,z,scale) for elevated
+  ops — per-instance z WITHOUT the IDE FX system (D10). `WindgraphWorld` composes
+  a parallel `cXf` comp buffer → full-prefix `xfBuf`, exposes `xfBuffer()`;
+  `frame.ts` passes it to `renderer.draw` + sets `fxActive` only when something is
+  elevated (flat scenes = zero cost). Under the 2D ortho VP the shader's clip-z row
+  is 0, so elevation is invisible in 2D and reveals on tilt (OQ-9 seamlessness).
+  IDE FX path untouched. tsc clean; world/scene/emitCache tests green (24).
+- 2026-07-28 — **Track A 2.2 done (extrude renderer, resolves OQ-1 → D9).**
+  `space3d/extrude.ts` `emitPrism`: top face = polygon fill translated to z=h
+  (Euler-path xform); side walls = ONE analytic fill quad each, stood vertical by
+  a per-instance quaternion (mat3→quat, columns +x→edge, +y→up, +z→outward normal)
+  — stays in the single windfoil pass so silhouette edges stay razor-sharp at any
+  zoom/grazing orbit (the moat) and ride the same orbit VP (seamless, OQ-9). Flat
+  Lambert shading reuses `LIGHT_DIR`; convex prism emits all walls depth-sorted
+  back-to-front + top last (no cull → azimuth-sign robust); walls skipped near
+  top-down (polar<0.02) so the 2D ortho view is a clean flat polygon. `Polygon` +
+  `Circle` (cylinder = 40-gon) override `emit` for `extrude>0`, reading the live
+  orbit pose (`isEnabled/orbitPolar/orbitAzimuth`). 5 geometry tests verify the
+  quaternion walls stand vertical (+y→+z) + xf stays 1:1 with instances. tsc clean.
+- 2026-07-28 — **Track A 2.3 done (glyph & math extrusion).** `MathTex.emit`
+  gains `z`+`xf` opts — every glyph/rule/path instance is lifted by z into the
+  per-instance fxXforms buffer (Euler-path translation), 1:1 with instances. New
+  `Tex` Mobject (primitives.ts) wraps MathTex with `elevation`+`extrude` (folds
+  both into the glyph z); `Label` folds `extrude` into its accumulated z so its
+  text op rises. The IDE fireworks/logo per-instance 3D is now a first-class
+  Mobject capability (no FX system). 5 headless tests (`__test_glyphExtrude.ts`,
+  mock atlas glyph) verify z+xf alignment. tsc clean.
+- 2026-07-28 — **Track A 2.4 done (continuous camera tilt).** `orbit.tiltOrbit`
+  eases the polar via the camera-controls library transition (no snap). The
+  windgraph world gains `toggleTilt` (enter3D → seamless top-down entry per OQ-9,
+  then glide to a 0.9-rad 3/4 tilt; exit3D eases back to 2D) + a `doubleTap` hook;
+  the cube toolbar button now drives it, and `input.ts`'s dblclick routes to
+  `s.interactive.doubleTap` (boards without it fall through to fit-to-screen). One
+  shared camera → every board lifts together, no per-board special-casing. tsc clean.
+- 2026-07-28 — **Track A 2.5 done (analytic contact shadows, resolves OQ-2 → D11).**
+  `space3d/extrude.ts` `emitShadow`: silhouette projected along `LIGHT_DIR` to the
+  ground plane (z=0), drawn as ~4 concentric analytic fills with alpha `0.55^i` —
+  a penumbra whose every edge is a coverage integral (sharp at 1000×, no raster
+  blur). Offset/spread/strength scale with height ⇒ animates continuously with
+  elevation; drawn first (painter order, under the prism). `emitBlobShadow` covers
+  glyphs (ellipse footprint); `Mobject.castShadow` → `emitPrism({shadow})`. 4 new
+  tests (9 total in `__test_extrude.ts`). tsc clean.
+- 2026-07-28 — **Track A Phase 2 demo board + CP3 gate.** `boards/windgraphExtrude.ts`:
+  a square prism + a cylinder extrude on an analytic slider (0→130px), a `z=f(x,y)`
+  LaTeX headline whose glyphs rise, a rising label — all casting layered contact
+  shadows; double-tap (or the cube button) glides the whole world into a tilted
+  orbit via the shared `toggleTilt` (camera.ts). Wired as the world's 4th board
+  (xf composed through the world's `cXf` → `xfBuffer()` → frame.ts `fxActive`) and
+  as a standalone `#extrude` route (demos.ts). Board `emit` matches the `Board`
+  contract (xf via `xfTarget`); `sigFor` tracks the quantized orbit pose so orbiting
+  rebuilds and settling frame-skips. **Phase 2 (Track A) complete → STOPPED at CP3.**
+  403 repo tests green (22 files); tsc clean.
+- 2026-07-28 — **Phase 4 Lane A (plot catalog) + Lane K (mathtex) complete.**
+  Lane A: 9 new `src/windgraph/plot/*` modules (spline, sequence, calculus, ode,
+  fourier, stats, contour, inequality, charts) + 18 new ObjectSpec kinds wired
+  end-to-end (ir/types union, validate, builder/objects, object-resolver buildOne
+  + depsOf, emitTS projection, plot.ts barrel). Object-like plots resolve to
+  Mobject groups (animatable); field-like ones (inequality/streamlines/bifurcation/
+  contours) are view-dependent direct draws — same split as plot-fn vs implicit
+  (D1). Prereq: `expr.ts` grew comparison/logical ops (`> < >= <= == != && || !`)
+  so piecewise conditions `{x>0: …}` compile (the Lane-L grammar extension, pulled
+  forward). Lane K: mathtex parser+layout gained matrices + TRUE growing
+  delimiters `\left(…\right)` (drawn as analytic vector paths/rules, not scaled
+  glyphs → sharp at any zoom), `\begin{cases}`, `align`/`align*` + equation
+  numbers, accents + over/underbrace, `\xrightarrow`, and K6 `MathTex.locate()`
+  (world box of a coefficient for click→slider binding). `plotGalleryDoc()` in
+  windgraphScene.ts showcases the catalog (needs a board slot — demos.ts/world are
+  Track A's). 56 new tests (27 plot math + 20 resolver kinds + 10 mathtex − 1
+  shared); 312 total green, tsc clean.
+- 2026-07-28 — **Lane A review fixes.** (1) `accumulation()` sign bug: the old
+  walk added a positive `h`-contribution on both sides of `a` and never anchored
+  `F(a)=0`, so `F(x)` for `x<a` had the wrong sign. Rewritten as `F(x)=G(x)−G(a)`
+  (cumulative trapezoid from `x0` minus a fine anchor integral whose sign follows
+  the step direction) — correct on both sides; test now asserts `F(a)=0`, the
+  negative side, and the even-antiderivative case `∫₀⁻² t dt = +2`. (2) The
+  `expr.ts` comparison/logical ops (pulled forward for A1) had zero direct tests —
+  added 8 (each op's 1/0 result, `&&`-tighter-than-`||`, cmp-tighter-than-logical,
+  additive-tighter-than-cmp, a piecewise-style variable condition, and a bare-`=`
+  rejection). expr 33 / plot 27 / plotKinds 20 green, tsc clean. (The 4 failing
+  repo tests are concurrent sessions' in-flight files — mobject/space3d extrusion
+  + stats — untouched by this track.)
+- 2026-07-28 — **Track A CP3 round-5 (D18): quality panel + smooth + plug + MSAA +
+  real shadows.** Universal `AnalyticPanel` (reused via app.ts `makeQualityPanel`/
+  `qualityToolbarButton`; finishApp renders s.panel) wired into #windgraph +
+  #extrude with res/sharpen + smooth/MSAA/real-shadows toggles. Smooth = per-vertex
+  normals in pushWalls (Gouraud; box flat, cylinder+glyph sides smooth). Plug =
+  analytic glyph top raised 1.5px + wall inset removed → sliver gone. MSAA =
+  sampleCount on both pipelines + 4× resolve targets + recreate-on-toggle. Real
+  shadows = depth-only caster pass (lightViewProj) + textureSampleCompare + a
+  no-depth-write ground catcher; fake blobs skipped when on; gated to tilted 3D.
+  Bind-group gotchas fixed (caster group1-only; line group1 = uniform-only). Tight
+  shadow frustum + small bias for precision. Defaults smooth ON / MSAA OFF /
+  shadows OFF (GPU features I can't see → off = known-good; WebGPU console-loud on
+  mis-wire). The mobject/space3d test failures the prior log flagged are now FIXED
+  here. **382 tests green across 22 files; tsc clean. STOPPED at CP3.**

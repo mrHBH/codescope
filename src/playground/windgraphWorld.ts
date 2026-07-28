@@ -15,10 +15,12 @@
 
 import type { Engine } from './engine';
 import type { SceneDoc, Color } from '../authoring/ir/types';
+import type { AppState } from '../state';
 import { scene } from '../authoring/builder/scene';
-import { toggle3D } from '../camera/camera';
-import { createBaseApp, finishApp, snapTo } from './app';
+import { isTilted, toggleTilt } from '../camera/camera';
+import { createBaseApp, finishApp, snapTo, makeQualityPanel, qualityToolbarButton } from './app';
 import { WindgraphSceneBoard, demoDoc } from './boards/windgraphScene';
+import { WindgraphExtrudeBoard } from './boards/windgraphExtrude';
 import { EmitCache } from '../windfoil/emitCache';
 import { strokeInto } from '../windgraph/stroke/stroke';
 import { layoutStr, tw } from '../layout/metrics';
@@ -76,6 +78,13 @@ export function plotsDoc(): SceneDoc {
 
 const GAP = 500;
 
+// A board the world hosts: the authored-scene boards + the Phase-2 extrude board.
+// Both satisfy the s.interactive board contract (emit/sigFor/drag/hover/rev).
+type WgBoard = WindgraphSceneBoard | WindgraphExtrudeBoard;
+
+// Tilted 3/4 view for the continuous 2D↔3D toggle (radians from top-down).
+const WG_TILT_POLAR = 0.9;
+
 function niceStep(rough: number): number {
   if (!(rough > 0)) return 1;
   const p = Math.pow(10, Math.floor(Math.log10(rough)));
@@ -84,7 +93,7 @@ function niceStep(rough: number): number {
 }
 
 export class WindgraphWorld {
-  readonly boards: WindgraphSceneBoard[];
+  readonly boards: WgBoard[];
   readonly overview: { x: number; y: number; w: number; h: number };
   /** Huge culling bounds centered on the content — the canvas feels infinite. */
   x0 = 0; y0 = 0; width = 0; height = 0;
@@ -94,8 +103,11 @@ export class WindgraphWorld {
    *  ms, instance delta, cumulative cache misses — climbing while idle = thrash. */
   debug = '';
   onDebug?: (line: string) => void;
+  /** AppState ref (set on boot) so double-tap / the cube button can drive the
+   *  shared orbit camera's continuous tilt (task 2.4). */
+  app: AppState | null = null;
 
-  private active: WindgraphSceneBoard | null = null;
+  private active: WgBoard | null = null;
   private backdropCache = new EmitCache();
   // Section timings are EMA-smoothed — single-frame snapshots at 120Hz are
   // noise-dominated (GC/scheduler) and mislead diagnosis.
@@ -109,10 +121,12 @@ export class WindgraphWorld {
     const plots = new WindgraphSceneBoard(plotsDoc());
     plots.width = tri.width * 2 + GAP;
     plots.x0 = 0; plots.y0 = 200 + tri.height + GAP;
-    this.boards = [tri, geom, plots];
+    const extrude = new WindgraphExtrudeBoard();
+    extrude.x0 = 0; extrude.y0 = plots.y0 + plots.height + GAP;
+    this.boards = [tri, geom, plots, extrude];
 
-    const contentW = tri.width * 2 + GAP;
-    const contentH = plots.y0 + plots.height;
+    const contentW = Math.max(tri.width * 2 + GAP, extrude.width);
+    const contentH = extrude.y0 + extrude.height;
     this.overview = { x: -60, y: -230, w: contentW + 120, h: contentH + 230 + 60 };
     const cx = contentW / 2, cy = contentH / 2, HALF = 30000;
     this.x0 = cx - HALF; this.y0 = cy - HALF;
@@ -121,7 +135,7 @@ export class WindgraphWorld {
 
   // ── s.interactive contract (routes to the board under the pointer) ──────
 
-  private boardAt(wx: number, wy: number): WindgraphSceneBoard | null {
+  private boardAt(wx: number, wy: number): WgBoard | null {
     const m = 40;
     for (const b of this.boards) {
       if (wx >= b.x0 - m && wx <= b.x0 + b.width + m && wy >= b.y0 - m && wy <= b.y0 + b.height + m) return b;
@@ -144,7 +158,7 @@ export class WindgraphWorld {
   updateHover(wx: number, wy: number, scale: number): boolean {
     // frame.ts hit-tests every frame; while pointer + zoom + board revs are
     // unchanged the answer cannot change — skip the per-board walk.
-    const key = `${wx}|${wy}|${Math.round(scale * 50)}|${this.boards[0].rev},${this.boards[1].rev},${this.boards[2].rev}`;
+    const key = `${wx}|${wy}|${Math.round(scale * 50)}|${this.boards.map((b) => b.rev).join(',')}`;
     if (key === this.hoverKey) return this.hoverRes;
     this.hoverKey = key;
     const b = this.boardAt(wx, wy);
@@ -153,6 +167,25 @@ export class WindgraphWorld {
   }
   /** Cinematic feed: the triangle board drives vertex B on a wall-clock path. */
   autoDrive() { this.boards[0].autoDrive(); }
+
+  // ── continuous camera tilt (task 2.4) ───────────────────────────────────
+  // One shared orbit camera for the whole world: double-tap (or the cube button)
+  // glides between the flat 2D view and a tilted orbit with no snap — enterOrbit
+  // is pixel-identical to 2D at top-down (OQ-9), then the library eases the polar.
+
+  /** Target polar for the tilted 3/4 view (0 = top-down, π/2 = edge-on). */
+  get tilted(): boolean { return !!this.app && isTilted(this.app); }
+  toggleTilt() {
+    const s = this.app;
+    if (!s) return;
+    toggleTilt(s, WG_TILT_POLAR);
+  }
+  /** Double-tap hook from input.ts: toggle the tilt; consume the gesture. */
+  doubleTap(_wx: number, _wy: number): boolean {
+    if (this.dragging) return false;
+    this.toggleTilt();
+    return true;
+  }
 
   // ── emit ────────────────────────────────────────────────────────────────
 
@@ -198,6 +231,14 @@ export class WindgraphWorld {
   private cInst: number[] = new Array(65536);
   private cCrv: number[] = new Array(65536);
   private cRws: number[] = new Array(65536);
+  // Per-instance 3D transform comp buffer (D10): 8 floats/instance, parallel to
+  // cInst. Boards that elevate content (the extrude board) write into it via
+  // RenderCtx.xf; flat emitters leave zeros. Composed into xfBuf covering the
+  // full frame instance count (prefix zeroed) and handed to the shader's fxXforms.
+  private cXf: number[] = new Array(65536);
+  private xfBuf = new Float32Array(65536);
+  private xfLen = 0;
+  private xfOn = false;
 
   emit(font: FontFace, atlas: any, inst: number[], crv: number[], rws: number[], now: number, view: PlaneView) {
     const t0 = performance.now();
@@ -208,15 +249,18 @@ export class WindgraphWorld {
     // Seed comp crv/rws with the frame buffer's current prefix (atlas + static
     // + editor + …). The world's content composes after it. Comp inst starts
     // empty — instances carry rowBases, no prefix of their own.
-    const cCrv = this.cCrv, cRws = this.cRws, cInst = this.cInst;
+    const cCrv = this.cCrv, cRws = this.cRws, cInst = this.cInst, cXf = this.cXf;
     const pCrvLen = crv.length, pRwsLen = rws.length;
     for (let i = 0; i < pCrvLen; i++) cCrv[i] = crv[i];
     for (let i = 0; i < pRwsLen; i++) cRws[i] = rws[i];
-    let cILen = 0, cCLen = pCrvLen, cRLen = pRwsLen;
+    let cILen = 0, cCLen = pCrvLen, cRLen = pRwsLen, cXfLen = 0;
     // strokeInto/layoutStr push to .length, so we set .length to the logical
     // offset before each build and read it back after.
-    const setLen = (il: number, cl: number, rl: number) => { cInst.length = il; cCrv.length = cl; cRws.length = rl; };
-    const readLen = () => { cILen = cInst.length; cCLen = cCrv.length; cRLen = cRws.length; };
+    const setLen = (il: number, cl: number, rl: number) => { cInst.length = il; cCrv.length = cl; cRws.length = rl; cXf.length = cXfLen; };
+    const readLen = () => { cILen = cInst.length; cCLen = cCrv.length; cRLen = cRws.length; cXfLen = cXf.length; };
+    // Keep cXf aligned to cInst (8 floats/instance): flat emitters advance cInst
+    // without touching cXf, so zero-pad the gap. Pre-allocated backing → no realloc.
+    const padXf = () => { const need = (cInst.length >> 4) << 3; for (let i = cXf.length; i < need; i++) cXf[i] = 0; cXf.length = need; cXfLen = need; };
 
     const tg0 = performance.now();
     setLen(cILen, cCLen, cRLen);
@@ -242,6 +286,7 @@ export class WindgraphWorld {
       this.drawMasthead(font, atlas, cInst, cCrv, cRws, eL, eT, eR, eB);
     });
     readLen();
+    padXf();
     const tGrid = performance.now() - tg0;
 
     // Boards compose into the same comp buffers (their caches see number[] and
@@ -251,8 +296,10 @@ export class WindgraphWorld {
       const tb0 = performance.now();
       if (b.x0 <= vR && b.x0 + b.width >= vL && b.y0 <= vB && b.y0 + b.height >= vT) {
         setLen(cILen, cCLen, cRLen);
+        (b as any).xfTarget = cXf;
         b.emit(font, atlas, cInst, cCrv, cRws, now, view);
         readLen();
+        padXf();
       }
       tB.push(performance.now() - tb0);
     }
@@ -274,6 +321,20 @@ export class WindgraphWorld {
       );
     }
 
+    // Compose the per-instance 3D buffer (D10): it must cover EVERY instance the
+    // frame draws, so prefix instances (editor/static, before the world) get zeros
+    // and the world's cXf lands at the prefix offset. frame.ts hands this to the
+    // shader's fxXforms + sets fxActive only when something is actually elevated.
+    const totalInst = (inst0 + cILen) >> 4;
+    const need = totalInst << 3;
+    if (this.xfBuf.length < need) this.xfBuf = new Float32Array(need * 2);
+    this.xfBuf.fill(0, 0, need);
+    const off = (inst0 >> 4) << 3;
+    let any = false;
+    for (let i = 0; i < cXfLen; i++) { const v = cXf[i]; this.xfBuf[off + i] = v; if (v !== 0) any = true; }
+    this.xfOn = any;
+    this.xfLen = need;
+
     const [tri, geom, plots] = this.boards;
     const e = this.ema, a = e.warm ? 0.08 : 1;
     e.warm = true;
@@ -287,6 +348,29 @@ export class WindgraphWorld {
       + ` · grid ${e.grid.toFixed(2)} · tri ${e.tri.toFixed(2)} · geom ${e.geom.toFixed(2)} · plots ${e.plots.toFixed(2)}`
       + ` · miss g${this.backdropCache.misses} t${tri.cacheMisses}/${tri.directMisses} e${geom.cacheMisses} p${plots.cacheMisses}/${plots.directMisses}`;
     this.onDebug?.(this.debug);
+  }
+
+  /** Per-instance 3D transform buffer for the shader (D10), or null when nothing
+   *  is elevated (frame.ts then leaves fxActive off). Sized to the full frame
+   *  instance count at the last emit. */
+  xfBuffer(): Float32Array | null {
+    return this.xfOn ? this.xfBuf.subarray(0, this.xfLen) : null;
+  }
+
+  /** Depth-tested wall mesh of the extrude board (4th board), for frame.ts. */
+  getMesh(): Float32Array | null {
+    const b = this.boards[3] as WindgraphExtrudeBoard;
+    return b.getMesh ? b.getMesh() : null;
+  }
+
+  /** Ground quad + content bounds of the extrude board, for the shadow pass. */
+  getGround(): Float32Array | null {
+    const b = this.boards[3] as WindgraphExtrudeBoard;
+    return b.getGround ? b.getGround() : null;
+  }
+  getBounds() {
+    const b = this.boards[3] as WindgraphExtrudeBoard;
+    return b.getBounds ? b.getBounds() : null;
   }
 
   private drawMasthead(font: FontFace, atlas: any, inst: number[], crv: number[], rws: number[], cL: number, cT: number, cR: number, cB: number) {
@@ -306,8 +390,11 @@ export class WindgraphWorld {
 export function bootWindgraphWorld(engine: Engine, onBack: () => void): () => void {
   const s = createBaseApp(engine, false);
   const world = new WindgraphWorld();
+  world.app = s;
   world.onDebug = (line) => { s.hudDebugExtra = line; };
   s.interactive = world;
+  const qualityPanel = makeQualityPanel(s, true);
+  s.panel = qualityPanel;
 
   const frameRect = (x: number, y: number, w: number, h: number) => {
     const z = Math.min((s.tCanvas.width / (w + 240)) * 0.9, (s.tCanvas.height / (h + 240)) * 0.9);
@@ -319,12 +406,14 @@ export function bootWindgraphWorld(engine: Engine, onBack: () => void): () => vo
     Math.min((s.tCanvas.width / (ov.w + 240)) * 0.9, (s.tCanvas.height / (ov.h + 240)) * 0.9));
 
   const dispose = finishApp(s, onBack, [
-    { id: 'cam3d', icon: 'cube', title: 'Toggle 3D free camera (drag = orbit, Shift+drag = pan, wheel = dolly)', active: () => s.cam3d.active, onClick: () => toggle3D(s) },
+    { id: 'cam3d', icon: 'cube', title: 'Toggle continuous 2D↔3D tilt (or double-tap the canvas)', active: () => world.tilted, onClick: () => world.toggleTilt() },
+    qualityToolbarButton(s, qualityPanel),
     { id: 'grid', icon: 'grid', title: 'Toggle dot grid', active: () => world.showGrid, onClick: () => { world.showGrid = !world.showGrid; } },
     { id: 'overview', icon: 'compass', title: 'Frame all boards', onClick: () => frameRect(ov.x, ov.y, ov.w, ov.h) },
     { id: 'wg-tri', icon: 'triangle', title: 'Interactive triangle: centroid, circumcircle, glider, measures — plus a slider-bound wave', onClick: () => { const b = world.boards[0]; frameRect(b.x0, b.y0, b.width, b.height); } },
     { id: 'wg-geom', icon: 'ruler', title: 'Constraint geometry: intersection, perpendicular foot, reflection, parallel, glider — all live', onClick: () => { const b = world.boards[1]; frameRect(b.x0, b.y0, b.width, b.height); } },
     { id: 'wg-plots', icon: 'chart', title: 'Plot gallery: functions, rose (petals slider), Lissajous, lemniscate, vector field', onClick: () => { const b = world.boards[2]; frameRect(b.x0, b.y0, b.width, b.height); } },
+    { id: 'wg-extrude', icon: 'morph', title: 'Continuous 2D↔3D: extrude the prism + cylinder on a slider, rising glyphs, contact shadows — double-tap to tilt', onClick: () => { const b = world.boards[3]; frameRect(b.x0, b.y0, b.width, b.height); } },
   ]);
   return dispose;
 }

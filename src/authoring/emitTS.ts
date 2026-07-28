@@ -293,6 +293,108 @@ function emitWg(lines: string[], recv: string, id: string, s: any): void {
       if (s.opacity !== undefined) opts.opacity = s.opacity;
       if (s.visible !== undefined) opts.visible = s.visible;
       call('field', [JSON.stringify(s.field), fmt({ x: s.xExpr, y: s.yExpr })]); break;
+    case 'wg-plot-piecewise':
+      if (s.domain) opts.domain = s.domain;
+      if (s.samples !== undefined) opts.samples = s.samples;
+      strokeFill(); call('plotPiecewise', [fmt(s.pieces)]); break;
+    case 'wg-plot-inequality':
+      if (s.cmps) opts.cmps = s.cmps;
+      if (s.fill) opts.fill = s.fill;
+      if (s.gridRes !== undefined) opts.gridRes = s.gridRes;
+      if (s.opacity !== undefined) opts.opacity = s.opacity;
+      if (s.visible !== undefined) opts.visible = s.visible;
+      call('plotInequality', [fmt(s.exprs)]); break;
+    case 'wg-plot-sequence':
+      if (s.nRange) opts.nRange = s.nRange;
+      if (s.cobweb !== undefined) opts.cobweb = s.cobweb;
+      if (s.x0 !== undefined) opts.x0 = s.x0;
+      if (s.iters !== undefined) opts.iters = s.iters;
+      pointLike(); strokeFill(); call('plotSequence', [JSON.stringify(s.expr)]); break;
+    case 'wg-plot-spline':
+      if (s.spline) opts.spline = s.spline;
+      if (s.samples !== undefined) opts.samples = s.samples;
+      strokeFill(); call('plotSpline', [fmt(s.points)]); break;
+    case 'wg-plot-tangent':
+      if (s.domain) opts.domain = s.domain;
+      if (s.showNormal !== undefined) opts.showNormal = s.showNormal;
+      if (s.showDerivatives !== undefined) opts.showDerivatives = s.showDerivatives;
+      if (s.samples !== undefined) opts.samples = s.samples;
+      if (s.color) opts.color = s.color;
+      strokeFill(); call('plotTangent', [JSON.stringify(s.expr), fmt(s.at)]); break;
+    case 'wg-plot-accumulation':
+      if (s.domain) opts.domain = s.domain;
+      if (s.samples !== undefined) opts.samples = s.samples;
+      strokeFill(); call('plotAccumulation', [JSON.stringify(s.expr), fmt(s.from)]); break;
+    case 'wg-plot-riemann':
+      if (s.mode) opts.mode = s.mode;
+      strokeFill(); call('plotRiemann', [JSON.stringify(s.expr), fmt(s.domain), fmt(s.n)]); break;
+    case 'wg-streamlines':
+      if (s.density !== undefined) opts.density = s.density;
+      if (s.steps !== undefined) opts.steps = s.steps;
+      if (s.color) opts.color = s.color;
+      if (s.opacity !== undefined) opts.opacity = s.opacity;
+      if (s.visible !== undefined) opts.visible = s.visible;
+      call('streamlines', [JSON.stringify(s.xExpr), JSON.stringify(s.yExpr)]); break;
+    case 'wg-plot-ode':
+      if (s.xExpr) opts.xExpr = s.xExpr;
+      if (s.domain) opts.domain = s.domain;
+      if (s.h !== undefined) opts.h = s.h;
+      strokeFill(); call('plotOde', [JSON.stringify(s.yExpr), fmt(s.through)]); break;
+    case 'wg-plot-bifurcation':
+      if (s.iters !== undefined) opts.iters = s.iters;
+      if (s.transient !== undefined) opts.transient = s.transient;
+      if (s.rSteps !== undefined) opts.rSteps = s.rSteps;
+      if (s.color) opts.color = s.color;
+      if (s.opacity !== undefined) opts.opacity = s.opacity;
+      if (s.visible !== undefined) opts.visible = s.visible;
+      call('plotBifurcation', [JSON.stringify(s.expr), fmt(s.rRange)]); break;
+    case 'wg-plot-fourier':
+      if (s.period !== undefined) opts.period = s.period;
+      if (s.domain) opts.domain = s.domain;
+      if (s.epicycles !== undefined) opts.epicycles = s.epicycles;
+      if (s.samples !== undefined) opts.samples = s.samples;
+      if (s.color) opts.color = s.color;
+      strokeFill(); call('plotFourier', [JSON.stringify(s.expr), fmt(s.terms)]); break;
+    case 'wg-histogram':
+      if (s.method) opts.method = s.method;
+      if (s.bins !== undefined) opts.bins = s.bins;
+      strokeFill(); call('histogram', [fmt(s.data)]); break;
+    case 'wg-boxplot':
+      if (s.variant) opts.variant = s.variant;
+      if (s.at !== undefined) opts.at = s.at;
+      if (s.color) opts.color = s.color;
+      strokeFill(); call('boxplot', [fmt(s.data)]); break;
+    case 'wg-plot-cells':
+      if (s.points) opts.points = s.points;
+      if (s.sizes) opts.sizes = s.sizes;
+      if (s.matrix) opts.matrix = s.matrix;
+      if (s.size !== undefined) opts.size = s.size;
+      strokeFill(); call('plotCells', [JSON.stringify(s.cell)]); break;
+    case 'wg-contours':
+      if (s.levels) opts.levels = s.levels;
+      if (s.count !== undefined) opts.count = s.count;
+      if (s.filled !== undefined) opts.filled = s.filled;
+      if (s.labels !== undefined) opts.labels = s.labels;
+      if (s.palette) opts.palette = s.palette;
+      if (s.gridRes !== undefined) opts.gridRes = s.gridRes;
+      strokeFill(); call('contours', [JSON.stringify(s.expr)]); break;
+    case 'wg-regression':
+      if (s.degree !== undefined) opts.degree = s.degree;
+      if (s.showResiduals !== undefined) opts.showResiduals = s.showResiduals;
+      if (s.showBand !== undefined) opts.showBand = s.showBand;
+      if (s.color) opts.color = s.color;
+      strokeFill(); call('regression', [fmt(s.points), JSON.stringify(s.fit)]); break;
+    case 'wg-chart-fin':
+      if (s.ohlc) opts.ohlc = s.ohlc;
+      if (s.values) opts.values = s.values;
+      if (s.labels) opts.labels = s.labels;
+      if (s.color) opts.color = s.color;
+      strokeFill(); call('chartFin', [JSON.stringify(s.chart)]); break;
+    case 'wg-chart-multi':
+      if (s.columns) opts.columns = s.columns;
+      if (s.triples) opts.triples = s.triples;
+      if (s.color) opts.color = s.color;
+      strokeFill(); call('chartMulti', [JSON.stringify(s.chart)]); break;
   }
 }
 

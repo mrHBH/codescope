@@ -15,10 +15,20 @@ export interface MathEmitOpts {
   opacity?: number;           // 0..1 fade
   reveal?: number;            // 0..1 left-to-right write-on
   anchor?: 'start' | 'middle' | 'end';
+  z?: number;                 // elevation: lift every glyph off the ground (D10)
+  xf?: number[];              // per-instance fxXforms buffer to write z into
 }
 
 function rectQuads(x0: number, y0: number, x1: number, y1: number): number[] {
   return polygonQuads([[x0, y0], [x1, y0], [x1, y1], [x0, y1]] as Pt[], true);
+}
+
+// Pad xf to cover instances [i0, i1) and lift them by z (Euler-path translation).
+function writeXf(xf: number[], i0: number, i1: number, z: number) {
+  const need = i1 * 8;
+  while (xf.length < need) xf.push(0);
+  if (z === 0) return;
+  for (let k = i0; k < i1; k++) { const b = k * 8; xf[b] = 0; xf[b + 1] = 0; xf[b + 2] = z; xf[b + 3] = 1; }
 }
 
 export class MathTex {
@@ -42,6 +52,27 @@ export class MathTex {
     return { w: b.w, h: b.h, d: b.d };
   }
 
+  /** World-space box of the first glyph rendering `char` (K6 formula↔graph
+   *  binding: a board hit-tests this rect to attach a slider to a coefficient).
+   *  Returns null when the char is not present. */
+  locate(atlas: Atlas, char: string, o: { x: number; y: number; size: number; anchor?: 'start' | 'middle' | 'end' }): { x0: number; y0: number; x1: number; y1: number } | null {
+    const b = this.ensure(atlas);
+    let ax = o.x;
+    if (o.anchor === 'middle') ax -= (b.w * o.size) / 2;
+    else if (o.anchor === 'end') ax -= b.w * o.size;
+    const suffix = ':' + char;
+    for (const p of b.items) {
+      if (p.kind !== 'glyph' || !p.key.endsWith(suffix)) continue;
+      const e = atlas.table[p.key];
+      if (!e) continue;
+      const upm = e.upm || 1000;
+      const u = (o.size * p.s) / upm;
+      const penX = ax + p.x * o.size, baseY = o.y + p.y * o.size;
+      return { x0: penX + e.bbox[0] * u, y0: baseY + e.bbox[1] * u, x1: penX + e.bbox[2] * u, y1: baseY + e.bbox[3] * u };
+    }
+    return null;
+  }
+
   emit(atlas: Atlas, inst: number[], crv: number[], rws: number[], o: MathEmitOpts) {
     const b = this.ensure(atlas);
     const size = o.size;
@@ -54,6 +85,8 @@ export class MathTex {
     const oy = o.y;
     const totalW = b.w * size;
     const fade = 0.18 * size + 1e-3; // write-on soft edge (world px)
+    const xf = o.xf;
+    const z = o.z ?? 0;
 
     const alphaAt = (wx: number): number => {
       if (reveal >= 1) return op;
@@ -64,6 +97,7 @@ export class MathTex {
     const withA = (a: number): number[] => [col[0], col[1], col[2], (col[3] ?? 1) * a];
 
     for (const p of b.items) {
+      const i0 = inst.length >> 4;
       if (p.kind === 'glyph') {
         const e = atlas.table[p.key];
         if (!e) continue;
@@ -87,6 +121,36 @@ export class MathTex {
         if (a <= 0.002) continue;
         strokeInto(pts, { width: p.w * size, cap: 'round', join: 'round' }, withA(a), inst, crv, rws);
       }
+      if (xf) writeXf(xf, i0, inst.length >> 4, z);
     }
+  }
+
+  /** World-space outline contours of the laid-out glyphs (the extruded side-wall
+   *  silhouette). Uses the same placement as emit() so the walls line up exactly
+   *  under the analytic top face. Glyphs without a stored outline (UI font) yield
+   *  nothing — only the baked math fonts carry outlines. */
+  outlineLoops(atlas: Atlas, o: { x: number; y: number; size: number; anchor?: 'start' | 'middle' | 'end' }): number[][] {
+    const b = this.ensure(atlas);
+    const size = o.size;
+    let ax = o.x;
+    if (o.anchor === 'middle') ax -= (b.w * size) / 2;
+    else if (o.anchor === 'end') ax -= b.w * size;
+    const oy = o.y;
+    const loops: number[][] = [];
+    for (const p of b.items) {
+      if (p.kind !== 'glyph') continue;
+      const e = atlas.table[p.key];
+      if (!e || !e.outline) continue;
+      const upm = e.upm || 1000;
+      const penX = ax + p.x * size;
+      const baseY = oy + p.y * size;
+      const unit = (size * p.s) / upm;
+      for (const c of e.outline as number[][]) {
+        const flat: number[] = [];
+        for (let i = 0; i < c.length; i += 2) flat.push(penX + c[i] * unit, baseY + c[i + 1] * unit);
+        if (flat.length >= 4) loops.push(flat);
+      }
+    }
+    return loops;
   }
 }

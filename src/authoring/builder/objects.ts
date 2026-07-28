@@ -105,4 +105,61 @@ export class WgBuilder {
   field(id: string | null, kind: 'vector' | 'slope', exprs: { x?: string; y: string }, o: CommonOpts & { density?: number; color?: Color } = {}) {
     return this.add({ kind: 'wg-field', id: id ?? this.s.uid('wg-field'), field: kind, xExpr: exprs.x, yExpr: exprs.y, density: o.density, color: o.color, opacity: o.opacity, visible: o.visible });
   }
+
+  // ── plot catalog (Phase 4 · Lane A) ─────────────────────────────────────
+
+  plotPiecewise(id: string | null, pieces: { cond: string; expr: string }[], o: StrokeOpts & { domain?: [WgNum, WgNum]; samples?: number } = {}) {
+    return this.add({ kind: 'wg-plot-piecewise', id: id ?? this.s.uid('wg-plot-piecewise'), pieces, domain: o.domain, samples: o.samples, stroke: o.stroke, opacity: o.opacity, visible: o.visible });
+  }
+  plotInequality(id: string | null, exprs: string[], o: CommonOpts & { cmps?: ('>' | '<' | '>=' | '<=')[]; fill?: Color; gridRes?: number } = {}) {
+    return this.add({ kind: 'wg-plot-inequality', id: id ?? this.s.uid('wg-plot-inequality'), exprs, cmps: o.cmps, fill: o.fill, gridRes: o.gridRes, opacity: o.opacity, visible: o.visible });
+  }
+  plotSequence(id: string | null, expr: string, o: StrokeOpts & PointLikeOpts & { nRange?: [WgNum, WgNum]; cobweb?: boolean; x0?: WgNum; iters?: number } = {}) {
+    return this.add({ kind: 'wg-plot-sequence', id: id ?? this.s.uid('wg-plot-sequence'), expr, nRange: o.nRange, cobweb: o.cobweb, x0: o.x0, iters: o.iters, color: o.color, radius: o.radius, stroke: o.stroke, opacity: o.opacity, visible: o.visible });
+  }
+  plotSpline(id: string | null, points: WgPoint[], o: StrokeOpts & { spline?: 'catmull' | 'cubic' | 'bspline'; samples?: number } = {}) {
+    return this.add({ kind: 'wg-plot-spline', id: id ?? this.s.uid('wg-plot-spline'), points, spline: o.spline, samples: o.samples, stroke: o.stroke, opacity: o.opacity, visible: o.visible });
+  }
+  plotTangent(id: string | null, expr: string, at: WgNum, o: StrokeOpts & { domain?: [WgNum, WgNum]; showNormal?: boolean; showDerivatives?: boolean; samples?: number; color?: Color } = {}) {
+    return this.add({ kind: 'wg-plot-tangent', id: id ?? this.s.uid('wg-plot-tangent'), expr, at, domain: o.domain, showNormal: o.showNormal, showDerivatives: o.showDerivatives, samples: o.samples, color: o.color, stroke: o.stroke, opacity: o.opacity, visible: o.visible });
+  }
+  plotAccumulation(id: string | null, expr: string, from: WgNum, o: StrokeOpts & { domain?: [WgNum, WgNum]; samples?: number } = {}) {
+    return this.add({ kind: 'wg-plot-accumulation', id: id ?? this.s.uid('wg-plot-accumulation'), expr, from, domain: o.domain, samples: o.samples, stroke: o.stroke, opacity: o.opacity, visible: o.visible });
+  }
+  plotRiemann(id: string | null, expr: string, domain: [WgNum, WgNum], n: WgNum, o: StrokeOpts & { mode?: 'left' | 'right' | 'midpoint' | 'trapezoid' | 'simpson'; fill?: Color } = {}) {
+    return this.add({ kind: 'wg-plot-riemann', id: id ?? this.s.uid('wg-plot-riemann'), expr, domain, n, mode: o.mode, fill: o.fill, stroke: o.stroke, opacity: o.opacity, visible: o.visible });
+  }
+  streamlines(id: string | null, xExpr: string, yExpr: string, o: CommonOpts & { density?: number; steps?: number; color?: Color } = {}) {
+    return this.add({ kind: 'wg-streamlines', id: id ?? this.s.uid('wg-streamlines'), xExpr, yExpr, density: o.density, steps: o.steps, color: o.color, opacity: o.opacity, visible: o.visible });
+  }
+  plotOde(id: string | null, yExpr: string, through: WgPoint[], o: StrokeOpts & { xExpr?: string; domain?: [WgNum, WgNum]; h?: number } = {}) {
+    return this.add({ kind: 'wg-plot-ode', id: id ?? this.s.uid('wg-plot-ode'), yExpr, xExpr: o.xExpr, through, domain: o.domain, h: o.h, stroke: o.stroke, opacity: o.opacity, visible: o.visible });
+  }
+  plotBifurcation(id: string | null, expr: string, rRange: [WgNum, WgNum], o: CommonOpts & { iters?: number; transient?: number; rSteps?: number; color?: Color } = {}) {
+    return this.add({ kind: 'wg-plot-bifurcation', id: id ?? this.s.uid('wg-plot-bifurcation'), expr, rRange, iters: o.iters, transient: o.transient, rSteps: o.rSteps, color: o.color, opacity: o.opacity, visible: o.visible });
+  }
+  plotFourier(id: string | null, expr: string, terms: WgNum, o: StrokeOpts & { period?: WgNum; domain?: [WgNum, WgNum]; epicycles?: boolean; samples?: number; color?: Color } = {}) {
+    return this.add({ kind: 'wg-plot-fourier', id: id ?? this.s.uid('wg-plot-fourier'), expr, terms, period: o.period, domain: o.domain, epicycles: o.epicycles, samples: o.samples, color: o.color, stroke: o.stroke, opacity: o.opacity, visible: o.visible });
+  }
+  histogram(id: string | null, data: number[], o: StrokeOpts & { method?: 'sturges' | 'fd'; bins?: number; fill?: Color } = {}) {
+    return this.add({ kind: 'wg-histogram', id: id ?? this.s.uid('wg-histogram'), data, method: o.method, bins: o.bins, fill: o.fill, stroke: o.stroke, opacity: o.opacity, visible: o.visible });
+  }
+  boxplot(id: string | null, data: number[], o: StrokeOpts & { variant?: 'box' | 'violin' | 'strip' | 'beeswarm'; at?: WgNum; color?: Color; fill?: Color } = {}) {
+    return this.add({ kind: 'wg-boxplot', id: id ?? this.s.uid('wg-boxplot'), data, variant: o.variant, at: o.at, color: o.color, fill: o.fill, stroke: o.stroke, opacity: o.opacity, visible: o.visible });
+  }
+  plotCells(id: string | null, cell: 'bubble' | 'heatmap' | 'hexbin', o: StrokeOpts & { points?: [number, number][]; sizes?: number[]; matrix?: number[][]; size?: WgNum; fill?: Color } = {}) {
+    return this.add({ kind: 'wg-plot-cells', id: id ?? this.s.uid('wg-plot-cells'), cell, points: o.points, sizes: o.sizes, matrix: o.matrix, size: o.size, fill: o.fill, stroke: o.stroke, opacity: o.opacity, visible: o.visible });
+  }
+  contours(id: string | null, expr: string, o: StrokeOpts & { levels?: number[]; count?: number; filled?: boolean; labels?: boolean; palette?: Color[]; gridRes?: number } = {}) {
+    return this.add({ kind: 'wg-contours', id: id ?? this.s.uid('wg-contours'), expr, levels: o.levels, count: o.count, filled: o.filled, labels: o.labels, palette: o.palette, gridRes: o.gridRes, stroke: o.stroke, opacity: o.opacity, visible: o.visible });
+  }
+  regression(id: string | null, points: [number, number][], fit: 'linear' | 'poly' | 'exp' | 'logistic' | 'power', o: StrokeOpts & { degree?: number; showResiduals?: boolean; showBand?: boolean; color?: Color } = {}) {
+    return this.add({ kind: 'wg-regression', id: id ?? this.s.uid('wg-regression'), points, fit, degree: o.degree, showResiduals: o.showResiduals, showBand: o.showBand, color: o.color, stroke: o.stroke, opacity: o.opacity, visible: o.visible });
+  }
+  chartFin(id: string | null, chart: 'candle' | 'waterfall' | 'funnel' | 'radar' | 'windrose', o: StrokeOpts & { ohlc?: { x: number; open: number; high: number; low: number; close: number }[]; values?: number[]; labels?: string[]; color?: Color; fill?: Color } = {}) {
+    return this.add({ kind: 'wg-chart-fin', id: id ?? this.s.uid('wg-chart-fin'), chart, ohlc: o.ohlc, values: o.values, labels: o.labels, color: o.color, fill: o.fill, stroke: o.stroke, opacity: o.opacity, visible: o.visible });
+  }
+  chartMulti(id: string | null, chart: 'ternary' | 'parallel' | 'scattermatrix', o: StrokeOpts & { columns?: number[][]; triples?: [number, number, number][]; color?: Color } = {}) {
+    return this.add({ kind: 'wg-chart-multi', id: id ?? this.s.uid('wg-chart-multi'), chart, columns: o.columns, triples: o.triples, color: o.color, stroke: o.stroke, opacity: o.opacity, visible: o.visible });
+  }
 }

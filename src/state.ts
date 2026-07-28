@@ -68,6 +68,16 @@ export interface AppState {
   // Analytic settings panel (screen-space sliders/toggles) rendered through
   // screenHud; input.ts routes its clicks + slider drags (see ui/analyticPanel.ts).
   panel: import('./ui/analyticPanel').AnalyticPanel | null;
+  // 3D-extrusion quality dials (windgraph moat, Phase 2). `meshSmooth` = Gouraud the
+  // round extruded walls (cylinder + glyph sides) instead of flat facets. `meshAA` =
+  // the anti-aliasing toggle (drives 2× supersampling via renderScale in the quality
+  // panel — a multisample resolve was abandoned: it black-screened). `realShadows` =
+  // depth-mapped grounded cast shadows (the ground catcher samples the map; solids
+  // do not self-sample, which caused acne). meshSmooth defaults on (facets were the
+  // complaint); the other two default off so the known-good look is the baseline.
+  meshSmooth: boolean;
+  meshAA: boolean;
+  realShadows: boolean;
   // Per-frame debug readout (fps · zoom · js · worst · ev) written by the frame
   // loop; the cinematic HUD draws it analytically (the DOM #fps is hidden there).
   hudDebugText: string;
@@ -236,6 +246,7 @@ export function createAppState(partial: Partial<AppState>): AppState {
     renderScale: 1,
     upscaler: null, lowResSharpen: false, integralScale: 0.6, sharpenAmount: 0.6,
     postfx: null, hudRenderer: null, screenHud: null, toolbar: null, panel: null, hudDebugText: '',
+    meshAA: false, realShadows: false, meshSmooth: true,
     fpsChip: null, hudDebugExtra: '', staticRev: 0, frameDataVersion: 0,
     container: null as any,
     styledEls: [], pageRoots: [], editableEls: [], dynamicEls: [], marqueeEls: [], pages: [], docH: 0, docRoot: null as any,

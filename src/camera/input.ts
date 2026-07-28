@@ -476,6 +476,10 @@ export function attachInput(s: AppState): () => void {
       const ed = s.editor;
       if (w.x >= ed.x0 && w.x <= ed.x0 + ed.contentWidth() && w.y >= ed.y0 && w.y <= ed.y0 + ed.contentHeight()) return;
     }
+    // An interactive board may own double-tap — the windgraph world uses it for
+    // the continuous 2D↔3D tilt toggle (task 2.4). Returning true consumes the
+    // gesture (boards without doubleTap fall through to fit-to-screen).
+    if ((s.interactive as any)?.doubleTap?.(w.x, w.y)) return;
     const hit = hitTest(s.docRoot, w.x, w.y);
     if (hit && findEditableAncestor(hit)) return;
     let bx: number, by: number, bw: number, bh: number;

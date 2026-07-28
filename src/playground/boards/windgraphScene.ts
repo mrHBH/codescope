@@ -44,6 +44,38 @@ export function demoDoc(): SceneDoc {
   });
 }
 
+/** Phase 4 · Lane A/K gallery: a curated board exercising the new plot catalog. */
+export function plotGalleryDoc(): SceneDoc {
+  return scene({ title: 'windgraph v2 · plot catalog' }, (s) => {
+    s.param.number('n', { default: 8, min: 1, max: 40, step: 1, label: 'riemann n' });
+    s.param.number('terms', { default: 5, min: 1, max: 20, step: 1, label: 'fourier terms' });
+    s.param.number('t0', { default: 1, min: -3, max: 3, step: 0.05, label: 'tangent at' });
+
+    s.wg.plotPiecewise('pw', [{ cond: 'x < 0', expr: 'sin(x)*2' }, { cond: 'x >= 0', expr: 'sqrt(x)*2' }], { domain: [-6, 6], stroke: { color: TEAL, width: 2.5 } });
+    s.wg.plotInequality('ineq', ['x^2 + y^2 - 9'], { cmps: ['<'], fill: [0.36, 0.62, 0.98, 0.10] });
+
+    s.wg.point('S0', [-5, -2], { free: true });
+    s.wg.point('S1', [-3, 1.5], { free: true });
+    s.wg.point('S2', [-1, -1], { free: true });
+    s.wg.point('S3', [1, 2], { free: true });
+    s.wg.plotSpline('spline', ['S0', 'S1', 'S2', 'S3'], { spline: 'catmull', stroke: { color: GOLD, width: 2.5 } });
+
+    s.wg.plotTangent('tan', 'sin(x)', { $param: 't0' }, { domain: [-6, 6], showNormal: true, showDerivatives: true, color: PINK, stroke: { color: [0.55, 0.6, 0.75, 0.7], width: 1.8 } });
+    s.wg.plotAccumulation('acc', 'cos(x)', 0, { domain: [-6, 6], stroke: { color: [0.85, 0.6, 0.4, 1], width: 2 } });
+    s.wg.plotRiemann('riemann', '0.3*x^2', [-3, 3], { $param: 'n' }, { mode: 'midpoint', fill: [0.30, 0.85, 0.75, 0.18], stroke: { color: TEAL, width: 1 } });
+
+    s.wg.point('ode0', [-3, 2], { free: true });
+    s.wg.plotOde('ode', '-y', ['ode0'], { domain: [-3, 4], h: 0.05, stroke: { color: PINK, width: 2 } });
+
+    s.wg.plotFourier('fourier', 'x', { $param: 'terms' }, { domain: [-3.14, 3.14], epicycles: false, stroke: { color: [0.9, 0.75, 0.4, 1], width: 2 } });
+
+    s.wg.contours('contours', 'sin(x) + cos(y)', { count: 5, filled: false, stroke: { color: [0.5, 0.55, 0.7, 0.5], width: 1 } });
+
+    s.wg.histogram('hist', [-2, -1.5, -1, -1, -0.5, 0, 0, 0, 0.5, 1, 1.5, 2, 0, -0.5, 0.5], { method: 'sturges', fill: [0.36, 0.62, 0.98, 0.4], stroke: { color: BLUE, width: 1 } });
+    s.wg.regression('reg', [[-3, -5], [-2, -3.2], [-1, -1.1], [0, 0.8], [1, 3], [2, 5.1], [3, 6.9]], 'linear', { showResiduals: true, color: GOLD, stroke: { color: GOLD, width: 2 } });
+  });
+}
+
 export class WindgraphSceneBoard {
   x0 = 0;
   y0 = 0;

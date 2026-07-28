@@ -14,11 +14,12 @@ import { bootExplainer } from './explainer';
 import { bootAuthoring, bootExplainerV2, bootPages, bootLearning } from '../authoring/demo';
 import { bootIDE } from '../ide/ide';
 import { bootWindgraphWorld } from './windgraphWorld';
+import { WindgraphExtrudeBoard } from './boards/windgraphExtrude';
 import { ReferenceHudBoard } from './boards/referenceHud';
 import { IslandGallery } from '../authoring/islands/gallery';
 // Island registrations (side-effect import — ensures builtins register)
 import '../authoring/islands';
-import { createBaseApp, finishApp, snapTo } from './app';
+import { createBaseApp, finishApp, snapTo, makeQualityPanel, qualityToolbarButton } from './app';
 
 export interface Demo {
   id: string;
@@ -63,6 +64,26 @@ function bootIslands(engine: Engine, onBack: () => void): () => void {
   return finishApp(s, onBack);
 }
 
+// Continuous 2D↔3D extrude demo (Phase 2 / CP3): the prism + cylinder extrude on a
+// slider, glyphs rise, contact shadows ground them — double-tap (or the cube button)
+// glides into a tilted orbit. Hosted standalone here AND as the windgraph world's
+// 4th board.
+function bootExtrude(engine: Engine, onBack: () => void): () => void {
+  const s = createBaseApp(engine, false);
+  const board = new WindgraphExtrudeBoard();
+  board.x0 = 0; board.y0 = 0;
+  board.app = s;
+  s.interactive = board;
+  const qualityPanel = makeQualityPanel(s, true);
+  s.panel = qualityPanel;
+  const z = Math.min((s.tCanvas.width / (board.width + 160)) * 0.9, (s.tCanvas.height / (board.height + 160)) * 0.9);
+  snapTo(s, board.x0 + board.width / 2, board.y0 + board.height / 2, z);
+  return finishApp(s, onBack, [
+    { id: 'cam3d', icon: 'cube', title: 'Toggle continuous 2D↔3D tilt (or double-tap the canvas)', active: () => board.tilted, onClick: () => board.toggleTilt() },
+    qualityToolbarButton(s, qualityPanel),
+  ]);
+}
+
 export const DEMOS: Demo[] = [
   {
     id: 'ide', name: 'IDE',
@@ -78,6 +99,11 @@ export const DEMOS: Demo[] = [
     id: 'windgraph', name: 'windgraph',
     blurb: 'An infinite canvas of living mathematics — draggable constraint geometry and a plot gallery with live sliders, every curve a closed-form integral, sharp at any zoom.',
     boot: bootWindgraphWorld,
+  },
+  {
+    id: 'extrude', name: 'Continuous 2D↔3D',
+    blurb: 'The moat: a prism and cylinder extrude on a slider, glyphs rise off the page, contact shadows ground them — double-tap to glide into a tilted orbit. One space, no mode switch.',
+    boot: bootExtrude,
   },
   {
     id: 'pages', name: 'Pages / Layout',

@@ -21,7 +21,12 @@ export type ObjectSpec =
   | WgReflectionSpec | WgLineThroughSpec | WgPerpendicularSpec | WgParallelSpec
   | WgCircumcircleSpec | WgAngleSpec | WgDistanceSpec
   | WgPlotFnSpec | WgPlotParametricSpec | WgPlotPolarSpec | WgPlotImplicitSpec
-  | WgFieldSpec;
+  | WgFieldSpec
+  | WgPlotPiecewiseSpec | WgPlotInequalitySpec | WgPlotSequenceSpec | WgPlotSplineSpec
+  | WgPlotTangentSpec | WgPlotAccumulationSpec | WgPlotRiemannSpec | WgStreamlinesSpec
+  | WgPlotOdeSpec | WgPlotBifurcationSpec | WgPlotFourierSpec | WgHistogramSpec
+  | WgBoxplotSpec | WgPlotCellsSpec | WgContoursSpec | WgRegressionSpec
+  | WgChartFinSpec | WgChartMultiSpec;
 
 export interface TextSpec {
   kind: 'text'; id: string;
@@ -311,6 +316,232 @@ export interface WgFieldSpec {
   xExpr?: string; yExpr: string;
   density?: number;
   color?: Color;
+  opacity?: number; visible?: boolean;
+}
+
+// ── windgraph plot catalog (sprint-v2 Phase 4 · Lane A) ──────────────────────
+// Object-like plots resolve to Mobject groups (animatable/morphable); field-like
+// plots (inequality shading, streamlines, bifurcation, contours) resolve to
+// view-dependent direct draws. Data arrays are literal (JSON-serializable).
+
+export type QuadMode = 'left' | 'right' | 'midpoint' | 'trapezoid' | 'simpson';
+export type SplineKind = 'catmull' | 'cubic' | 'bspline';
+export type RegKind = 'linear' | 'poly' | 'exp' | 'logistic' | 'power';
+export type BinMethod = 'sturges' | 'fd';
+export type Cmp = '>' | '<' | '>=' | '<=';
+
+/** A1 — piecewise y = { cond: expr, … }; first matching condition wins. */
+export interface WgPlotPiecewiseSpec {
+  kind: 'wg-plot-piecewise'; id: string;
+  pieces: { cond: string; expr: string }[];
+  domain?: [WgNum, WgNum];
+  samples?: number;
+  stroke?: Stroke;
+  opacity?: number; visible?: boolean;
+}
+
+/** A2 — shade the region where each expr satisfies its comparison (intersection). */
+export interface WgPlotInequalitySpec {
+  kind: 'wg-plot-inequality'; id: string;
+  exprs: string[];
+  cmps?: Cmp[];
+  fill?: Color;
+  gridRes?: number;
+  opacity?: number; visible?: boolean;
+}
+
+/** A3 — discrete sequence aₙ = expr(n); optional cobweb for xₙ₊₁ = expr(xₙ). */
+export interface WgPlotSequenceSpec {
+  kind: 'wg-plot-sequence'; id: string;
+  expr: string;
+  nRange?: [WgNum, WgNum];
+  cobweb?: boolean;
+  x0?: WgNum;
+  iters?: number;
+  color?: Color; radius?: number;
+  stroke?: Stroke;
+  opacity?: number; visible?: boolean;
+}
+
+/** A4 — spline through control points (which may be draggable point ids). */
+export interface WgPlotSplineSpec {
+  kind: 'wg-plot-spline'; id: string;
+  points: WgPoint[];
+  spline?: SplineKind;
+  samples?: number;
+  stroke?: Stroke;
+  opacity?: number; visible?: boolean;
+}
+
+/** A5 — tangent/normal at a (draggable) point + live f′/f″ companion curves. */
+export interface WgPlotTangentSpec {
+  kind: 'wg-plot-tangent'; id: string;
+  expr: string;
+  at: WgNum;
+  domain?: [WgNum, WgNum];
+  showNormal?: boolean;
+  showDerivatives?: boolean;
+  samples?: number;
+  stroke?: Stroke;
+  color?: Color;
+  opacity?: number; visible?: boolean;
+}
+
+/** A6 — accumulation F(x) = ∫ₐˣ f(t) dt. */
+export interface WgPlotAccumulationSpec {
+  kind: 'wg-plot-accumulation'; id: string;
+  expr: string;
+  from: WgNum;
+  domain?: [WgNum, WgNum];
+  samples?: number;
+  stroke?: Stroke;
+  opacity?: number; visible?: boolean;
+}
+
+/** A7 — Riemann/trapezoid/Simpson columns with animated n. */
+export interface WgPlotRiemannSpec {
+  kind: 'wg-plot-riemann'; id: string;
+  expr: string;
+  domain: [WgNum, WgNum];
+  n: WgNum;
+  mode?: QuadMode;
+  fill?: Color;
+  stroke?: Stroke;
+  opacity?: number; visible?: boolean;
+}
+
+/** A8 — RK-integrated streamlines through a vector field (direct draw). */
+export interface WgStreamlinesSpec {
+  kind: 'wg-streamlines'; id: string;
+  xExpr: string; yExpr: string;
+  density?: number;
+  steps?: number;
+  color?: Color;
+  opacity?: number; visible?: boolean;
+}
+
+/** A9 — ODE y′=f(x,y) (or a system when xExpr is set) through initial points. */
+export interface WgPlotOdeSpec {
+  kind: 'wg-plot-ode'; id: string;
+  yExpr: string;
+  xExpr?: string;
+  through: WgPoint[];
+  domain?: [WgNum, WgNum];
+  h?: number;
+  stroke?: Stroke;
+  opacity?: number; visible?: boolean;
+}
+
+/** A10 — bifurcation diagram of xₙ₊₁ = expr(r, x) (batched point splats). */
+export interface WgPlotBifurcationSpec {
+  kind: 'wg-plot-bifurcation'; id: string;
+  expr: string;
+  rRange: [WgNum, WgNum];
+  iters?: number;
+  transient?: number;
+  rSteps?: number;
+  color?: Color;
+  opacity?: number; visible?: boolean;
+}
+
+/** A11 — Fourier partial sums + optional epicycle construction. */
+export interface WgPlotFourierSpec {
+  kind: 'wg-plot-fourier'; id: string;
+  expr: string;
+  terms: WgNum;
+  period?: WgNum;
+  domain?: [WgNum, WgNum];
+  epicycles?: boolean;
+  samples?: number;
+  stroke?: Stroke;
+  color?: Color;
+  opacity?: number; visible?: boolean;
+}
+
+/** A12 — histogram with auto-binning. */
+export interface WgHistogramSpec {
+  kind: 'wg-histogram'; id: string;
+  data: number[];
+  method?: BinMethod;
+  bins?: number;
+  fill?: Color;
+  stroke?: Stroke;
+  opacity?: number; visible?: boolean;
+}
+
+/** A13 — box plot · violin · strip/beeswarm. */
+export interface WgBoxplotSpec {
+  kind: 'wg-boxplot'; id: string;
+  data: number[];
+  variant?: 'box' | 'violin' | 'strip' | 'beeswarm';
+  at?: WgNum;
+  color?: Color;
+  fill?: Color;
+  stroke?: Stroke;
+  opacity?: number; visible?: boolean;
+}
+
+/** A14 — bubble chart · matrix heatmap · 2D histogram/hexbin. */
+export interface WgPlotCellsSpec {
+  kind: 'wg-plot-cells'; id: string;
+  cell: 'bubble' | 'heatmap' | 'hexbin';
+  points?: Vec2[];
+  sizes?: number[];
+  matrix?: number[][];
+  size?: WgNum;
+  fill?: Color;
+  stroke?: Stroke;
+  opacity?: number; visible?: boolean;
+}
+
+/** A15 — line + filled + labeled contours (builds on plotImplicit). */
+export interface WgContoursSpec {
+  kind: 'wg-contours'; id: string;
+  expr: string;
+  levels?: number[];
+  count?: number;
+  filled?: boolean;
+  labels?: boolean;
+  palette?: Color[];
+  gridRes?: number;
+  stroke?: Stroke;
+  opacity?: number; visible?: boolean;
+}
+
+/** A16 — regression suite + R² + residual toggle + confidence band. */
+export interface WgRegressionSpec {
+  kind: 'wg-regression'; id: string;
+  points: Vec2[];
+  fit: RegKind;
+  degree?: number;
+  showResiduals?: boolean;
+  showBand?: boolean;
+  color?: Color;
+  stroke?: Stroke;
+  opacity?: number; visible?: boolean;
+}
+
+/** A17 — candlestick/OHLC · waterfall · funnel · radar/spider · wind rose. */
+export interface WgChartFinSpec {
+  kind: 'wg-chart-fin'; id: string;
+  chart: 'candle' | 'waterfall' | 'funnel' | 'radar' | 'windrose';
+  ohlc?: { x: number; open: number; high: number; low: number; close: number }[];
+  values?: number[];
+  labels?: string[];
+  color?: Color;
+  fill?: Color;
+  stroke?: Stroke;
+  opacity?: number; visible?: boolean;
+}
+
+/** A18 — ternary plot · parallel coordinates · scatterplot matrix. */
+export interface WgChartMultiSpec {
+  kind: 'wg-chart-multi'; id: string;
+  chart: 'ternary' | 'parallel' | 'scattermatrix';
+  columns?: number[][];
+  triples?: [number, number, number][];
+  color?: Color;
+  stroke?: Stroke;
   opacity?: number; visible?: boolean;
 }
 

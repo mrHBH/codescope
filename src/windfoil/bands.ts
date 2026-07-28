@@ -138,6 +138,32 @@ export interface VectorShape { quads: number[]; bbox: number[]; }
 // reads the stored `advance`/`bbox` in those units.
 export interface ExtraFont { font: FontFace; chars: string; prefix: string; }
 
+// Flatten a glyph's quadratic-Bézier edge list (from glyphQuads) into closed
+// contour polylines in font units (Y-down, glyph-local). Contours are recovered
+// by endpoint continuity (a new contour starts where an edge's P0 doesn't meet the
+// previous edge's P2). Stored on math atlas entries so extruded text can build real
+// side-wall geometry (a true extrusion) without needing the font at draw time.
+function quadsToContours(quads: number[], steps = 4): number[][] {
+  const contours: number[][] = [];
+  let cur: number[] = [];
+  let lx = NaN, ly = NaN;
+  const eps = 1e-3;
+  for (let i = 0; i < quads.length; i += 6) {
+    const x0 = quads[i], y0 = quads[i + 1], cx = quads[i + 2], cy = quads[i + 3], x1 = quads[i + 4], y1 = quads[i + 5];
+    if (cur.length === 0 || Math.abs(x0 - lx) > eps || Math.abs(y0 - ly) > eps) {
+      if (cur.length >= 4) contours.push(cur);
+      cur = [x0, y0];
+    }
+    for (let s = 1; s <= steps; s++) {
+      const t = s / steps, u = 1 - t;
+      cur.push(u * u * x0 + 2 * u * t * cx + t * t * x1, u * u * y0 + 2 * u * t * cy + t * t * y1);
+    }
+    lx = x1; ly = y1;
+  }
+  if (cur.length >= 4) contours.push(cur);
+  return contours;
+}
+
 export function buildGlyphAtlas(font: FontFace, text: string, shapes?: Record<string, VectorShape>, extraFonts?: ExtraFont[]): GlyphAtlas {
   const chars = [...new Set([...text])].filter((ch) => ch !== ' ');
   const curves: number[] = [];
@@ -165,7 +191,7 @@ export function buildGlyphAtlas(font: FontFace, text: string, shapes?: Record<st
         monotoneTotal += pieces.length / 6;
         const [, y0, , y1] = g.bbox;
         const header = bandPieces(pieces, y0, y1, curves, rows);
-        table[ef.prefix + ch] = { ...header, advance: g.advance, bbox: g.bbox, upm: ef.font.unitsPerEm };
+        table[ef.prefix + ch] = { ...header, advance: g.advance, bbox: g.bbox, upm: ef.font.unitsPerEm, outline: quadsToContours(g.quads) };
       }
     }
   }
