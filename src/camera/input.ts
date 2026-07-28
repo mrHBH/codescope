@@ -152,7 +152,7 @@ export function attachInput(s: AppState): () => void {
     // in pointerup / the frame tick); consume it so the camera doesn't pan.
     if (s.fpsChip) {
       const b = bufCoords(s, e.clientX, e.clientY);
-      if (s.fpsChip.pointerDown(b.x, b.y, performance.now())) return;
+      if (s.fpsChip.pointerDown(b.x, b.y, performance.now(), e.ctrlKey)) return;
     }
     // Analytic settings panel (screen-space): consume clicks on it (toggles +
     // slider drags), and dismiss on a click outside — standard popup behaviour.

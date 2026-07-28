@@ -1177,8 +1177,9 @@ export function bootIDE(engine: Engine, onBack: () => void): () => void {
       const sbx = sx * dpr, sby = sy * dpr;
       const tbHit = toolbar.hitTest(sbx, sby);
       if (tbHit) { tbHit.onClick(); return; }
-      // Fps chip: press starts click-vs-long-press detection (consumed).
-      if (fpsChip && fpsChip.pointerDown(sbx, sby, performance.now())) return;
+      // Fps chip: press starts click-vs-long-press detection (consumed);
+      // ctrl toggles hands-free recording.
+      if (fpsChip && fpsChip.pointerDown(sbx, sby, performance.now(), e.ctrlKey)) return;
       if (gate.open) {
         const [hx, hy] = menuWorldPose ? menuScreenToLocal(sbx, sby) : [sbx, sby];
         if (gate.overMenu(hx, hy)) return;

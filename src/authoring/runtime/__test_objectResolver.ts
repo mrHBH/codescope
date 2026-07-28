@@ -167,6 +167,46 @@ test('mobjects are real Mobject instances (clip targets for 1.3)', () => {
   for (const m of scene.mobjects.values()) assert(m instanceof Mobject);
 });
 
+test('slice cache: byte-identical idle re-emit, partial change on drag', () => {
+  const plane = new NumberPlane();
+  const scene = new WgScene(triangleScene(), new Map(), plane);
+  const view = { zoom: 1, left: -2000, right: 2000, top: -2000, bottom: 2000 };
+  const fakeFont = { unitsPerEm: 1000, charToGlyph: () => ({ advance: 500, getKerning: () => 0 }) };
+  const buf = () => ({ inst: [] as number[], crv: [] as number[], rws: [] as number[], font: fakeFont as any, atlas: { table: {} } as any });
+  const c1 = buf();
+  scene.emit(c1 as any, view);
+  const n1 = c1.inst.length;
+  assert(n1 > 0, 'emitted instances');
+  // Rebase sanity: row quad-pointers inside crv, AND every instance rowBase
+  // (a ROW index) inside the row buffer. The second check is what catches a
+  // rowBase patched in the wrong unit (the "strokes vanished" regression).
+  const rowsOk = (b: any) => {
+    for (let i = 0; i < b.rws.length; i += 5) assert(b.rws[i] * 6 <= b.crv.length, `row quad ${b.rws[i]} out of range`);
+    const rows = b.rws.length / 5;
+    for (let i = 0; i < b.inst.length; i += 16) assert(b.inst[i + 12] >= 0 && b.inst[i + 12] < rows, `inst rowBase ${b.inst[i + 12]} out of [0,${rows})`);
+  };
+  rowsOk(c1);
+  // Idle re-emit: byte-identical.
+  const c2 = buf();
+  scene.emit(c2 as any, view);
+  assert(c2.inst.length === n1, 'same instance count');
+  let same = true;
+  for (let i = 0; i < n1; i++) if (c1.inst[i] !== c2.inst[i]) { same = false; break; }
+  assert(same, 'byte-identical idle re-emit');
+  // Move free point A: only dependent slices change.
+  const A = scene.points.get('A')!;
+  A.set(A.x + 50, A.y + 30);
+  scene.update();
+  const c3 = buf();
+  scene.emit(c3 as any, view);
+  assert(c3.inst.length === n1, 'same count after move');
+  let diff = 0;
+  for (let i = 0; i < n1; i++) if (c1.inst[i] !== c3.inst[i]) diff++;
+  assert(diff > 0, 'output changed after drag');
+  assert(diff < n1, `only part of the scene changed (${diff}/${n1} floats)`);
+  rowsOk(c3);
+});
+
 test('direct draws: unrelated slider leaves implicit/field geometry cached', () => {
   const doc = mkDoc({
     f: { kind: 'wg-plot-implicit', id: 'f', expr: 'x^2 + y^2 - 1' },

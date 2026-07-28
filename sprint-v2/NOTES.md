@@ -123,6 +123,33 @@ from the code lives here. Newest entries at the bottom of each section.
   skipped frames they show the LAST real emit — the cumulative `skipped N`
   counter (frame.ts → chip extra) is the truth for idle cost.
 
+**Per-mobject slice caching (drag perf — read before touching WgScene.emit):**
+- Each mobject's instances live in a typed `EmitCache` slice (`sliceCaches`,
+  parallel to `emitList`/`syncables`). Syncables write fields and return a
+  geometry sig; `markDirty` fires only on sig change; emit composes slices
+  with direct-indexed writes (no pushes).
+- Scratch-buffer seeding is load-bearing: scratch crv/rws are seeded with the
+  atlas+static prefix ROW count (`ctx.rws.length/5`) so `EmitCache.capture`'s
+  rel-detection (rowBase ≥ threshold) distinguishes scratch rows from atlas
+  band references. Capture is called with `(0, seedRows*6, seedRows*5)`.
+  If atlas size changes (`seedRows` changes), all slices invalidate.
+- Plot groups: sig = `paramSig|lodScale`; resample (in `update()`) replaces
+  children, slice rebuilds on sig change only.
+- Direct draws (implicit/field) stay view-dependent with their own coarse-tile
+  `directCache` — appended after slice composition.
+- Idle re-emit is byte-identical (regression test asserts it) — so any visual
+  difference between first draw and replay is a rebase bug, look at
+  `appendInto`/`captureFrom` offsets first.
+- **Rebase unit trap (the "strokes vanished" bug):** inst[12] = rowBase is a
+  ROW index; crv/rws offsets passed around are FLOAT counts. `appendInto`'s
+  rel-patch MUST add `rOff/5` (rows), and the rws row's quad-pointer adds
+  `cOff/6` (quads). Mixing these up renders nothing (off-buffer row) yet keeps
+  glyphs alive (atlas prefix, unpatched) — a signature that looks like "half
+  the scene disappeared". Byte-identity tests do NOT catch it (wrong output is
+  stable); the catch is asserting `inst[i+12] ∈ [0, rws.length/5)` after
+  compose. Whenever you touch slice/board rebase, the SCREENSHOT is the
+  ground-truth test — run it, don't trust green units alone.
+
 **Perf facts (measured reasoning, not vibes):**
 - Idle-frame cost is dominated by `EmitCache` replay: every cached board
   re-appends its slice to the shared `inst/crv/rws` JS arrays each frame

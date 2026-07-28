@@ -63,7 +63,17 @@ export class WgScene {
   private doc: SceneDoc;
   private params: Map<string, any>;
   private plane: NumberPlane;
-  private syncables: (() => void)[] = [];
+  /** Per-mobject sync: writes the mobject's fields, returns a geometry sig.
+   *  markDirty fires only on sig change — the slice cache below then rebuilds
+   *  only the mobjects whose inputs actually moved (drag a vertex and the
+   *  unrelated wave plot costs nothing). */
+  private syncables: (() => string)[] = [];
+  private emitList: Mobject[] = [];          // parallel to syncables, draw order
+  private sliceCaches: EmitCache[] = [];     // parallel; per-mobject instance slices
+  private scratchInst: number[] = [];
+  private scratchCrv: number[] = [];
+  private scratchRws: number[] = [];
+  private seedRows = -1;                     // atlas+static row count the scratch is seeded with
   /** View-dependent draws (implicit contours, fields). Each carries the param
    *  names its expression actually reads — the cache signature includes only
    *  those, so an unrelated slider never re-runs marching squares. */
@@ -199,8 +209,12 @@ export class WgScene {
     return c;
   }
 
-  private strokeProps(s: Record<string, any>, fallback: number[]): { color: number[]; width: number } {
-    return { color: s.stroke?.color ?? fallback, width: s.stroke?.width ?? DEFAULT_WIDTH };
+  private strokeProps(s: Record<string, any>, fallback: number[]): { color: number[]; width: number; cap: 'butt'; join: 'miter' } {
+    // Butt caps + miter joins: round caps cost a 24-quad disc PER END (48
+    // instances per segment); round joins another 24 per vertex. At typical
+    // stroke widths these are imperceptible, and infinite lines have
+    // off-screen ends. This cuts per-segment scratch instances from ~49 to ~3.
+    return { color: s.stroke?.color ?? fallback, width: s.stroke?.width ?? DEFAULT_WIDTH, cap: 'butt', join: 'miter' };
   }
 
   private register(id: string, m: Mobject, s: Record<string, any>) {
@@ -209,10 +223,23 @@ export class WgScene {
     this.mobjects.set(id, m);
   }
 
+  /** Track a mobject: `sync` writes its fields and returns the geometry sig;
+   *  markDirty fires only when the sig changes, so the per-mobject slice cache
+   *  rebuilds only what moved. */
+  private track(m: Mobject, sync: () => string) {
+    let last = '\x00';
+    this.syncables.push(() => {
+      const sig = sync();
+      if (sig !== last) { m.markDirty(); last = sig; }
+      return sig;
+    });
+    this.emitList.push(m);
+  }
+
   private addDot(id: string, p: GPoint, s: Record<string, any>, derived: boolean) {
     const dot = new Dot(p.x, p.y, s.radius ?? (derived ? 5 : 7), s.color ?? (derived ? COL_DERIVED : COL_POINT));
     this.register(id, dot, s);
-    this.syncables.push(() => { dot.position = p.pos; dot.markDirty(); });
+    this.track(dot, () => { dot.position = p.pos; return `${p.x},${p.y}`; });
     if (s.label) {
       const size = this.plane.unitX * 0.26;
       const r = dot.radius;
@@ -220,7 +247,7 @@ export class WgScene {
       const labId = id + ':label';
       this.mobjects.set(labId, lab);
       this.order.push(labId);
-      this.syncables.push(() => { lab.position = [p.x + r + size * 0.35, p.y - r - size * 0.55]; lab.markDirty(); });
+      this.track(lab, () => { lab.position = [p.x + r + size * 0.35, p.y - r - size * 0.55]; return `${p.x},${p.y}`; });
     }
   }
 
@@ -300,7 +327,7 @@ export class WgScene {
         const props = this.strokeProps(s, COL_CIRCLE);
         const m = new Circle(c.cx, c.cy, c.r, props, s.fill ? { color: s.fill } : undefined);
         this.register(id, m, s);
-        this.syncables.push(() => { m.position = [c.cx, c.cy]; m.radius = c.r; m.markDirty(); });
+        this.track(m, () => { m.position = [c.cx, c.cy]; m.radius = c.r; return `${c.cx},${c.cy},${c.r}`; });
         break;
       }
       case 'wg-circle': {
@@ -311,7 +338,7 @@ export class WgScene {
         const props = this.strokeProps(s, COL_CIRCLE);
         const m = new Circle(c.cx, c.cy, c.r, props, s.fill ? { color: s.fill } : undefined);
         this.register(id, m, s);
-        this.syncables.push(() => { m.position = [c.cx, c.cy]; m.radius = c.r; m.markDirty(); });
+        this.track(m, () => { m.position = [c.cx, c.cy]; m.radius = c.r; return `${c.cx},${c.cy},${c.r}`; });
         break;
       }
       case 'wg-arc': {
@@ -322,9 +349,11 @@ export class WgScene {
         const p0 = cSrc();
         const m = new Arc(p0[0], p0[1], rSrc() * plane.unitX, a0Src(), a1Src(), props);
         this.register(id, m, s);
-        this.syncables.push(() => {
+        this.track(m, () => {
           const p = cSrc();
-          m.position = p; m.radius = rSrc() * plane.unitX; m.a0 = a0Src(); m.a1 = a1Src(); m.markDirty();
+          const r = rSrc() * plane.unitX, a0 = a0Src(), a1 = a1Src();
+          m.position = p; m.radius = r; m.a0 = a0; m.a1 = a1;
+          return `${p[0]},${p[1]},${r},${a0},${a1}`;
         });
         break;
       }
@@ -336,9 +365,11 @@ export class WgScene {
         const p0 = cSrc();
         const m = new Ellipse(p0[0], p0[1], rxSrc() * plane.unitX, rySrc() * plane.unitY, props, s.fill ? { color: s.fill } : undefined);
         this.register(id, m, s);
-        this.syncables.push(() => {
+        this.track(m, () => {
           const p = cSrc();
-          m.position = p; m.scaleX = rxSrc() * plane.unitX; m.scaleY = rySrc() * plane.unitY; m.rotation = rotSrc(); m.markDirty();
+          const rx = rxSrc() * plane.unitX, ry = rySrc() * plane.unitY, rot = rotSrc();
+          m.position = p; m.scaleX = rx; m.scaleY = ry; m.rotation = rot;
+          return `${p[0]},${p[1]},${rx},${ry},${rot}`;
         });
         break;
       }
@@ -347,14 +378,14 @@ export class WgScene {
         const props = this.strokeProps(s, COL_LINE);
         const m = new Segment(aSrc(), bSrc(), props);
         this.register(id, m, s);
-        this.syncables.push(() => { m.a = aSrc(); m.b = bSrc(); m.markDirty(); });
+        this.track(m, () => { const a = aSrc(), b = bSrc(); m.a = a; m.b = b; return `${a[0]},${a[1]}|${b[0]},${b[1]}`; });
         break;
       }
       case 'wg-vector': {
         const aSrc = this.pt(s.from as WgPoint, who), bSrc = this.pt(s.to as WgPoint, who);
         const m = new Vector(aSrc(), bSrc(), { color: s.color ?? COL_LINE, width: s.width ?? DEFAULT_WIDTH });
         this.register(id, m, s);
-        this.syncables.push(() => { m.a = aSrc(); m.b = bSrc(); m.markDirty(); });
+        this.track(m, () => { const a = aSrc(), b = bSrc(); m.a = a; m.b = b; return `${a[0]},${a[1]}|${b[0]},${b[1]}`; });
         break;
       }
       case 'wg-polyline': {
@@ -362,7 +393,7 @@ export class WgScene {
         const props = this.strokeProps(s, COL_LINE);
         const m = new Polyline(srcs.map((g) => g()), props);
         this.register(id, m, s);
-        this.syncables.push(() => { m.points = srcs.map((g) => g()); m.markDirty(); });
+        this.track(m, () => { const pts = srcs.map((g) => g()); m.points = pts; return pts.join(';'); });
         break;
       }
       case 'wg-polygon': {
@@ -370,7 +401,7 @@ export class WgScene {
         const props = this.strokeProps(s, COL_LINE);
         const m = new Polygon(srcs.map((g) => g()), props, s.fill ? { color: s.fill } : undefined);
         this.register(id, m, s);
-        this.syncables.push(() => { m.points = srcs.map((g) => g()); m.markDirty(); });
+        this.track(m, () => { const pts = srcs.map((g) => g()); m.points = pts; return pts.join(';'); });
         break;
       }
       case 'wg-angle': {
@@ -383,12 +414,16 @@ export class WgScene {
         this.register(id, arc, s);
         const labId = id + ':label';
         this.mobjects.set(labId, lab); this.order.push(labId);
-        this.syncables.push(() => {
-          arc.position = v.pos; arc.a0 = ang.a0; arc.a1 = ang.a1; arc.markDirty();
+        this.track(arc, () => {
+          arc.position = v.pos; arc.a0 = ang.a0; arc.a1 = ang.a1;
+          return `${v.x},${v.y},${ang.a0},${ang.a1}`;
+        });
+        this.track(lab, () => {
           const mid = (ang.a0 + ang.a1) / 2, rr = plane.unitX * 0.45;
           lab.position = [v.x + Math.cos(mid) * rr, v.y + Math.sin(mid) * rr];
-          lab.text = (ang.value * 180 / Math.PI).toFixed(1) + '°';
-          lab.markDirty();
+          const text = (ang.value * 180 / Math.PI).toFixed(1) + '°';
+          lab.text = text;
+          return `${v.x},${v.y},${text}`;
         });
         break;
       }
@@ -399,10 +434,11 @@ export class WgScene {
         const color = s.color ?? COL_LABEL;
         const lab = new Label('', 0, 0, plane.unitX * 0.22, color, 'middle');
         this.register(id, lab, s);
-        this.syncables.push(() => {
+        this.track(lab, () => {
           lab.position = [(a.x + b.x) / 2, (a.y + b.y) / 2 - plane.unitX * 0.18];
-          lab.text = (dist.value / plane.unitX).toFixed(2);
-          lab.markDirty();
+          const text = (dist.value / plane.unitX).toFixed(2);
+          lab.text = text;
+          return `${a.x},${a.y},${b.x},${b.y},${text}`;
         });
         break;
       }
@@ -425,6 +461,8 @@ export class WgScene {
         };
         this.plotResamples.push(resample);
         resample();
+        // Slice rebuilds only when params/LOD actually changed (resample ran).
+        this.track(group, () => this.lastParamSig + '|' + this.lodScale);
         break;
       }
       case 'wg-plot-parametric': {
@@ -443,6 +481,7 @@ export class WgScene {
         };
         this.plotResamples.push(resample);
         resample();
+        this.track(group, () => this.lastParamSig + '|' + this.lodScale);
         break;
       }
       case 'wg-plot-polar': {
@@ -464,6 +503,7 @@ export class WgScene {
         };
         this.plotResamples.push(resample);
         resample();
+        this.track(group, () => this.lastParamSig + '|' + this.lodScale);
         break;
       }
       case 'wg-plot-implicit': {
@@ -517,7 +557,11 @@ export class WgScene {
     const [a, b] = ends();
     const m = new Segment(a, b, props);
     this.register(id, m, s);
-    this.syncables.push(() => { const [na, nb] = ends(); m.a = na; m.b = nb; m.markDirty(); });
+    this.track(m, () => {
+      const [na, nb] = ends();
+      m.a = na; m.b = nb;
+      return `${l.x0},${l.y0},${l.dx},${l.dy}`;
+    });
   }
 
   /** Sample a curve in DATA space → world polylines, split at discontinuities.
@@ -552,6 +596,9 @@ export class WgScene {
 
   update() {
     this.graph.update();
+    // Keep mobject fields eager (the sig gate inside track() makes this cheap
+    // and fires markDirty only on real change); emit() re-runs the same gated
+    // syncs before composing slices.
     for (const sync of this.syncables) sync();
     const sig = this.paramSig();
     if (sig !== this.lastParamSig) {
@@ -583,10 +630,37 @@ export class WgScene {
   }
 
   emit(ctx: RenderCtx, view: PlaneView) {
-    for (const id of this.order) {
-      const m = this.mobjects.get(id);
-      if (m) m.emit(ctx);
+    // Per-mobject slice composition: each mobject's instances are cached in a
+    // typed slice, rebuilt only when its geometry sig changes (dragging one
+    // vertex rebuilds ~6 slices, not the whole scene — the wave plot costs
+    // nothing). Slices compose into the target buffers via direct-indexed
+    // writes. The scratch buffers are seeded with the atlas+static prefix size
+    // so captured rows stay distinguishable from atlas band references.
+    const seedRows = ctx.rws.length / 5;
+    if (seedRows !== this.seedRows) {
+      this.seedRows = seedRows;
+      for (const sc of this.sliceCaches) sc.invalidate();
     }
+    let iOff = ctx.inst.length, cOff = ctx.crv.length, rOff = ctx.rws.length;
+    const scratchCtx: RenderCtx = { font: ctx.font, atlas: ctx.atlas, inst: this.scratchInst, crv: this.scratchCrv, rws: this.scratchRws };
+    for (let idx = 0; idx < this.emitList.length; idx++) {
+      const sig = this.syncables[idx]();
+      let sc = this.sliceCaches[idx];
+      if (!sc) { sc = new EmitCache(); this.sliceCaches[idx] = sc; }
+      if (sig !== sc.signature) {
+        this.scratchInst.length = 0;
+        this.scratchCrv.length = seedRows * 6;
+        this.scratchCrv.fill(0);
+        this.scratchRws.length = seedRows * 5;
+        this.scratchRws.fill(0);
+        this.emitList[idx].emit(scratchCtx);
+        sc.captureFrom(this.scratchInst, this.scratchCrv, this.scratchRws, 0, seedRows * 6, seedRows * 5);
+        sc.signature = sig;
+      }
+      sc.appendInto(ctx.inst, ctx.crv, ctx.rws, iOff, cOff, rOff);
+      iOff += sc.instLen; cOff += sc.crvLen; rOff += sc.rwsLen;
+    }
+    ctx.inst.length = iOff; ctx.crv.length = cOff; ctx.rws.length = rOff;
     if (this.directDraws.length) {
       const pctx: PlaneCtx = { font: ctx.font, atlas: ctx.atlas, inst: ctx.inst, crv: ctx.crv, rws: ctx.rws };
       const plane = this.plane;

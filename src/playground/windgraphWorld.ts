@@ -188,13 +188,39 @@ export class WindgraphWorld {
     return sig;
   }
 
+  // Pre-allocated composition buffers. The world composes everything (grid +
+  // every board's slice caches) into these WITHOUT growing them — V8 reallocs
+  // on number[] `.length` growth were the entire drag cost (15 compositions ×
+  // 3 arrays × realloc+copy + GC tail). One bulk-copy at the end appends to
+  // the frame buffer (a single growth). The comp crv/rws carry a copy of the
+  // frame buffer's atlas+static prefix so row/quad references stay valid; the
+  // duplicate prefix is dead weight after the bulk-copy (negligible).
+  private cInst: number[] = new Array(65536);
+  private cCrv: number[] = new Array(65536);
+  private cRws: number[] = new Array(65536);
+
   emit(font: FontFace, atlas: any, inst: number[], crv: number[], rws: number[], now: number, view: PlaneView) {
     const t0 = performance.now();
     const inst0 = inst.length;
     const bp = this.backdropParts(view);
     const { step, eL, eT, eR, eB, vL, vT, vR, vB } = bp;
+
+    // Seed comp crv/rws with the frame buffer's current prefix (atlas + static
+    // + editor + …). The world's content composes after it. Comp inst starts
+    // empty — instances carry rowBases, no prefix of their own.
+    const cCrv = this.cCrv, cRws = this.cRws, cInst = this.cInst;
+    const pCrvLen = crv.length, pRwsLen = rws.length;
+    for (let i = 0; i < pCrvLen; i++) cCrv[i] = crv[i];
+    for (let i = 0; i < pRwsLen; i++) cRws[i] = rws[i];
+    let cILen = 0, cCLen = pCrvLen, cRLen = pRwsLen;
+    // strokeInto/layoutStr push to .length, so we set .length to the logical
+    // offset before each build and read it back after.
+    const setLen = (il: number, cl: number, rl: number) => { cInst.length = il; cCrv.length = cl; cRws.length = rl; };
+    const readLen = () => { cILen = cInst.length; cCLen = cCrv.length; cRLen = cRws.length; };
+
     const tg0 = performance.now();
-    this.backdropCache.run(bp.sig, inst, crv, rws, () => {
+    setLen(cILen, cCLen, cRLen);
+    this.backdropCache.run(bp.sig, cInst, cCrv, cRws, () => {
       if (this.showGrid) {
         // True line grid — and cheaper than dots: a full-length line is ONE
         // stroke instance, vs one instance per dot. Widths derive from `step`
@@ -204,29 +230,50 @@ export class WindgraphWorld {
         for (let x = eL; x <= eR; x += step, i++) {
           const major = ((i % 5) + 5) % 5 === 0;
           strokeInto([[x, eT], [x, eB]], { width: major ? wMajor : wMinor },
-            major ? GRID_MAJOR : GRID_MINOR, inst, crv, rws);
+            major ? GRID_MAJOR : GRID_MINOR, cInst, cCrv, cRws);
         }
         let j = 0;
         for (let y = eT; y <= eB; y += step, j++) {
           const major = ((j % 5) + 5) % 5 === 0;
           strokeInto([[eL, y], [eR, y]], { width: major ? wMajor : wMinor },
-            major ? GRID_MAJOR : GRID_MINOR, inst, crv, rws);
+            major ? GRID_MAJOR : GRID_MINOR, cInst, cCrv, cRws);
         }
       }
-      this.drawMasthead(font, atlas, inst, crv, rws, eL, eT, eR, eB);
+      this.drawMasthead(font, atlas, cInst, cCrv, cRws, eL, eT, eR, eB);
     });
-
+    readLen();
     const tGrid = performance.now() - tg0;
 
-    // Boards (each carries its own rev/hover/tile cache).
+    // Boards compose into the same comp buffers (their caches see number[] and
+    // behave identically; the pre-allocated backing means no reallocs).
     const tB: number[] = [];
     for (const b of this.boards) {
       const tb0 = performance.now();
       if (b.x0 <= vR && b.x0 + b.width >= vL && b.y0 <= vB && b.y0 + b.height >= vT) {
-        b.emit(font, atlas, inst, crv, rws, now, view);
+        setLen(cILen, cCLen, cRLen);
+        b.emit(font, atlas, cInst, cCrv, cRws, now, view);
+        readLen();
       }
       tB.push(performance.now() - tb0);
     }
+
+    // Bulk-copy the world content (after the seeded prefix) into the frame
+    // buffer. The comp buffer's prefix is a verbatim copy of the frame buffer's
+    // prefix, so the world's content lands at the same indices in both arrays —
+    // row/quad references need NO adjustment (the earlier +rwsOff/+crvOff was
+    // the "just gray" bug: it shifted every reference 5×/6× off).
+    for (let i = pCrvLen; i < cCLen; i++) crv.push(cCrv[i]);
+    for (let i = pRwsLen; i < cRLen; i += 5) {
+      rws.push(cRws[i], cRws[i + 1], cRws[i + 2], cRws[i + 3], cRws[i + 4]);
+    }
+    for (let i = 0; i < cILen; i += 16) {
+      inst.push(
+        cInst[i], cInst[i + 1], cInst[i + 2], cInst[i + 3], cInst[i + 4], cInst[i + 5],
+        cInst[i + 6], cInst[i + 7], cInst[i + 8], cInst[i + 9], cInst[i + 10], cInst[i + 11],
+        cInst[i + 12], cInst[i + 13], cInst[i + 14], cInst[i + 15],
+      );
+    }
+
     const [tri, geom, plots] = this.boards;
     const e = this.ema, a = e.warm ? 0.08 : 1;
     e.warm = true;

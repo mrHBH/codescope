@@ -91,6 +91,61 @@ If this file and the code disagree, investigate before trusting either.
   (overview decimates to ~50%, deep zoom refines up to 3×). Remaining
   structural cost = per-frame replay is still O(instances); the real fix is
   instance-buffer diffing / persistent static GPU buffers (Lane N).
+- 2026-07-28 — **Drag perf: butt caps + miter joins for geometry strokes.**
+  Round caps = 24-quad disc per end = 48 instances per segment; round joins
+  another 24 per vertex. A geometry drag rebuilt ~6 segments × 49 instances =
+  ~294 scratch instances/frame → GC pressure → worst 25-75ms spikes. With
+  butt+miter: ~6 × 3 = 18 instances. 15× reduction. Imperceptible at typical
+  stroke widths; infinite-line ends are off-screen anyway. Expected: geom
+  during drag 3-8ms → ~1ms, worst spikes mostly gone.
+- 2026-07-28 — **"just gray" regression from comp-array bulk-copy offsets.**
+  The comp buffer's prefix is a verbatim copy of the frame buffer's prefix,
+  so the world's content lands at the same indices in both arrays — row/quad
+  references need NO adjustment. The earlier `+rwsOff`/`+crvOff` shifted every
+  reference 5×/6× off → zero coverage → gray screen. Fix: removed the offsets
+  from the bulk-copy loops. Lesson: when the comp buffer carries a duplicate
+  prefix, the copy is index-preserving — patching is only needed when the
+  comp buffer's prefix size differs from the frame buffer's (which it doesn't
+  here). Screenshot is the ground-truth test; unit tests on rebase must check
+  the actual rendered output, not just rowBase ranges.
+- 2026-07-28 — **Drag perf: pre-allocated composition buffers (the real fix).**
+  Recording showed drag at 80-116fps with tri 4-5ms/frame. Root cause: NOT
+  the stroking math — V8 reallocs on number[] `.length` growth. 15 slice
+  compositions × 3 arrays each grew the frame buffer's inst/crv/rws, triggering
+  realloc + memcpy + GC tail every frame. Fix: WindgraphWorld now owns
+  pre-allocated comp arrays (cInst/cCrv/cRws, 65536); the grid + every board
+  compose into them via setLen/readLen (no .length growth during composition);
+  one bulk-copy at the end appends to the frame buffer with row/quad offset
+  patching (comp crv/rws carry a copy of the frame buffer's atlas+static
+  prefix so refs stay valid; the duplicate is dead weight after the copy).
+  Expected: drag tri 4-5ms → ~1-2ms, js 9-11ms → ~3-4ms, sustained 120fps.
+  Visual correctness verified by rowBase/quad-pointer offset math (comp
+  atlas-referencing refs land on the duplicate prefix = same data). Screenshot
+  is the ground-truth test — user must confirm curves/edges render.
+- 2026-07-28 — **REGRESSION from slice caching: all strokes + fills vanished
+  (triangle edges, circumcircle, every curve) — only glyphs + direct draws
+  survived.** Cause: `EmitCache.appendInto` patched the per-instance rowBase
+  with the FLOAT offset (rOff) instead of the ROW offset (rOff/5) — rowBase is
+  a row index, so fills/strokes sampled 5× off the end of the row buffer →
+  zero coverage; glyphs were untouched (atlas prefix, never patched). Fix:
+  `rowOfs = rOff / 5`, mirroring `EmitCache.replay`. Added a test guard that
+  asserts every instance rowBase ∈ [0, rws.length/5) — the precise check that
+  catches a wrong-unit patch (my earlier byte-identity + range tests missed it
+  because they checked rws quad-pointers, not inst rowBase). Lesson logged in
+  NOTES: the screenshot is the real test; unit tests on rebase must check the
+  inst rowBase unit, not just rws.
+- 2026-07-28 — **Drag perf: per-mobject slice caching (recorded drag showed
+  the dragged board re-emitting fully every frame — the 240-sample wave
+  restroked on every vertex drag).** WgScene now caches each mobject's
+  instance slice in a typed EmitCache slice, keyed on a geometry sig the
+  syncables return; markDirty fires only on real change, and emit composes
+  slices via direct-indexed writes (scratch buffers seeded with the
+  atlas+static prefix size so atlas band refs stay distinguishable from
+  scratch rows). Dragging one vertex now rebuilds ~6 slices, not the scene.
+  Regression test proves byte-identical idle re-emit + partial change on drag
+  + row/quad rebase sanity. 125 tests green. Expected drag js ~7ms → ~4ms
+  (sustained 120fps); tile-crossing `worst` spikes remain (marching squares →
+  Phase 5 worker).
 - 2026-07-28 — **IDE idle perf DONE: 13ms → 0.3ms avg (2D and settled 3D).**
   Final fixes: (1) `tabTransT < 1` was permanently true at rest (it only
   advances during a tab switch) — gated on `tabFrom >= 0`; (2) hidden

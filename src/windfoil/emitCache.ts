@@ -32,6 +32,47 @@ export class EmitCache {
 
   invalidate() { this.valid = false; this.sig = ''; }
 
+  // ── Slice-cache API (per-mobject composition in WgScene) ─────────────────
+  /** Caller-managed signature (WgScene keys slices on geometry state). */
+  signature = '';
+  get instLen(): number { return this.cInstLen; }
+  get crvLen(): number { return this.cCrvLen; }
+  get rwsLen(): number { return this.cRwsLen; }
+
+  /** Capture from external scratch buffers (inst0/crv0/rws0 mark where the
+   *  mobject's own content starts; the seeded prefix before them makes atlas
+   *  references distinguishable from scratch rows). */
+  captureFrom(inst: number[], crv: number[], rws: number[], inst0: number, crv0: number, rws0: number) {
+    this.capture(inst, crv, rws, inst0, crv0, rws0);
+  }
+
+  /** Compose the captured slice into target buffers at the given offsets,
+   *  rebasing row/quad references. Direct-indexed — no pushes. */
+  appendInto(inst: number[], crv: number[], rws: number[], iOff: number, cOff: number, rOff: number) {
+    const cf = this.cInstF, nI = this.cInstLen;
+    inst.length = iOff + nI;
+    for (let i = 0; i < nI; i++) inst[iOff + i] = cf[i];
+    // rowBase (inst[12]) is a ROW index, but rOff is a FLOAT offset — the
+    // relative patch must add rows (rOff/5), exactly like EmitCache.replay's
+    // rowOfs. Adding rOff raw points fills/strokes off the end of the row
+    // buffer → zero coverage (the "strokes vanished" bug).
+    const rowOfs = rOff / 5;
+    for (let k = 0; k < this.cRelIdxs.length; k++) inst[iOff + this.cRelIdxs[k]] += rowOfs;
+    const cc = this.cCrvF, nC = this.cCrvLen;
+    crv.length = cOff + nC;
+    for (let i = 0; i < nC; i++) crv[cOff + i] = cc[i];
+    const quadOfs = cOff / 6;
+    const rr = this.cRwsU, nR = this.cRwsLen;
+    rws.length = rOff + nR;
+    for (let i = 0; i < nR; i += 5) {
+      rws[rOff + i] = rr[i] + quadOfs;
+      rws[rOff + i + 1] = rr[i + 1];
+      rws[rOff + i + 2] = rr[i + 2];
+      rws[rOff + i + 3] = rr[i + 3];
+      rws[rOff + i + 4] = rr[i + 4];
+    }
+  }
+
   /**
    * Emit through the cache: replay the captured geometry when `sig` matches,
    * otherwise run `build()` (which must append to inst/crv/rws) and capture

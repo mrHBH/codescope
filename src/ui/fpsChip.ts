@@ -1,9 +1,11 @@
 // ── Analytic fps / perf chip (screen-space HUD) ──────────────────────────────
 // Zero-DOM replacement for the #fps overlay, drawn through the screen HUD like
 // the toolbar. Click cycles three modes — fps only → full readout → full +
-// app diagnostics — and a long press samples the readout: after a 500ms hold
-// it appends the readout to a log and re-copies the growing log 5×/second for
-// as long as the press lasts, so one paste yields every sample of the hold.
+// app diagnostics. Two sampling modes, both appending the readout to a log
+// 5×/second and copying the growing log so one paste yields every sample:
+//   · long press  — records while held, finalizes on release
+//   · ctrl+click  — starts/stops recording hands-free (a normal click ends it
+//     and copies) — so you can drag/interact while the log captures
 // Hit-tested in backing-store px, same convention as the analytic toolbar.
 
 import { addRect, layoutStr, tw } from '../layout/metrics';
@@ -22,12 +24,15 @@ export class FpsChip {
   private extra = '';
   private rect = { x0: 0, y0: 0, x1: 0, y1: 0 };
   private pressT = -1;
+  private ctrlPress = false;
   private longFired = false;
   private lastCopyT = 0;
   private statusMsg = '';
   private statusT = 0;
-  // Long-press sampling log: while held, the readout is appended 5×/second and
-  // the GROWING log is re-copied — one paste yields every sample of the hold.
+  /** Sampling in flight (long press held, or ctrl+click recording). */
+  private recording = false;
+  // The readout is appended 5×/second and the GROWING log re-copied — one
+  // paste yields every sample of the recording.
   private copyLog: string[] = [];
 
   /** Transient feedback ("copied" / "copy failed") — part of the HUD skip-sig. */
@@ -39,27 +44,26 @@ export class FpsChip {
     this.extra = extra;
   }
 
-  /** Per-frame tick: long-press sampling — after the hold threshold, append
-   *  the readout to the log and re-copy it at 5Hz for as long as the press
-   *  lasts. (Chromium grants clipboard-write without re-activation, so the
-   *  stream sustains; elsewhere the log may stop growing after the first
-   *  copy — the status shows the count either way.) */
+  /** Per-frame tick: fire the long press, then while recording append the
+   *  readout to the log and re-copy it at 5Hz. (Chromium grants
+   *  clipboard-write without re-activation, so the stream sustains; elsewhere
+   *  the log may stop growing after the first copy — the status shows the
+   *  count either way.) */
   tick(now: number) {
-    if (this.pressT >= 0) {
-      const held = now - this.pressT;
-      if (!this.longFired && held > HOLD_MS) {
-        this.longFired = true;
-        this.copyLog = [this.copyText()];
-        this.writeLog();
-        this.lastCopyT = now;
-      } else if (this.longFired && now - this.lastCopyT >= 200) {
-        this.copyLog.push(this.copyText());
-        if (this.copyLog.length > 600) this.copyLog.shift(); // cap ~2 min
-        this.writeLog();
-        this.lastCopyT = now;
-      }
+    if (this.pressT >= 0 && !this.ctrlPress && !this.longFired && now - this.pressT > HOLD_MS) {
+      this.longFired = true;
+      this.recording = true;
+      this.copyLog = [this.copyText()];
+      this.writeLog();
+      this.lastCopyT = now;
     }
-    if (this.statusMsg && now - this.statusT > 1200) this.statusMsg = '';
+    if (this.recording && now - this.lastCopyT >= 200) {
+      this.copyLog.push(this.copyText());
+      if (this.copyLog.length > 600) this.copyLog.shift(); // cap ~2 min
+      this.writeLog();
+      this.lastCopyT = now;
+    }
+    if (this.statusMsg && !this.recording && now - this.statusT > 1200) this.statusMsg = '';
   }
 
   hitTest(x: number, y: number): boolean {
@@ -67,20 +71,45 @@ export class FpsChip {
     return x >= r.x0 && x <= r.x1 && y >= r.y0 && y <= r.y1;
   }
 
-  /** Consumes the press when inside (click vs long-press resolved later). */
-  pointerDown(x: number, y: number, now: number): boolean {
+  /** Consumes the press when inside. Ctrl toggles hands-free recording on
+   *  down; plain presses resolve on up (click = cycle mode or end recording,
+   *  long press = record while held). */
+  pointerDown(x: number, y: number, now: number, ctrl = false): boolean {
     if (!this.visible || !this.hitTest(x, y)) return false;
     this.pressT = now;
     this.longFired = false;
+    this.ctrlPress = ctrl;
+    if (ctrl) {
+      if (this.recording) this.stopRecording();
+      else {
+        this.recording = true;
+        this.copyLog = [];
+        this.lastCopyT = 0; // first sample on the next tick
+        this.statusMsg = 'rec ×0';
+        this.statusT = performance.now();
+      }
+    }
     return true;
   }
 
   pointerUp(now: number) {
     if (this.pressT < 0) return;
     const held = now - this.pressT;
+    const wasCtrl = this.ctrlPress;
+    const wasLong = this.longFired;
     this.pressT = -1;
-    if (!this.longFired && held < HOLD_MS) this.mode = (this.mode + 1) % 3;
+    this.ctrlPress = false;
     this.longFired = false;
+    if (wasCtrl) return;                          // toggled on down
+    if (wasLong || this.recording) { this.stopRecording(); return; }
+    if (held < HOLD_MS) this.mode = (this.mode + 1) % 3;
+  }
+
+  private stopRecording() {
+    this.recording = false;
+    if (this.copyLog.length > 0) this.writeLog();
+    this.statusMsg = `recorded ×${this.copyLog.length}`;
+    this.statusT = performance.now();
   }
 
   get pressed(): boolean { return this.pressT >= 0; }
@@ -92,10 +121,11 @@ export class FpsChip {
   private writeLog() {
     const text = this.copyLog.join('\n');
     const n = this.copyLog.length;
+    const rec = this.recording;
     const mark = (msg: string) => { this.statusMsg = msg; this.statusT = performance.now(); };
     try {
       const p = navigator.clipboard?.writeText(text);
-      if (p) p.then(() => mark(`copied ×${n}`), () => mark(`copy failed ×${n}`));
+      if (p) p.then(() => mark(rec ? `rec ×${n}` : `copied ×${n}`), () => mark(`copy failed ×${n}`));
       else mark('copy failed');
     } catch {
       mark('copy failed');
