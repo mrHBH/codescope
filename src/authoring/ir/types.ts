@@ -26,7 +26,23 @@ export type ObjectSpec =
   | WgPlotTangentSpec | WgPlotAccumulationSpec | WgPlotRiemannSpec | WgStreamlinesSpec
   | WgPlotOdeSpec | WgPlotBifurcationSpec | WgPlotFourierSpec | WgHistogramSpec
   | WgBoxplotSpec | WgPlotCellsSpec | WgContoursSpec | WgRegressionSpec
-  | WgChartFinSpec | WgChartMultiSpec;
+  | WgChartFinSpec | WgChartMultiSpec
+  | WgCircumcenterSpec | WgIncenterSpec | WgOrthocenterSpec | WgExcenterSpec
+  | WgEulerLineSpec | WgNinePointSpec
+  | WgPerpBisectorSpec | WgAngleBisectorSpec | WgMedianSpec | WgAltitudeSpec
+  | WgTangentSpec | WgTangentsFromSpec
+  | WgCircleDiameterSpec | WgIncircleSpec | WgExcircleSpec
+  | WgRadicalAxisSpec | WgPolarLineSpec | WgPolePointSpec | WgCommonTangentsSpec | WgApolloniusSpec
+  | WgRotatedPtSpec | WgTranslatedPtSpec | WgDilatedPtSpec
+  | WgInversionSpec | WgMobiusSpec
+  | WgLocusSpec | WgRegularPolygonSpec
+  | WgHLockSpec | WgVLockSpec | WgGridSnapSpec | WgAngleSnapSpec
+  | WgLengthSpec | WgSlopeSpec | WgRadiusSpec | WgAreaSpec
+  | WgDistributionSpec | WgSamplingSpec | WgCltSpec | WgRandomWalkSpec
+  | WgMonteCarloSpec | WgCorrelationSpec | WgHypothesisSpec
+  | WgMatrixGridSpec | WgDeterminantSpec | WgEigenvectorsSpec
+  | WgMatrixComposeSpec | WgDotProductSpec | WgSvdSpec
+  | WgGraphSpec | WgTraversalSpec | WgShortestPathSpec | WgMstSpec | WgEulerianSpec;
 
 export interface TextSpec {
   kind: 'text'; id: string;
@@ -540,6 +556,397 @@ export interface WgChartMultiSpec {
   chart: 'ternary' | 'parallel' | 'scattermatrix';
   columns?: number[][];
   triples?: [number, number, number][];
+  color?: Color;
+  stroke?: Stroke;
+  opacity?: number; visible?: boolean;
+}
+
+// ── Lane B: geometry constraint kinds (Phase 4) ────────────────────────────
+
+export interface WgCircumcenterSpec {
+  kind: 'wg-circumcenter'; id: string;
+  a: string; b: string; c: string;
+  color?: Color; radius?: number; label?: string;
+  opacity?: number; visible?: boolean;
+}
+export interface WgIncenterSpec {
+  kind: 'wg-incenter'; id: string;
+  a: string; b: string; c: string;
+  color?: Color; radius?: number; label?: string;
+  opacity?: number; visible?: boolean;
+}
+export interface WgOrthocenterSpec {
+  kind: 'wg-orthocenter'; id: string;
+  a: string; b: string; c: string;
+  color?: Color; radius?: number; label?: string;
+  opacity?: number; visible?: boolean;
+}
+export interface WgExcenterSpec {
+  kind: 'wg-excenter'; id: string;
+  a: string; b: string; c: string; which: 'a' | 'b' | 'c';
+  color?: Color; radius?: number; label?: string;
+  opacity?: number; visible?: boolean;
+}
+export interface WgEulerLineSpec {
+  kind: 'wg-euler-line'; id: string;
+  a: string; b: string; c: string;
+  stroke?: Stroke;
+  opacity?: number; visible?: boolean;
+}
+export interface WgNinePointSpec {
+  kind: 'wg-nine-point'; id: string;
+  a: string; b: string; c: string;
+  stroke?: Stroke; fill?: Color;
+  opacity?: number; visible?: boolean;
+}
+export interface WgPerpBisectorSpec {
+  kind: 'wg-perp-bisector'; id: string;
+  a: string; b: string;
+  stroke?: Stroke;
+  opacity?: number; visible?: boolean;
+}
+export interface WgAngleBisectorSpec {
+  kind: 'wg-angle-bisector'; id: string;
+  a: string; vertex: string; b: string;
+  stroke?: Stroke;
+  opacity?: number; visible?: boolean;
+}
+export interface WgMedianSpec {
+  kind: 'wg-median'; id: string;
+  vertex: string; a: string; b: string;
+  stroke?: Stroke;
+  opacity?: number; visible?: boolean;
+}
+export interface WgAltitudeSpec {
+  kind: 'wg-altitude'; id: string;
+  vertex: string; a: string; b: string;
+  stroke?: Stroke;
+  opacity?: number; visible?: boolean;
+}
+export interface WgTangentSpec {
+  kind: 'wg-tangent'; id: string;
+  circle: string; point: string;
+  stroke?: Stroke;
+  opacity?: number; visible?: boolean;
+}
+export interface WgTangentsFromSpec {
+  kind: 'wg-tangents-from'; id: string;
+  circle: string; point: string;
+  stroke?: Stroke;
+  opacity?: number; visible?: boolean;
+}
+export interface WgCircleDiameterSpec {
+  kind: 'wg-circle-diameter'; id: string;
+  a: string; b: string;
+  stroke?: Stroke; fill?: Color;
+  opacity?: number; visible?: boolean;
+}
+export interface WgIncircleSpec {
+  kind: 'wg-incircle'; id: string;
+  a: string; b: string; c: string;
+  stroke?: Stroke; fill?: Color;
+  opacity?: number; visible?: boolean;
+}
+export interface WgExcircleSpec {
+  kind: 'wg-excircle'; id: string;
+  a: string; b: string; c: string; which: 'a' | 'b' | 'c';
+  stroke?: Stroke; fill?: Color;
+  opacity?: number; visible?: boolean;
+}
+export interface WgRadicalAxisSpec {
+  kind: 'wg-radical-axis'; id: string;
+  c1: string; c2: string;
+  stroke?: Stroke;
+  opacity?: number; visible?: boolean;
+}
+export interface WgPolarLineSpec {
+  kind: 'wg-polar-line'; id: string;
+  circle: string; point: string;
+  stroke?: Stroke;
+  opacity?: number; visible?: boolean;
+}
+export interface WgPolePointSpec {
+  kind: 'wg-pole-point'; id: string;
+  circle: string; line: string;
+  color?: Color; radius?: number; label?: string;
+  opacity?: number; visible?: boolean;
+}
+export interface WgCommonTangentsSpec {
+  kind: 'wg-common-tangents'; id: string;
+  c1: string; c2: string;
+  stroke?: Stroke;
+  opacity?: number; visible?: boolean;
+}
+export interface WgApolloniusSpec {
+  kind: 'wg-apollonius'; id: string;
+  c1: string; c2: string; c3: string;
+  stroke?: Stroke; fill?: Color;
+  opacity?: number; visible?: boolean;
+}
+export interface WgRotatedPtSpec {
+  kind: 'wg-rotated-pt'; id: string;
+  p: string; center: string; angle: WgNum;
+  color?: Color; radius?: number; label?: string;
+  opacity?: number; visible?: boolean;
+}
+export interface WgTranslatedPtSpec {
+  kind: 'wg-translated-pt'; id: string;
+  p: string; dx: WgNum; dy: WgNum;
+  color?: Color; radius?: number; label?: string;
+  opacity?: number; visible?: boolean;
+}
+export interface WgDilatedPtSpec {
+  kind: 'wg-dilated-pt'; id: string;
+  p: string; center: string; factor: WgNum;
+  color?: Color; radius?: number; label?: string;
+  opacity?: number; visible?: boolean;
+}
+export interface WgInversionSpec {
+  kind: 'wg-inversion'; id: string;
+  p: string; circle: string;
+  color?: Color; radius?: number; label?: string;
+  opacity?: number; visible?: boolean;
+}
+export interface WgMobiusSpec {
+  kind: 'wg-mobius'; id: string;
+  p: string; a: WgNum; b: WgNum; c: WgNum; d: WgNum;
+  color?: Color; radius?: number; label?: string;
+  opacity?: number; visible?: boolean;
+}
+export interface WgLocusSpec {
+  kind: 'wg-locus'; id: string;
+  driver: string; dependent: string;
+  samples?: number;
+  stroke?: Stroke;
+  opacity?: number; visible?: boolean;
+}
+export interface WgRegularPolygonSpec {
+  kind: 'wg-regular-polygon'; id: string;
+  center: WgPoint; n: WgNum; radius: WgNum; rot?: WgNum;
+  fill?: Color; stroke?: Stroke;
+  opacity?: number; visible?: boolean;
+}
+export interface WgHLockSpec {
+  kind: 'wg-h-lock'; id: string;
+  p: string; y?: WgNum;
+  color?: Color; radius?: number; label?: string;
+  opacity?: number; visible?: boolean;
+}
+export interface WgVLockSpec {
+  kind: 'wg-v-lock'; id: string;
+  p: string; x?: WgNum;
+  color?: Color; radius?: number; label?: string;
+  opacity?: number; visible?: boolean;
+}
+export interface WgGridSnapSpec {
+  kind: 'wg-grid-snap'; id: string;
+  p: string; step?: WgNum;
+  color?: Color; radius?: number; label?: string;
+  opacity?: number; visible?: boolean;
+}
+export interface WgAngleSnapSpec {
+  kind: 'wg-angle-snap'; id: string;
+  p: string; center: string; step?: WgNum;
+  color?: Color; radius?: number; label?: string;
+  opacity?: number; visible?: boolean;
+}
+export interface WgLengthSpec {
+  kind: 'wg-length'; id: string;
+  a: string; b: string;
+  color?: Color;
+  opacity?: number; visible?: boolean;
+}
+export interface WgSlopeSpec {
+  kind: 'wg-slope'; id: string;
+  line: string;
+  color?: Color;
+  opacity?: number; visible?: boolean;
+}
+export interface WgRadiusSpec {
+  kind: 'wg-radius'; id: string;
+  circle: string;
+  color?: Color;
+  opacity?: number; visible?: boolean;
+}
+export interface WgAreaSpec {
+  kind: 'wg-area'; id: string;
+  points: string[];
+  color?: Color;
+  opacity?: number; visible?: boolean;
+}
+
+// ── Lane C: stats & probability kinds (Phase 4) ────────────────────────────
+
+export type DistName = 'normal' | 'binomial' | 'poisson' | 'exponential' | 'uniform' | 'geometric' | 'chi2' | 't' | 'f';
+
+export interface WgDistributionSpec {
+  kind: 'wg-distribution'; id: string;
+  dist: DistName;
+  params?: WgNum[];
+  showCdf?: boolean;
+  domain?: [WgNum, WgNum];
+  samples?: number;
+  stroke?: Stroke;
+  opacity?: number; visible?: boolean;
+}
+export interface WgSamplingSpec {
+  kind: 'wg-sampling'; id: string;
+  dist: DistName;
+  params?: WgNum[];
+  n: WgNum;
+  seed?: number;
+  color?: Color; radius?: number;
+  stroke?: Stroke;
+  opacity?: number; visible?: boolean;
+}
+export interface WgCltSpec {
+  kind: 'wg-clt'; id: string;
+  dist: DistName;
+  params?: WgNum[];
+  sampleSize: WgNum;
+  trials?: WgNum;
+  seed?: number;
+  stroke?: Stroke; fill?: Color;
+  opacity?: number; visible?: boolean;
+}
+export interface WgRandomWalkSpec {
+  kind: 'wg-random-walk'; id: string;
+  dims: 1 | 2;
+  steps: WgNum;
+  walks?: WgNum;
+  seed?: number;
+  brownian?: boolean;
+  color?: Color;
+  stroke?: Stroke;
+  opacity?: number; visible?: boolean;
+}
+export interface WgMonteCarloSpec {
+  kind: 'wg-monte-carlo'; id: string;
+  method: 'pi' | 'buffon';
+  n: WgNum;
+  seed?: number;
+  color?: Color; radius?: number;
+  stroke?: Stroke;
+  opacity?: number; visible?: boolean;
+}
+export interface WgCorrelationSpec {
+  kind: 'wg-correlation'; id: string;
+  points?: Vec2[];
+  anscombe?: 1 | 2 | 3 | 4;
+  showRegression?: boolean;
+  color?: Color; radius?: number;
+  stroke?: Stroke;
+  opacity?: number; visible?: boolean;
+}
+export interface WgHypothesisSpec {
+  kind: 'wg-hypothesis'; id: string;
+  test: 'z' | 't';
+  mu0: WgNum;
+  mu1?: WgNum;
+  sigma?: WgNum;
+  n: WgNum;
+  alpha?: WgNum;
+  domain?: [WgNum, WgNum];
+  stroke?: Stroke; fill?: Color;
+  opacity?: number; visible?: boolean;
+}
+
+// ── Lane D: linear algebra kinds (Phase 4) ─────────────────────────────────
+
+export interface WgMatrixGridSpec {
+  kind: 'wg-matrix-grid'; id: string;
+  entries: [WgNum, WgNum, WgNum, WgNum];
+  extent?: WgNum;
+  gridStep?: number;
+  stroke?: Stroke;
+  opacity?: number; visible?: boolean;
+}
+export interface WgDeterminantSpec {
+  kind: 'wg-determinant'; id: string;
+  entries: [WgNum, WgNum, WgNum, WgNum];
+  fill?: Color; stroke?: Stroke;
+  opacity?: number; visible?: boolean;
+}
+export interface WgEigenvectorsSpec {
+  kind: 'wg-eigenvectors'; id: string;
+  entries: [WgNum, WgNum, WgNum, WgNum];
+  extent?: WgNum;
+  color?: Color;
+  stroke?: Stroke;
+  opacity?: number; visible?: boolean;
+}
+export interface WgMatrixComposeSpec {
+  kind: 'wg-matrix-compose'; id: string;
+  a: [WgNum, WgNum, WgNum, WgNum];
+  b: [WgNum, WgNum, WgNum, WgNum];
+  extent?: WgNum;
+  stroke?: Stroke;
+  opacity?: number; visible?: boolean;
+}
+export interface WgDotProductSpec {
+  kind: 'wg-dot-product'; id: string;
+  u: [WgNum, WgNum]; v: [WgNum, WgNum];
+  color?: Color;
+  stroke?: Stroke;
+  opacity?: number; visible?: boolean;
+}
+export interface WgSvdSpec {
+  kind: 'wg-svd'; id: string;
+  entries: [WgNum, WgNum, WgNum, WgNum];
+  extent?: WgNum;
+  stroke?: Stroke;
+  opacity?: number; visible?: boolean;
+}
+
+// ── Lane E: graph theory kinds (Phase 4) ───────────────────────────────────
+
+export type GraphKind = 'petersen' | 'complete' | 'cycle' | 'path' | 'grid' | 'star' | 'wheel' | 'tree' | 'random';
+
+export interface WgGraphSpec {
+  kind: 'wg-graph'; id: string;
+  graph: GraphKind;
+  n?: WgNum;
+  m?: WgNum;
+  p?: WgNum;
+  seed?: number;
+  layout?: 'force' | 'circular';
+  color?: Color; radius?: number;
+  stroke?: Stroke;
+  opacity?: number; visible?: boolean;
+}
+export interface WgTraversalSpec {
+  kind: 'wg-traversal'; id: string;
+  graph: GraphKind;
+  n?: WgNum; m?: WgNum; p?: WgNum; seed?: number; layout?: 'force' | 'circular';
+  algo: 'bfs' | 'dfs';
+  start?: WgNum;
+  color?: Color; radius?: number;
+  stroke?: Stroke;
+  opacity?: number; visible?: boolean;
+}
+export interface WgShortestPathSpec {
+  kind: 'wg-shortest-path'; id: string;
+  graph: GraphKind;
+  n?: WgNum; m?: WgNum; p?: WgNum; seed?: number; layout?: 'force' | 'circular';
+  from?: WgNum; to?: WgNum;
+  color?: Color;
+  stroke?: Stroke;
+  opacity?: number; visible?: boolean;
+}
+export interface WgMstSpec {
+  kind: 'wg-mst'; id: string;
+  graph: GraphKind;
+  n?: WgNum; m?: WgNum; p?: WgNum; seed?: number; layout?: 'force' | 'circular';
+  algo: 'kruskal' | 'prim';
+  color?: Color;
+  stroke?: Stroke;
+  opacity?: number; visible?: boolean;
+}
+export interface WgEulerianSpec {
+  kind: 'wg-eulerian'; id: string;
+  graph: GraphKind;
+  n?: WgNum; m?: WgNum; p?: WgNum; seed?: number; layout?: 'force' | 'circular';
+  mode: 'circuit' | 'path';
   color?: Color;
   stroke?: Stroke;
   opacity?: number; visible?: boolean;

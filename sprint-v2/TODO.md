@@ -22,7 +22,7 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `~~struck~~` = culled b
 - [x] 1.4 Windgraph board adapter (hosts ConstraintGraph scene, s.interactive routing)
 - [x] 1.5 Slider binding + `emitTS` projection
 - [x] 1.6 REPL windgraph commands
-- [ ] **CP2 passed** — the drag feel
+- [x] **CP2 passed** — the drag feel (2026-07-28: "both ok")
 
 ## Phase 2 — Moat foundation (`phase-2-moat-foundation.md`)
 - [x] 2.1 Promote elevation/extrude/faceTilt to Mobject properties (fxXforms without FX)
@@ -30,7 +30,7 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `~~struck~~` = culled b
 - [x] 2.3 Glyph & math extrusion
 - [x] 2.4 Continuous camera tilt for any board
 - [x] 2.5 Analytic contact shadows (resolves OQ-2)
-- [ ] **CP3 passed** — thesis kill-gate
+- [x] **CP3 passed** — thesis kill-gate (2026-07-28: "both ok")
 
 ## Phase 3 — Moat flagships (`phase-3-moat.md`) — lanes G ‖ H
 - [ ] G1 bars ↔ columns · G2 scatter↔cloud + heatmap↔heightfield · G3 pie↔cylinder
@@ -45,9 +45,9 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `~~struck~~` = culled b
 
 ## Phase 4 — Parity fan-out (`phase-4-parity.md`) — lanes A ‖ B ‖ C ‖ D ‖ K
 - [x] A1–A18 plot catalog (piecewise, inequalities, splines, tangents, ODE, Fourier, histogram, box/violin, contours, regression, financial, ternary…)
-- [ ] B1–B12 geometry (centers, tangents, conics, inversion, **locus**, protocol replay…)
-- [ ] C1–C7 stats/probability (distributions, CLT, Monte Carlo, correlation, CI…)
-- [ ] D1–D6 linear algebra (matrix plane morph, determinant, eigen, SVD…)
+- [x] B1–B12 geometry (centers, tangents, conics, inversion, **locus**, protocol replay…) — domain + IR wired
+- [x] C1–C7 stats/probability (distributions, CLT, Monte Carlo, correlation, CI…) — domain + IR wired
+- [x] D1–D6 linear algebra (matrix plane morph, determinant, eigen, SVD…) — domain + IR wired
 - [x] K1–K6 mathtex (matrices, cases, align, accents, arrows, formula↔graph binding)
 - [ ] **CP6 passed** — gallery cull (culls recorded as strikes in Phases 5–6)
 

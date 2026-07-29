@@ -74,6 +74,66 @@ export function plotsDoc(): SceneDoc {
   });
 }
 
+const GREEN: Color = [0.35, 0.80, 0.55, 1];
+const RED: Color = [0.90, 0.45, 0.45, 1];
+const ORANGE: Color = [0.95, 0.65, 0.30, 1];
+
+/** Lane B geometry catalog: triangle centers, conics, inversion, n-gon. */
+export function geometryCatalogDoc(): SceneDoc {
+  return scene({ title: 'geometry catalog — centers, conics, inversion' }, (s) => {
+    s.param.number('n', { default: 6, min: 3, max: 24, step: 1, label: 'polygon sides' });
+    s.wg.point('A', [-4, -3], { free: true, label: 'A' });
+    s.wg.point('B', [0, 4], { free: true, label: 'B' });
+    s.wg.point('C', [5, -2], { free: true, label: 'C' });
+    s.wg.polygon('tri', ['A', 'B', 'C'], { stroke: { color: BLUE, width: 2.5 } });
+    s.wg.circumcircle('cc', 'A', 'B', 'C', { stroke: { color: GOLD, width: 1.6 } });
+    s.wg.ninePoint('npc', 'A', 'B', 'C', { stroke: { color: ORANGE, width: 1.4 } });
+    s.wg.incircle('inc', 'A', 'B', 'C', { stroke: { color: TEAL, width: 1.6 } });
+    s.wg.circumcenter('O', 'A', 'B', 'C', { label: 'O', color: GOLD });
+    s.wg.incenter('I', 'A', 'B', 'C', { label: 'I', color: TEAL });
+    s.wg.orthocenter('H', 'A', 'B', 'C', { label: 'H', color: PINK });
+    s.wg.point('F1', [-7, 2.5], { free: true, label: 'F₁' });
+    s.wg.point('F2', [-3, 2.5], { free: true, label: 'F₂' });
+    s.wg.conic('ell', 'ellipse', { foci: ['F1', 'F2'], stroke: { color: VIOLET, width: 2 } });
+    s.wg.regularPolygon('ngon', [7.5, 0], { $param: 'n' }, 2.4, { stroke: { color: GREEN, width: 2 }, fill: [0.35, 0.80, 0.55, 0.12] });
+    s.wg.length('len', 'A', 'B');
+    s.wg.area('ar', ['A', 'B', 'C']);
+  });
+}
+
+/** Lane C stats: distributions, CLT, random walks, Monte Carlo, correlation. */
+export function statsDoc(): SceneDoc {
+  return scene({ title: 'stats & probability — distributions, CLT, Monte Carlo' }, (s) => {
+    s.param.number('mu', { default: 0, min: -3, max: 3, step: 0.1, label: 'μ' });
+    s.param.number('sigma', { default: 1, min: 0.3, max: 3, step: 0.1, label: 'σ' });
+    s.wg.distribution('norm', 'normal', { params: [{ $param: 'mu' }, { $param: 'sigma' }], showCdf: true, domain: [-6, 6], stroke: { color: BLUE, width: 2.5 } });
+    s.wg.randomWalk('walk', 2, 18, { walks: 2, seed: 99, stroke: { color: GREEN, width: 1.6 } });
+    s.wg.correlation('corr', { points: [[-3, -2.5], [-2, -1.2], [-1, -0.6], [0, 0.3], [1, 0.9], [2, 1.8], [3, 2.6], [2.5, 2.1], [-1.5, -1.0], [0.5, 0.1]], showRegression: true, color: GOLD, radius: 4, stroke: { color: RED, width: 2 } });
+  });
+}
+
+/** Lane D linear algebra: matrix grid morph, determinant, eigenvectors, SVD. */
+export function linalgDoc(): SceneDoc {
+  return scene({ title: 'linear algebra — the 3b1b shot' }, (s) => {
+    s.param.number('a', { default: 1, min: -3, max: 3, step: 0.1, label: 'a' });
+    s.param.number('b', { default: 0, min: -3, max: 3, step: 0.1, label: 'b' });
+    s.param.number('c', { default: 0, min: -3, max: 3, step: 0.1, label: 'c' });
+    s.param.number('d', { default: 1, min: -3, max: 3, step: 0.1, label: 'd' });
+    s.wg.matrixGrid('grid', [{ $param: 'a' }, { $param: 'b' }, { $param: 'c' }, { $param: 'd' }], { extent: 5, stroke: { color: BLUE, width: 1.5 } });
+    s.wg.determinant('det', [{ $param: 'a' }, { $param: 'b' }, { $param: 'c' }, { $param: 'd' }], { fill: [0.36, 0.62, 0.98, 0.25], stroke: { color: GOLD, width: 2 } });
+    s.wg.eigenvectors('eigen', [{ $param: 'a' }, { $param: 'b' }, { $param: 'c' }, { $param: 'd' }], { extent: 5, color: RED, stroke: { color: RED, width: 2.5 } });
+    s.wg.dotProduct('dot', [3, 1], [1, 2], { color: TEAL, stroke: { color: TEAL, width: 2 } });
+    s.wg.svd('svd', [{ $param: 'a' }, { $param: 'b' }, { $param: 'c' }, { $param: 'd' }], { extent: 3, stroke: { color: VIOLET, width: 2 } });
+  });
+}
+
+/** Lane E graph theory: named graphs, traversal, MST, Eulerian paths. */
+export function graphTheoryDoc(): SceneDoc {
+  return scene({ title: 'graph theory — layout, traversal, MST, Euler' }, (s) => {
+    s.wg.traversal('petersen-bfs', 'petersen', 'bfs', { start: 0, layout: 'circular', color: GOLD, radius: 6, stroke: { color: TEAL, width: 1.6 } });
+  });
+}
+
 // ── world ────────────────────────────────────────────────────────────────────
 
 const GAP = 500;
@@ -123,10 +183,23 @@ export class WindgraphWorld {
     plots.x0 = 0; plots.y0 = 200 + tri.height + GAP;
     const extrude = new WindgraphExtrudeBoard();
     extrude.x0 = 0; extrude.y0 = plots.y0 + plots.height + GAP;
-    this.boards = [tri, geom, plots, extrude];
 
-    const contentW = Math.max(tri.width * 2 + GAP, extrude.width);
-    const contentH = extrude.y0 + extrude.height;
+    const HGAP = GAP * 2.4;
+    const VGAP = GAP * 1.8;
+    const catalogTop = extrude.y0 + extrude.height + GAP * 2.2;
+    const geoCat = new WindgraphSceneBoard(geometryCatalogDoc());
+    geoCat.x0 = 0; geoCat.y0 = catalogTop;
+    const stats = new WindgraphSceneBoard(statsDoc());
+    stats.x0 = geoCat.width + HGAP; stats.y0 = catalogTop;
+    const linalg = new WindgraphSceneBoard(linalgDoc());
+    linalg.x0 = 0; linalg.y0 = catalogTop + geoCat.height + VGAP;
+    const graphTh = new WindgraphSceneBoard(graphTheoryDoc());
+    graphTh.x0 = linalg.width + HGAP; graphTh.y0 = linalg.y0;
+
+    this.boards = [tri, geom, plots, extrude, geoCat, stats, linalg, graphTh];
+
+    const contentW = Math.max(tri.width * 2 + GAP, extrude.width, geoCat.width + HGAP + stats.width);
+    const contentH = graphTh.y0 + graphTh.height;
     this.overview = { x: -60, y: -230, w: contentW + 120, h: contentH + 230 + 60 };
     const cx = contentW / 2, cy = contentH / 2, HALF = 30000;
     this.x0 = cx - HALF; this.y0 = cy - HALF;

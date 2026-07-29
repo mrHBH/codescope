@@ -48,7 +48,7 @@ direct-manipulable.
 selection/grab feel wrong? Sliders usable? (This is the last cheap moment to
 change the contract.)
 
-> **Verdict:** _pending_
+> **Verdict: PASSED (2026-07-28).** "both ok."
 
 ---
 
@@ -64,7 +64,8 @@ at grazing angle; shadow reads as grounded, not pasted.
 **Questions:** One continuous space, or a 2D mode and a 3D mode? Does extruded
 glyph text feel premium or gimmicky? Kill / continue / rework-what?
 
-> **Verdict:** _pending_
+> **Verdict: PASSED (2026-07-28).** "both ok." — continuous 2D↔3D confirmed as
+> one space; extrude thesis lives.
 
 ---
 

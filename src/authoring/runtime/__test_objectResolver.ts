@@ -155,11 +155,14 @@ test('resolver rejects non-point input with a descriptive error', () => {
   assert(msg.includes('not a point-valued'), `got: ${msg}`);
 });
 
-test('wg-conic stub throws (Phase 4)', () => {
-  const doc = mkDoc({ k: { kind: 'wg-conic', id: 'k', conic: 'ellipse', foci: [] } });
-  let threw = false;
-  try { new WgScene(doc, new Map(), new NumberPlane()); } catch { threw = true; }
-  assert(threw);
+test('wg-conic resolves (Phase 4 B5)', () => {
+  const doc = mkDoc({
+    f1: { kind: 'wg-point', id: 'f1', at: [-2, 0], free: true },
+    f2: { kind: 'wg-point', id: 'f2', at: [2, 0], free: true },
+    k: { kind: 'wg-conic', id: 'k', conic: 'ellipse', foci: ['f1', 'f2'] },
+  });
+  const scene = new WgScene(doc, new Map(), new NumberPlane());
+  assert(scene.mobjects.has('k'));
 });
 
 test('mobjects are real Mobject instances (clip targets for 1.3)', () => {

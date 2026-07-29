@@ -162,4 +162,175 @@ export class WgBuilder {
   chartMulti(id: string | null, chart: 'ternary' | 'parallel' | 'scattermatrix', o: StrokeOpts & { columns?: number[][]; triples?: [number, number, number][]; color?: Color } = {}) {
     return this.add({ kind: 'wg-chart-multi', id: id ?? this.s.uid('wg-chart-multi'), chart, columns: o.columns, triples: o.triples, color: o.color, stroke: o.stroke, opacity: o.opacity, visible: o.visible });
   }
+
+  // ── Lane B: geometry constraints (Phase 4) ─────────────────────────────
+
+  circumcenter(id: string | null, a: string, b: string, c: string, o: PointLikeOpts = {}) {
+    return this.add({ kind: 'wg-circumcenter', id: id ?? this.s.uid('wg-circumcenter'), a, b, c, color: o.color, radius: o.radius, label: o.label, opacity: o.opacity, visible: o.visible });
+  }
+  incenter(id: string | null, a: string, b: string, c: string, o: PointLikeOpts = {}) {
+    return this.add({ kind: 'wg-incenter', id: id ?? this.s.uid('wg-incenter'), a, b, c, color: o.color, radius: o.radius, label: o.label, opacity: o.opacity, visible: o.visible });
+  }
+  orthocenter(id: string | null, a: string, b: string, c: string, o: PointLikeOpts = {}) {
+    return this.add({ kind: 'wg-orthocenter', id: id ?? this.s.uid('wg-orthocenter'), a, b, c, color: o.color, radius: o.radius, label: o.label, opacity: o.opacity, visible: o.visible });
+  }
+  excenter(id: string | null, a: string, b: string, c: string, which: 'a' | 'b' | 'c', o: PointLikeOpts = {}) {
+    return this.add({ kind: 'wg-excenter', id: id ?? this.s.uid('wg-excenter'), a, b, c, which, color: o.color, radius: o.radius, label: o.label, opacity: o.opacity, visible: o.visible });
+  }
+  eulerLine(id: string | null, a: string, b: string, c: string, o: StrokeOpts = {}) {
+    return this.add({ kind: 'wg-euler-line', id: id ?? this.s.uid('wg-euler-line'), a, b, c, stroke: o.stroke, opacity: o.opacity, visible: o.visible });
+  }
+  ninePoint(id: string | null, a: string, b: string, c: string, o: StrokeOpts & { fill?: Color } = {}) {
+    return this.add({ kind: 'wg-nine-point', id: id ?? this.s.uid('wg-nine-point'), a, b, c, fill: o.fill, stroke: o.stroke, opacity: o.opacity, visible: o.visible });
+  }
+  perpBisector(id: string | null, a: string, b: string, o: StrokeOpts = {}) {
+    return this.add({ kind: 'wg-perp-bisector', id: id ?? this.s.uid('wg-perp-bisector'), a, b, stroke: o.stroke, opacity: o.opacity, visible: o.visible });
+  }
+  angleBisector(id: string | null, a: string, vertex: string, b: string, o: StrokeOpts = {}) {
+    return this.add({ kind: 'wg-angle-bisector', id: id ?? this.s.uid('wg-angle-bisector'), a, vertex, b, stroke: o.stroke, opacity: o.opacity, visible: o.visible });
+  }
+  median(id: string | null, vertex: string, a: string, b: string, o: StrokeOpts = {}) {
+    return this.add({ kind: 'wg-median', id: id ?? this.s.uid('wg-median'), vertex, a, b, stroke: o.stroke, opacity: o.opacity, visible: o.visible });
+  }
+  altitude(id: string | null, vertex: string, a: string, b: string, o: StrokeOpts = {}) {
+    return this.add({ kind: 'wg-altitude', id: id ?? this.s.uid('wg-altitude'), vertex, a, b, stroke: o.stroke, opacity: o.opacity, visible: o.visible });
+  }
+  tangent(id: string | null, circle: string, point: string, o: StrokeOpts = {}) {
+    return this.add({ kind: 'wg-tangent', id: id ?? this.s.uid('wg-tangent'), circle, point, stroke: o.stroke, opacity: o.opacity, visible: o.visible });
+  }
+  tangentsFrom(id: string | null, circle: string, point: string, o: StrokeOpts = {}) {
+    return this.add({ kind: 'wg-tangents-from', id: id ?? this.s.uid('wg-tangents-from'), circle, point, stroke: o.stroke, opacity: o.opacity, visible: o.visible });
+  }
+  circleDiameter(id: string | null, a: string, b: string, o: StrokeOpts & { fill?: Color } = {}) {
+    return this.add({ kind: 'wg-circle-diameter', id: id ?? this.s.uid('wg-circle-diameter'), a, b, fill: o.fill, stroke: o.stroke, opacity: o.opacity, visible: o.visible });
+  }
+  incircle(id: string | null, a: string, b: string, c: string, o: StrokeOpts & { fill?: Color } = {}) {
+    return this.add({ kind: 'wg-incircle', id: id ?? this.s.uid('wg-incircle'), a, b, c, fill: o.fill, stroke: o.stroke, opacity: o.opacity, visible: o.visible });
+  }
+  excircle(id: string | null, a: string, b: string, c: string, which: 'a' | 'b' | 'c', o: StrokeOpts & { fill?: Color } = {}) {
+    return this.add({ kind: 'wg-excircle', id: id ?? this.s.uid('wg-excircle'), a, b, c, which, fill: o.fill, stroke: o.stroke, opacity: o.opacity, visible: o.visible });
+  }
+  radicalAxis(id: string | null, c1: string, c2: string, o: StrokeOpts = {}) {
+    return this.add({ kind: 'wg-radical-axis', id: id ?? this.s.uid('wg-radical-axis'), c1, c2, stroke: o.stroke, opacity: o.opacity, visible: o.visible });
+  }
+  polarLine(id: string | null, circle: string, point: string, o: StrokeOpts = {}) {
+    return this.add({ kind: 'wg-polar-line', id: id ?? this.s.uid('wg-polar-line'), circle, point, stroke: o.stroke, opacity: o.opacity, visible: o.visible });
+  }
+  polePoint(id: string | null, circle: string, line: string, o: PointLikeOpts = {}) {
+    return this.add({ kind: 'wg-pole-point', id: id ?? this.s.uid('wg-pole-point'), circle, line, color: o.color, radius: o.radius, label: o.label, opacity: o.opacity, visible: o.visible });
+  }
+  commonTangents(id: string | null, c1: string, c2: string, o: StrokeOpts = {}) {
+    return this.add({ kind: 'wg-common-tangents', id: id ?? this.s.uid('wg-common-tangents'), c1, c2, stroke: o.stroke, opacity: o.opacity, visible: o.visible });
+  }
+  apollonius(id: string | null, c1: string, c2: string, c3: string, o: StrokeOpts & { fill?: Color } = {}) {
+    return this.add({ kind: 'wg-apollonius', id: id ?? this.s.uid('wg-apollonius'), c1, c2, c3, fill: o.fill, stroke: o.stroke, opacity: o.opacity, visible: o.visible });
+  }
+  rotatedPt(id: string | null, p: string, center: string, angle: WgNum, o: PointLikeOpts = {}) {
+    return this.add({ kind: 'wg-rotated-pt', id: id ?? this.s.uid('wg-rotated-pt'), p, center, angle, color: o.color, radius: o.radius, label: o.label, opacity: o.opacity, visible: o.visible });
+  }
+  translatedPt(id: string | null, p: string, dx: WgNum, dy: WgNum, o: PointLikeOpts = {}) {
+    return this.add({ kind: 'wg-translated-pt', id: id ?? this.s.uid('wg-translated-pt'), p, dx, dy, color: o.color, radius: o.radius, label: o.label, opacity: o.opacity, visible: o.visible });
+  }
+  dilatedPt(id: string | null, p: string, center: string, factor: WgNum, o: PointLikeOpts = {}) {
+    return this.add({ kind: 'wg-dilated-pt', id: id ?? this.s.uid('wg-dilated-pt'), p, center, factor, color: o.color, radius: o.radius, label: o.label, opacity: o.opacity, visible: o.visible });
+  }
+  inversion(id: string | null, p: string, circle: string, o: PointLikeOpts = {}) {
+    return this.add({ kind: 'wg-inversion', id: id ?? this.s.uid('wg-inversion'), p, circle, color: o.color, radius: o.radius, label: o.label, opacity: o.opacity, visible: o.visible });
+  }
+  mobius(id: string | null, p: string, a: WgNum, b: WgNum, c: WgNum, d: WgNum, o: PointLikeOpts = {}) {
+    return this.add({ kind: 'wg-mobius', id: id ?? this.s.uid('wg-mobius'), p, a, b, c, d, color: o.color, radius: o.radius, label: o.label, opacity: o.opacity, visible: o.visible });
+  }
+  locus(id: string | null, driver: string, dependent: string, o: StrokeOpts & { samples?: number } = {}) {
+    return this.add({ kind: 'wg-locus', id: id ?? this.s.uid('wg-locus'), driver, dependent, samples: o.samples, stroke: o.stroke, opacity: o.opacity, visible: o.visible });
+  }
+  regularPolygon(id: string | null, center: WgPoint, n: WgNum, radius: WgNum, o: StrokeOpts & { fill?: Color; rot?: WgNum } = {}) {
+    return this.add({ kind: 'wg-regular-polygon', id: id ?? this.s.uid('wg-regular-polygon'), center, n, radius, rot: o.rot, fill: o.fill, stroke: o.stroke, opacity: o.opacity, visible: o.visible });
+  }
+  hLock(id: string | null, p: string, o: PointLikeOpts & { y?: WgNum } = {}) {
+    return this.add({ kind: 'wg-h-lock', id: id ?? this.s.uid('wg-h-lock'), p, y: o.y, color: o.color, radius: o.radius, label: o.label, opacity: o.opacity, visible: o.visible });
+  }
+  vLock(id: string | null, p: string, o: PointLikeOpts & { x?: WgNum } = {}) {
+    return this.add({ kind: 'wg-v-lock', id: id ?? this.s.uid('wg-v-lock'), p, x: o.x, color: o.color, radius: o.radius, label: o.label, opacity: o.opacity, visible: o.visible });
+  }
+  gridSnap(id: string | null, p: string, o: PointLikeOpts & { step?: WgNum } = {}) {
+    return this.add({ kind: 'wg-grid-snap', id: id ?? this.s.uid('wg-grid-snap'), p, step: o.step, color: o.color, radius: o.radius, label: o.label, opacity: o.opacity, visible: o.visible });
+  }
+  angleSnap(id: string | null, p: string, center: string, o: PointLikeOpts & { step?: WgNum } = {}) {
+    return this.add({ kind: 'wg-angle-snap', id: id ?? this.s.uid('wg-angle-snap'), p, center, step: o.step, color: o.color, radius: o.radius, label: o.label, opacity: o.opacity, visible: o.visible });
+  }
+  length(id: string | null, a: string, b: string, o: CommonOpts & { color?: Color } = {}) {
+    return this.add({ kind: 'wg-length', id: id ?? this.s.uid('wg-length'), a, b, color: o.color, opacity: o.opacity, visible: o.visible });
+  }
+  slope(id: string | null, line: string, o: CommonOpts & { color?: Color } = {}) {
+    return this.add({ kind: 'wg-slope', id: id ?? this.s.uid('wg-slope'), line, color: o.color, opacity: o.opacity, visible: o.visible });
+  }
+  radiusMeasure(id: string | null, circle: string, o: CommonOpts & { color?: Color } = {}) {
+    return this.add({ kind: 'wg-radius', id: id ?? this.s.uid('wg-radius'), circle, color: o.color, opacity: o.opacity, visible: o.visible });
+  }
+  area(id: string | null, points: string[], o: CommonOpts & { color?: Color } = {}) {
+    return this.add({ kind: 'wg-area', id: id ?? this.s.uid('wg-area'), points, color: o.color, opacity: o.opacity, visible: o.visible });
+  }
+
+  // ── Lane C: stats & probability (Phase 4) ──────────────────────────────
+
+  distribution(id: string | null, dist: string, o: StrokeOpts & { params?: WgNum[]; showCdf?: boolean; domain?: [WgNum, WgNum]; samples?: number } = {}) {
+    return this.add({ kind: 'wg-distribution', id: id ?? this.s.uid('wg-distribution'), dist: dist as any, params: o.params, showCdf: o.showCdf, domain: o.domain, samples: o.samples, stroke: o.stroke, opacity: o.opacity, visible: o.visible });
+  }
+  sampling(id: string | null, dist: string, n: WgNum, o: StrokeOpts & PointLikeOpts & { params?: WgNum[]; seed?: number } = {}) {
+    return this.add({ kind: 'wg-sampling', id: id ?? this.s.uid('wg-sampling'), dist: dist as any, params: o.params, n, seed: o.seed, color: o.color, radius: o.radius, stroke: o.stroke, opacity: o.opacity, visible: o.visible });
+  }
+  clt(id: string | null, dist: string, sampleSize: WgNum, o: StrokeOpts & { params?: WgNum[]; trials?: WgNum; seed?: number; fill?: Color } = {}) {
+    return this.add({ kind: 'wg-clt', id: id ?? this.s.uid('wg-clt'), dist: dist as any, params: o.params, sampleSize, trials: o.trials, seed: o.seed, fill: o.fill, stroke: o.stroke, opacity: o.opacity, visible: o.visible });
+  }
+  randomWalk(id: string | null, dims: 1 | 2, steps: WgNum, o: StrokeOpts & { walks?: WgNum; seed?: number; brownian?: boolean; color?: Color } = {}) {
+    return this.add({ kind: 'wg-random-walk', id: id ?? this.s.uid('wg-random-walk'), dims, steps, walks: o.walks, seed: o.seed, brownian: o.brownian, color: o.color, stroke: o.stroke, opacity: o.opacity, visible: o.visible });
+  }
+  monteCarlo(id: string | null, method: 'pi' | 'buffon', n: WgNum, o: StrokeOpts & PointLikeOpts & { seed?: number } = {}) {
+    return this.add({ kind: 'wg-monte-carlo', id: id ?? this.s.uid('wg-monte-carlo'), method, n, seed: o.seed, color: o.color, radius: o.radius, stroke: o.stroke, opacity: o.opacity, visible: o.visible });
+  }
+  correlation(id: string | null, o: StrokeOpts & PointLikeOpts & { points?: [number, number][]; anscombe?: 1 | 2 | 3 | 4; showRegression?: boolean } = {}) {
+    return this.add({ kind: 'wg-correlation', id: id ?? this.s.uid('wg-correlation'), points: o.points, anscombe: o.anscombe, showRegression: o.showRegression, color: o.color, radius: o.radius, stroke: o.stroke, opacity: o.opacity, visible: o.visible });
+  }
+  hypothesis(id: string | null, test: 'z' | 't', mu0: WgNum, n: WgNum, o: StrokeOpts & { mu1?: WgNum; sigma?: WgNum; alpha?: WgNum; domain?: [WgNum, WgNum]; fill?: Color } = {}) {
+    return this.add({ kind: 'wg-hypothesis', id: id ?? this.s.uid('wg-hypothesis'), test, mu0, mu1: o.mu1, sigma: o.sigma, n, alpha: o.alpha, domain: o.domain, fill: o.fill, stroke: o.stroke, opacity: o.opacity, visible: o.visible });
+  }
+
+  // ── Lane D: linear algebra (Phase 4) ───────────────────────────────────
+
+  matrixGrid(id: string | null, entries: [WgNum, WgNum, WgNum, WgNum], o: StrokeOpts & { extent?: WgNum; gridStep?: number } = {}) {
+    return this.add({ kind: 'wg-matrix-grid', id: id ?? this.s.uid('wg-matrix-grid'), entries, extent: o.extent, gridStep: o.gridStep, stroke: o.stroke, opacity: o.opacity, visible: o.visible });
+  }
+  determinant(id: string | null, entries: [WgNum, WgNum, WgNum, WgNum], o: StrokeOpts & { fill?: Color } = {}) {
+    return this.add({ kind: 'wg-determinant', id: id ?? this.s.uid('wg-determinant'), entries, fill: o.fill, stroke: o.stroke, opacity: o.opacity, visible: o.visible });
+  }
+  eigenvectors(id: string | null, entries: [WgNum, WgNum, WgNum, WgNum], o: StrokeOpts & { extent?: WgNum; color?: Color } = {}) {
+    return this.add({ kind: 'wg-eigenvectors', id: id ?? this.s.uid('wg-eigenvectors'), entries, extent: o.extent, color: o.color, stroke: o.stroke, opacity: o.opacity, visible: o.visible });
+  }
+  matrixCompose(id: string | null, a: [WgNum, WgNum, WgNum, WgNum], b: [WgNum, WgNum, WgNum, WgNum], o: StrokeOpts & { extent?: WgNum } = {}) {
+    return this.add({ kind: 'wg-matrix-compose', id: id ?? this.s.uid('wg-matrix-compose'), a, b, extent: o.extent, stroke: o.stroke, opacity: o.opacity, visible: o.visible });
+  }
+  dotProduct(id: string | null, u: [WgNum, WgNum], v: [WgNum, WgNum], o: StrokeOpts & { color?: Color } = {}) {
+    return this.add({ kind: 'wg-dot-product', id: id ?? this.s.uid('wg-dot-product'), u, v, color: o.color, stroke: o.stroke, opacity: o.opacity, visible: o.visible });
+  }
+  svd(id: string | null, entries: [WgNum, WgNum, WgNum, WgNum], o: StrokeOpts & { extent?: WgNum } = {}) {
+    return this.add({ kind: 'wg-svd', id: id ?? this.s.uid('wg-svd'), entries, extent: o.extent, stroke: o.stroke, opacity: o.opacity, visible: o.visible });
+  }
+
+  // ── Lane E: graph theory (Phase 4) ─────────────────────────────────────
+
+  graph(id: string | null, graph: string, o: StrokeOpts & PointLikeOpts & { n?: WgNum; m?: WgNum; p?: WgNum; seed?: number; layout?: 'force' | 'circular' } = {}) {
+    return this.add({ kind: 'wg-graph', id: id ?? this.s.uid('wg-graph'), graph: graph as any, n: o.n, m: o.m, p: o.p, seed: o.seed, layout: o.layout, color: o.color, radius: o.radius, stroke: o.stroke, opacity: o.opacity, visible: o.visible });
+  }
+  traversal(id: string | null, graph: string, algo: 'bfs' | 'dfs', o: StrokeOpts & PointLikeOpts & { n?: WgNum; m?: WgNum; p?: WgNum; seed?: number; start?: WgNum; layout?: 'force' | 'circular' } = {}) {
+    return this.add({ kind: 'wg-traversal', id: id ?? this.s.uid('wg-traversal'), graph: graph as any, n: o.n, m: o.m, p: o.p, seed: o.seed, layout: o.layout, algo, start: o.start, color: o.color, radius: o.radius, stroke: o.stroke, opacity: o.opacity, visible: o.visible });
+  }
+  shortestPath(id: string | null, graph: string, o: StrokeOpts & { n?: WgNum; m?: WgNum; p?: WgNum; seed?: number; from?: WgNum; to?: WgNum; color?: Color; layout?: 'force' | 'circular' } = {}) {
+    return this.add({ kind: 'wg-shortest-path', id: id ?? this.s.uid('wg-shortest-path'), graph: graph as any, n: o.n, m: o.m, p: o.p, seed: o.seed, layout: o.layout, from: o.from, to: o.to, color: o.color, stroke: o.stroke, opacity: o.opacity, visible: o.visible });
+  }
+  mst(id: string | null, graph: string, algo: 'kruskal' | 'prim', o: StrokeOpts & { n?: WgNum; m?: WgNum; p?: WgNum; seed?: number; color?: Color; layout?: 'force' | 'circular' } = {}) {
+    return this.add({ kind: 'wg-mst', id: id ?? this.s.uid('wg-mst'), graph: graph as any, n: o.n, m: o.m, p: o.p, seed: o.seed, layout: o.layout, algo, color: o.color, stroke: o.stroke, opacity: o.opacity, visible: o.visible });
+  }
+  eulerian(id: string | null, graph: string, mode: 'circuit' | 'path', o: StrokeOpts & { n?: WgNum; m?: WgNum; p?: WgNum; seed?: number; color?: Color; layout?: 'force' | 'circular' } = {}) {
+    return this.add({ kind: 'wg-eulerian', id: id ?? this.s.uid('wg-eulerian'), graph: graph as any, n: o.n, m: o.m, p: o.p, seed: o.seed, layout: o.layout, mode, color: o.color, stroke: o.stroke, opacity: o.opacity, visible: o.visible });
+  }
 }

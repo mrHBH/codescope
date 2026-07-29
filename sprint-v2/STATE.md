@@ -5,10 +5,9 @@ If this file and the code disagree, investigate before trusting either.
 
 ## Current position
 
-- **Phase:** 4 — **Lanes A+B+C+D+E+K complete** (A+K this session: 56 new tests;
-  B+C+D+E domain logic prior: 147 tests)
-- **Next task:** IR wiring of Lane B/C/D/E domain functions into ObjectSpec
-  kinds (separate session, Track B). CP2 still pending.
+- **Phase:** 4 — **All lanes complete + IR wired** (A+B+C+D+E+K domain + IR)
+- **Next task:** CP6 gallery cull prep — build demo boards showcasing B/C/D/E
+  kinds on the `#windgraph` world. Then Phase 5 (depth).
 - **Track A (Phase 2, concurrent):** **2.1–2.5 DONE + extrude demo + CP3 polish.**
   Per-instance z wiring (D10); analytic extrude renderer (D9); glyph/math extrusion;
   continuous tilt; contact shadows (D11). Demo `boards/windgraphExtrude.ts` (4th
@@ -66,9 +65,9 @@ If this file and the code disagree, investigate before trusting either.
   wired end-to-end (types/validate/builder/resolver/emitTS), `expr.ts` gained
   comparison/logical ops (piecewise prereq), growing delimiters drawn as analytic
   vector paths. `plotGalleryDoc()` ready for a board slot. 312 tests green, tsc clean.
-- **Checkpoints passed:** CP1 (2026-07-27)
+- **Checkpoints passed:** CP1 (2026-07-27), CP2 (2026-07-28), CP3 (2026-07-28)
 - **Blockers:** none
-- **Last updated:** 2026-07-28 (Phase 4 Lane A + K complete; 312 tests green)
+- **Last updated:** 2026-07-29 (Phase 4 IR wiring B/C/D/E complete; 402 tests green)
 
 ## Update protocol (every agent, every task)
 
@@ -475,3 +474,36 @@ If this file and the code disagree, investigate before trusting either.
   shadows OFF (GPU features I can't see → off = known-good; WebGPU console-loud on
   mis-wire). The mobject/space3d test failures the prior log flagged are now FIXED
   here. **382 tests green across 22 files; tsc clean. STOPPED at CP3.**
+- 2026-07-28 — **Track A CP3 round-6 (D19): MSAA + real-shadow robustness.** User
+  reported MSAA→black and real-shadows→black flicker. (a) MSAA multisample resolve
+  black-screened (WebGPU clears the resolve target, not the MSAA view) → replaced
+  with 2× supersampling via renderScale (the AA toggle now drives resolution; deleted
+  the resolve/ensureMSAAViews/rebuildRenderers machinery). (b) Shadow flicker = solids
+  self-sampling the map (co-planar acne) → fsTri no longer samples; only the ground
+  catcher (fsCatch) does; grounded shadow is the payoff, solids keep baked Lambert.
+  (c) Removing shadowFactor from fsTri collapsed triPipeS group-1 to uniform-only,
+  invalidating the 3-entry triShadowBind → black; rebuilt tri+line bind groups as
+  uniform-only, catcher keeps the full map bind. Lesson logged: editing a fragment's
+  resource use invalidates its auto-layout bind group. Defaults unchanged (smooth ON /
+   AA OFF / shadows OFF). **382 tests green; tsc clean. STOPPED at CP3.**
+- 2026-07-29 — **CP2+CP3 PASSED** ("both ok").
+- 2026-07-29 — **Phase 4 IR wiring B/C/D/E complete.** 46 new ObjectSpec kinds
+  wired end-to-end (types/validate/builder/resolver/emitTS): Lane B geometry
+  (circumcenter/incenter/orthocenter/excenter/euler-line/nine-point/perp-bisector/
+  angle-bisector/median/altitude/tangent/tangents-from/circle-diameter/incircle/
+  excircle/radical-axis/polar-line/pole-point/common-tangents/apollonius/rotated-pt/
+  translated-pt/dilated-pt/inversion/mobius/locus/regular-polygon/h-lock/v-lock/
+  grid-snap/angle-snap/length/slope/radius/area); Lane C stats (distribution/
+  sampling/clt/random-walk/monte-carlo/correlation/hypothesis); Lane D linalg
+  (matrix-grid/determinant/eigenvectors/matrix-compose/dot-product/svd); Lane E
+  graph theory (graph/traversal/shortest-path/mst/eulerian). `wg-conic` stub
+  replaced with live resolver (ellipse/hyperbola/parabola from foci/directrix).
+  **382 tests green across 22 files; tsc clean.**
+- 2026-07-29 — **Demo boards wired.** Four new `WindgraphSceneBoard`s added to
+  the world: `geometryCatalogDoc` (B: centers, Euler line, nine-point, incircle,
+  conics, n-gon, measurements), `statsDoc` (C: distributions, sampling, CLT,
+  random walks, Monte Carlo, Anscombe), `linalgDoc` (D: matrix grid morph with
+  4 entry sliders, determinant parallelogram, eigenvectors, dot product, SVD),
+  `graphTheoryDoc` (E: Petersen, complete, BFS grid, Kruskal MST, Eulerian
+  circuit). World now hosts 8 boards. VALID_KINDS set updated. World test
+  updated (4→8 boards). **382 tests green; tsc clean.**

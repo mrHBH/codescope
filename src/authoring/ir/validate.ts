@@ -257,6 +257,22 @@ const VALID_KINDS = new Set([
   'wg-plot-ode','wg-plot-bifurcation','wg-plot-fourier','wg-histogram',
   'wg-boxplot','wg-plot-cells','wg-contours','wg-regression',
   'wg-chart-fin','wg-chart-multi',
+  'wg-circumcenter','wg-incenter','wg-orthocenter','wg-excenter',
+  'wg-euler-line','wg-nine-point',
+  'wg-perp-bisector','wg-angle-bisector','wg-median','wg-altitude',
+  'wg-tangent','wg-tangents-from',
+  'wg-circle-diameter','wg-incircle','wg-excircle',
+  'wg-radical-axis','wg-polar-line','wg-pole-point','wg-common-tangents','wg-apollonius',
+  'wg-rotated-pt','wg-translated-pt','wg-dilated-pt',
+  'wg-inversion','wg-mobius',
+  'wg-locus','wg-regular-polygon',
+  'wg-h-lock','wg-v-lock','wg-grid-snap','wg-angle-snap',
+  'wg-length','wg-slope','wg-radius','wg-area',
+  'wg-distribution','wg-sampling','wg-clt','wg-random-walk',
+  'wg-monte-carlo','wg-correlation','wg-hypothesis',
+  'wg-matrix-grid','wg-determinant','wg-eigenvectors',
+  'wg-matrix-compose','wg-dot-product','wg-svd',
+  'wg-graph','wg-traversal','wg-shortest-path','wg-mst','wg-eulerian',
 ]);
 
 function validateSpec(key: string, s: Record<string, unknown>, errs: string[]) {
@@ -375,6 +391,34 @@ function wgObjectRefs(s: Record<string, unknown>): string[] {
     case 'wg-distance': one(s.a); one(s.b); break;
     case 'wg-plot-spline': many(s.points); break;
     case 'wg-plot-ode': many(s.through); break;
+    case 'wg-circumcenter': case 'wg-incenter': case 'wg-orthocenter':
+      one(s.a); one(s.b); one(s.c); break;
+    case 'wg-excenter': one(s.a); one(s.b); one(s.c); break;
+    case 'wg-euler-line': case 'wg-nine-point': one(s.a); one(s.b); one(s.c); break;
+    case 'wg-perp-bisector': one(s.a); one(s.b); break;
+    case 'wg-angle-bisector': one(s.a); one(s.vertex); one(s.b); break;
+    case 'wg-median': case 'wg-altitude': one(s.vertex); one(s.a); one(s.b); break;
+    case 'wg-tangent': case 'wg-tangents-from': one(s.circle); one(s.point); break;
+    case 'wg-circle-diameter': one(s.a); one(s.b); break;
+    case 'wg-incircle': one(s.a); one(s.b); one(s.c); break;
+    case 'wg-excircle': one(s.a); one(s.b); one(s.c); break;
+    case 'wg-radical-axis': case 'wg-common-tangents': one(s.c1); one(s.c2); break;
+    case 'wg-polar-line': one(s.circle); one(s.point); break;
+    case 'wg-pole-point': one(s.circle); one(s.line); break;
+    case 'wg-apollonius': one(s.c1); one(s.c2); one(s.c3); break;
+    case 'wg-rotated-pt': one(s.p); one(s.center); break;
+    case 'wg-translated-pt': one(s.p); break;
+    case 'wg-dilated-pt': one(s.p); one(s.center); break;
+    case 'wg-inversion': one(s.p); one(s.circle); break;
+    case 'wg-mobius': one(s.p); break;
+    case 'wg-locus': one(s.driver); one(s.dependent); break;
+    case 'wg-regular-polygon': one(s.center); break;
+    case 'wg-h-lock': case 'wg-v-lock': case 'wg-grid-snap': one(s.p); break;
+    case 'wg-angle-snap': one(s.p); one(s.center); break;
+    case 'wg-length': one(s.a); one(s.b); break;
+    case 'wg-slope': one(s.line); break;
+    case 'wg-radius': one(s.circle); break;
+    case 'wg-area': many(s.points); break;
   }
   return refs;
 }
@@ -694,6 +738,247 @@ function validateWgSpec(key: string, s: Record<string, unknown>, errs: string[])
       optStrokeFill();
       if (s.color !== undefined && !isColor(s.color)) errs.push(`objects.${key}.color: invalid color`);
       break;
+
+    // ── Lane B: geometry ──────────────────────────────────────────────────
+    case 'wg-circumcenter': case 'wg-incenter': case 'wg-orthocenter':
+      idField('a'); idField('b'); idField('c'); optPointLike();
+      break;
+    case 'wg-excenter':
+      idField('a'); idField('b'); idField('c');
+      if (!['a','b','c'].includes(s.which as string)) errs.push(`objects.${key}.which: must be a|b|c`);
+      optPointLike();
+      break;
+    case 'wg-euler-line':
+      idField('a'); idField('b'); idField('c'); optStrokeFill();
+      break;
+    case 'wg-nine-point':
+      idField('a'); idField('b'); idField('c'); optStrokeFill();
+      break;
+    case 'wg-perp-bisector':
+      idField('a'); idField('b'); optStrokeFill();
+      break;
+    case 'wg-angle-bisector':
+      idField('a'); idField('vertex'); idField('b'); optStrokeFill();
+      break;
+    case 'wg-median': case 'wg-altitude':
+      idField('vertex'); idField('a'); idField('b'); optStrokeFill();
+      break;
+    case 'wg-tangent': case 'wg-tangents-from':
+      idField('circle'); idField('point'); optStrokeFill();
+      break;
+    case 'wg-circle-diameter':
+      idField('a'); idField('b'); optStrokeFill();
+      break;
+    case 'wg-incircle':
+      idField('a'); idField('b'); idField('c'); optStrokeFill();
+      break;
+    case 'wg-excircle':
+      idField('a'); idField('b'); idField('c');
+      if (!['a','b','c'].includes(s.which as string)) errs.push(`objects.${key}.which: must be a|b|c`);
+      optStrokeFill();
+      break;
+    case 'wg-radical-axis': case 'wg-common-tangents':
+      idField('c1'); idField('c2'); optStrokeFill();
+      break;
+    case 'wg-polar-line':
+      idField('circle'); idField('point'); optStrokeFill();
+      break;
+    case 'wg-pole-point':
+      idField('circle'); idField('line'); optPointLike();
+      break;
+    case 'wg-apollonius':
+      idField('c1'); idField('c2'); idField('c3'); optStrokeFill();
+      break;
+    case 'wg-rotated-pt':
+      idField('p'); idField('center');
+      if (!isWgNum(s.angle)) errs.push(`objects.${key}.angle: required number or $param`);
+      optPointLike();
+      break;
+    case 'wg-translated-pt':
+      idField('p');
+      if (!isWgNum(s.dx)) errs.push(`objects.${key}.dx: required number or $param`);
+      if (!isWgNum(s.dy)) errs.push(`objects.${key}.dy: required number or $param`);
+      optPointLike();
+      break;
+    case 'wg-dilated-pt':
+      idField('p'); idField('center');
+      if (!isWgNum(s.factor)) errs.push(`objects.${key}.factor: required number or $param`);
+      optPointLike();
+      break;
+    case 'wg-inversion':
+      idField('p'); idField('circle'); optPointLike();
+      break;
+    case 'wg-mobius':
+      idField('p');
+      for (const f of ['a','b','c','d']) {
+        if (!isWgNum(s[f])) errs.push(`objects.${key}.${f}: required number or $param`);
+      }
+      optPointLike();
+      break;
+    case 'wg-locus':
+      idField('driver'); idField('dependent');
+      if (s.samples !== undefined && (typeof s.samples !== 'number' || s.samples < 2)) errs.push(`objects.${key}.samples: must be >= 2`);
+      optStrokeFill();
+      break;
+    case 'wg-regular-polygon':
+      if (!isWgPoint(s.center)) errs.push(`objects.${key}.center: required point`);
+      if (!isWgNum(s.n)) errs.push(`objects.${key}.n: required number or $param`);
+      if (!isWgNum(s.radius)) errs.push(`objects.${key}.radius: required number or $param`);
+      if (s.rot !== undefined && !isWgNum(s.rot)) errs.push(`objects.${key}.rot: must be number or $param`);
+      optStrokeFill();
+      break;
+    case 'wg-h-lock': case 'wg-v-lock':
+      idField('p');
+      if (s.y !== undefined && !isWgNum(s.y)) errs.push(`objects.${key}.y: must be number or $param`);
+      if (s.x !== undefined && !isWgNum(s.x)) errs.push(`objects.${key}.x: must be number or $param`);
+      optPointLike();
+      break;
+    case 'wg-grid-snap':
+      idField('p');
+      if (s.step !== undefined && !isWgNum(s.step)) errs.push(`objects.${key}.step: must be number or $param`);
+      optPointLike();
+      break;
+    case 'wg-angle-snap':
+      idField('p'); idField('center');
+      if (s.step !== undefined && !isWgNum(s.step)) errs.push(`objects.${key}.step: must be number or $param`);
+      optPointLike();
+      break;
+    case 'wg-length':
+      idField('a'); idField('b');
+      if (s.color !== undefined && !isColor(s.color)) errs.push(`objects.${key}.color: invalid color`);
+      break;
+    case 'wg-slope':
+      idField('line');
+      if (s.color !== undefined && !isColor(s.color)) errs.push(`objects.${key}.color: invalid color`);
+      break;
+    case 'wg-radius':
+      idField('circle');
+      if (s.color !== undefined && !isColor(s.color)) errs.push(`objects.${key}.color: invalid color`);
+      break;
+    case 'wg-area':
+      idArray('points', 3);
+      if (s.color !== undefined && !isColor(s.color)) errs.push(`objects.${key}.color: invalid color`);
+      break;
+
+    // ── Lane C: stats ─────────────────────────────────────────────────────
+    case 'wg-distribution': {
+      const DIST_NAMES = ['normal','binomial','poisson','exponential','uniform','geometric','chi2','t','f'];
+      if (!DIST_NAMES.includes(s.dist as string)) errs.push(`objects.${key}.dist: must be ${DIST_NAMES.join('|')}`);
+      if (s.params !== undefined && !Array.isArray(s.params)) errs.push(`objects.${key}.params: must be an array`);
+      if (s.showCdf !== undefined && typeof s.showCdf !== 'boolean') errs.push(`objects.${key}.showCdf: must be boolean`);
+      if (s.domain !== undefined) range('domain');
+      samples(); optStrokeFill();
+      break;
+    }
+    case 'wg-sampling': {
+      const DIST_NAMES = ['normal','binomial','poisson','exponential','uniform','geometric','chi2','t','f'];
+      if (!DIST_NAMES.includes(s.dist as string)) errs.push(`objects.${key}.dist: must be ${DIST_NAMES.join('|')}`);
+      if (s.params !== undefined && !Array.isArray(s.params)) errs.push(`objects.${key}.params: must be an array`);
+      if (!isWgNum(s.n)) errs.push(`objects.${key}.n: required number or $param`);
+      optPointLike(); optStrokeFill();
+      break;
+    }
+    case 'wg-clt': {
+      const DIST_NAMES = ['normal','binomial','poisson','exponential','uniform','geometric','chi2','t','f'];
+      if (!DIST_NAMES.includes(s.dist as string)) errs.push(`objects.${key}.dist: must be ${DIST_NAMES.join('|')}`);
+      if (s.params !== undefined && !Array.isArray(s.params)) errs.push(`objects.${key}.params: must be an array`);
+      if (!isWgNum(s.sampleSize)) errs.push(`objects.${key}.sampleSize: required number or $param`);
+      if (s.trials !== undefined && !isWgNum(s.trials)) errs.push(`objects.${key}.trials: must be number or $param`);
+      optStrokeFill();
+      break;
+    }
+    case 'wg-random-walk':
+      if (s.dims !== 1 && s.dims !== 2) errs.push(`objects.${key}.dims: must be 1 or 2`);
+      if (!isWgNum(s.steps)) errs.push(`objects.${key}.steps: required number or $param`);
+      if (s.walks !== undefined && !isWgNum(s.walks)) errs.push(`objects.${key}.walks: must be number or $param`);
+      if (s.brownian !== undefined && typeof s.brownian !== 'boolean') errs.push(`objects.${key}.brownian: must be boolean`);
+      optStrokeFill();
+      if (s.color !== undefined && !isColor(s.color)) errs.push(`objects.${key}.color: invalid color`);
+      break;
+    case 'wg-monte-carlo':
+      if (!['pi','buffon'].includes(s.method as string)) errs.push(`objects.${key}.method: must be pi|buffon`);
+      if (!isWgNum(s.n)) errs.push(`objects.${key}.n: required number or $param`);
+      optPointLike(); optStrokeFill();
+      break;
+    case 'wg-correlation':
+      if (s.points !== undefined && !Array.isArray(s.points)) errs.push(`objects.${key}.points: must be an array`);
+      if (s.anscombe !== undefined && ![1,2,3,4].includes(s.anscombe as number)) errs.push(`objects.${key}.anscombe: must be 1|2|3|4`);
+      if (s.showRegression !== undefined && typeof s.showRegression !== 'boolean') errs.push(`objects.${key}.showRegression: must be boolean`);
+      optPointLike(); optStrokeFill();
+      break;
+    case 'wg-hypothesis':
+      if (!['z','t'].includes(s.test as string)) errs.push(`objects.${key}.test: must be z|t`);
+      if (!isWgNum(s.mu0)) errs.push(`objects.${key}.mu0: required number or $param`);
+      if (s.mu1 !== undefined && !isWgNum(s.mu1)) errs.push(`objects.${key}.mu1: must be number or $param`);
+      if (s.sigma !== undefined && !isWgNum(s.sigma)) errs.push(`objects.${key}.sigma: must be number or $param`);
+      if (!isWgNum(s.n)) errs.push(`objects.${key}.n: required number or $param`);
+      if (s.alpha !== undefined && !isWgNum(s.alpha)) errs.push(`objects.${key}.alpha: must be number or $param`);
+      if (s.domain !== undefined) range('domain');
+      optStrokeFill();
+      break;
+
+    // ── Lane D: linear algebra ────────────────────────────────────────────
+    case 'wg-matrix-grid': case 'wg-determinant': case 'wg-eigenvectors': case 'wg-svd': {
+      const e = s.entries;
+      if (!Array.isArray(e) || e.length !== 4) errs.push(`objects.${key}.entries: must be [a,b,c,d]`);
+      else e.forEach((v: unknown, i: number) => { if (!isWgNum(v)) errs.push(`objects.${key}.entries[${i}]: must be number or $param`); });
+      if (s.extent !== undefined && !isWgNum(s.extent)) errs.push(`objects.${key}.extent: must be number or $param`);
+      optStrokeFill();
+      if (s.color !== undefined && !isColor(s.color)) errs.push(`objects.${key}.color: invalid color`);
+      break;
+    }
+    case 'wg-matrix-compose': {
+      for (const f of ['a','b']) {
+        const e = s[f];
+        if (!Array.isArray(e) || e.length !== 4) errs.push(`objects.${key}.${f}: must be [a,b,c,d]`);
+        else e.forEach((v: unknown, i: number) => { if (!isWgNum(v)) errs.push(`objects.${key}.${f}[${i}]: must be number or $param`); });
+      }
+      if (s.extent !== undefined && !isWgNum(s.extent)) errs.push(`objects.${key}.extent: must be number or $param`);
+      optStrokeFill();
+      break;
+    }
+    case 'wg-dot-product': {
+      for (const f of ['u','v']) {
+        const e = s[f];
+        if (!Array.isArray(e) || e.length !== 2) errs.push(`objects.${key}.${f}: must be [x,y]`);
+        else e.forEach((v: unknown, i: number) => { if (!isWgNum(v)) errs.push(`objects.${key}.${f}[${i}]: must be number or $param`); });
+      }
+      optStrokeFill();
+      if (s.color !== undefined && !isColor(s.color)) errs.push(`objects.${key}.color: invalid color`);
+      break;
+    }
+
+    // ── Lane E: graph theory ──────────────────────────────────────────────
+    case 'wg-graph': {
+      const GK = ['petersen','complete','cycle','path','grid','star','wheel','tree','random'];
+      if (!GK.includes(s.graph as string)) errs.push(`objects.${key}.graph: must be ${GK.join('|')}`);
+      if (s.n !== undefined && !isWgNum(s.n)) errs.push(`objects.${key}.n: must be number or $param`);
+      if (s.m !== undefined && !isWgNum(s.m)) errs.push(`objects.${key}.m: must be number or $param`);
+      if (s.p !== undefined && !isWgNum(s.p)) errs.push(`objects.${key}.p: must be number or $param`);
+      if (s.layout !== undefined && !['force','circular'].includes(s.layout as string)) errs.push(`objects.${key}.layout: must be force|circular`);
+      optPointLike(); optStrokeFill();
+      break;
+    }
+    case 'wg-traversal': {
+      const GK = ['petersen','complete','cycle','path','grid','star','wheel','tree','random'];
+      if (!GK.includes(s.graph as string)) errs.push(`objects.${key}.graph: must be ${GK.join('|')}`);
+      if (!['bfs','dfs'].includes(s.algo as string)) errs.push(`objects.${key}.algo: must be bfs|dfs`);
+      if (s.start !== undefined && !isWgNum(s.start)) errs.push(`objects.${key}.start: must be number or $param`);
+      if (s.layout !== undefined && !['force','circular'].includes(s.layout as string)) errs.push(`objects.${key}.layout: must be force|circular`);
+      optPointLike(); optStrokeFill();
+      break;
+    }
+    case 'wg-shortest-path': case 'wg-mst': case 'wg-eulerian': {
+      const GK = ['petersen','complete','cycle','path','grid','star','wheel','tree','random'];
+      if (!GK.includes(s.graph as string)) errs.push(`objects.${key}.graph: must be ${GK.join('|')}`);
+      if (k === 'wg-mst' && !['kruskal','prim'].includes(s.algo as string)) errs.push(`objects.${key}.algo: must be kruskal|prim`);
+      if (k === 'wg-eulerian' && !['circuit','path'].includes(s.mode as string)) errs.push(`objects.${key}.mode: must be circuit|path`);
+      if (s.layout !== undefined && !['force','circular'].includes(s.layout as string)) errs.push(`objects.${key}.layout: must be force|circular`);
+      optStrokeFill();
+      if (s.color !== undefined && !isColor(s.color)) errs.push(`objects.${key}.color: invalid color`);
+      break;
+    }
+
     default:
       errs.push(`objects.${key}: unhandled windgraph kind "${k}"`);
   }

@@ -15,9 +15,9 @@ function approx(a: number, b: number, eps = 0.5) { if (Math.abs(a - b) > eps) th
 
 console.log('Windgraph world tests\n');
 
-test('builds four boards (three authored scenes + the extrude board)', () => {
+test('builds eight boards (three authored scenes + extrude + B/C/D/E catalogs)', () => {
   const w = new WindgraphWorld();
-  assert(w.boards.length === 4);
+  assert(w.boards.length === 8);
   for (let i = 0; i < 3; i++) {
     const b = w.boards[i] as WindgraphSceneBoard;
     b.ensure();

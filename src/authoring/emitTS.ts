@@ -395,6 +395,198 @@ function emitWg(lines: string[], recv: string, id: string, s: any): void {
       if (s.triples) opts.triples = s.triples;
       if (s.color) opts.color = s.color;
       strokeFill(); call('chartMulti', [JSON.stringify(s.chart)]); break;
+
+    // ── Lane B: geometry ──────────────────────────────────────────────────
+    case 'wg-circumcenter':
+      pointLike(); call('circumcenter', [JSON.stringify(s.a), JSON.stringify(s.b), JSON.stringify(s.c)]); break;
+    case 'wg-incenter':
+      pointLike(); call('incenter', [JSON.stringify(s.a), JSON.stringify(s.b), JSON.stringify(s.c)]); break;
+    case 'wg-orthocenter':
+      pointLike(); call('orthocenter', [JSON.stringify(s.a), JSON.stringify(s.b), JSON.stringify(s.c)]); break;
+    case 'wg-excenter':
+      pointLike(); call('excenter', [JSON.stringify(s.a), JSON.stringify(s.b), JSON.stringify(s.c), JSON.stringify(s.which)]); break;
+    case 'wg-euler-line':
+      strokeFill(); call('eulerLine', [JSON.stringify(s.a), JSON.stringify(s.b), JSON.stringify(s.c)]); break;
+    case 'wg-nine-point':
+      if (s.fill) opts.fill = s.fill;
+      strokeFill(); call('ninePoint', [JSON.stringify(s.a), JSON.stringify(s.b), JSON.stringify(s.c)]); break;
+    case 'wg-perp-bisector':
+      strokeFill(); call('perpBisector', [JSON.stringify(s.a), JSON.stringify(s.b)]); break;
+    case 'wg-angle-bisector':
+      strokeFill(); call('angleBisector', [JSON.stringify(s.a), JSON.stringify(s.vertex), JSON.stringify(s.b)]); break;
+    case 'wg-median':
+      strokeFill(); call('median', [JSON.stringify(s.vertex), JSON.stringify(s.a), JSON.stringify(s.b)]); break;
+    case 'wg-altitude':
+      strokeFill(); call('altitude', [JSON.stringify(s.vertex), JSON.stringify(s.a), JSON.stringify(s.b)]); break;
+    case 'wg-tangent':
+      strokeFill(); call('tangent', [JSON.stringify(s.circle), JSON.stringify(s.point)]); break;
+    case 'wg-tangents-from':
+      strokeFill(); call('tangentsFrom', [JSON.stringify(s.circle), JSON.stringify(s.point)]); break;
+    case 'wg-circle-diameter':
+      if (s.fill) opts.fill = s.fill;
+      strokeFill(); call('circleDiameter', [JSON.stringify(s.a), JSON.stringify(s.b)]); break;
+    case 'wg-incircle':
+      if (s.fill) opts.fill = s.fill;
+      strokeFill(); call('incircle', [JSON.stringify(s.a), JSON.stringify(s.b), JSON.stringify(s.c)]); break;
+    case 'wg-excircle':
+      if (s.fill) opts.fill = s.fill;
+      strokeFill(); call('excircle', [JSON.stringify(s.a), JSON.stringify(s.b), JSON.stringify(s.c), JSON.stringify(s.which)]); break;
+    case 'wg-radical-axis':
+      strokeFill(); call('radicalAxis', [JSON.stringify(s.c1), JSON.stringify(s.c2)]); break;
+    case 'wg-polar-line':
+      strokeFill(); call('polarLine', [JSON.stringify(s.circle), JSON.stringify(s.point)]); break;
+    case 'wg-pole-point':
+      pointLike(); call('polePoint', [JSON.stringify(s.circle), JSON.stringify(s.line)]); break;
+    case 'wg-common-tangents':
+      strokeFill(); call('commonTangents', [JSON.stringify(s.c1), JSON.stringify(s.c2)]); break;
+    case 'wg-apollonius':
+      if (s.fill) opts.fill = s.fill;
+      strokeFill(); call('apollonius', [JSON.stringify(s.c1), JSON.stringify(s.c2), JSON.stringify(s.c3)]); break;
+    case 'wg-rotated-pt':
+      pointLike(); call('rotatedPt', [JSON.stringify(s.p), JSON.stringify(s.center), fmt(s.angle)]); break;
+    case 'wg-translated-pt':
+      pointLike(); call('translatedPt', [JSON.stringify(s.p), fmt(s.dx), fmt(s.dy)]); break;
+    case 'wg-dilated-pt':
+      pointLike(); call('dilatedPt', [JSON.stringify(s.p), JSON.stringify(s.center), fmt(s.factor)]); break;
+    case 'wg-inversion':
+      pointLike(); call('inversion', [JSON.stringify(s.p), JSON.stringify(s.circle)]); break;
+    case 'wg-mobius':
+      pointLike(); call('mobius', [JSON.stringify(s.p), fmt(s.a), fmt(s.b), fmt(s.c), fmt(s.d)]); break;
+    case 'wg-locus':
+      if (s.samples !== undefined) opts.samples = s.samples;
+      strokeFill(); call('locus', [JSON.stringify(s.driver), JSON.stringify(s.dependent)]); break;
+    case 'wg-regular-polygon':
+      if (s.rot !== undefined) opts.rot = s.rot;
+      if (s.fill) opts.fill = s.fill;
+      strokeFill(); call('regularPolygon', [fmt(s.center), fmt(s.n), fmt(s.radius)]); break;
+    case 'wg-h-lock':
+      if (s.y !== undefined) opts.y = s.y;
+      pointLike(); call('hLock', [JSON.stringify(s.p)]); break;
+    case 'wg-v-lock':
+      if (s.x !== undefined) opts.x = s.x;
+      pointLike(); call('vLock', [JSON.stringify(s.p)]); break;
+    case 'wg-grid-snap':
+      if (s.step !== undefined) opts.step = s.step;
+      pointLike(); call('gridSnap', [JSON.stringify(s.p)]); break;
+    case 'wg-angle-snap':
+      if (s.step !== undefined) opts.step = s.step;
+      pointLike(); call('angleSnap', [JSON.stringify(s.p), JSON.stringify(s.center)]); break;
+    case 'wg-length':
+      if (s.color) opts.color = s.color;
+      call('length', [JSON.stringify(s.a), JSON.stringify(s.b)]); break;
+    case 'wg-slope':
+      if (s.color) opts.color = s.color;
+      call('slope', [JSON.stringify(s.line)]); break;
+    case 'wg-radius':
+      if (s.color) opts.color = s.color;
+      call('radiusMeasure', [JSON.stringify(s.circle)]); break;
+    case 'wg-area':
+      if (s.color) opts.color = s.color;
+      call('area', [fmt(s.points)]); break;
+
+    // ── Lane C: stats ─────────────────────────────────────────────────────
+    case 'wg-distribution':
+      if (s.params) opts.params = s.params;
+      if (s.showCdf !== undefined) opts.showCdf = s.showCdf;
+      if (s.domain) opts.domain = s.domain;
+      if (s.samples !== undefined) opts.samples = s.samples;
+      strokeFill(); call('distribution', [JSON.stringify(s.dist)]); break;
+    case 'wg-sampling':
+      if (s.params) opts.params = s.params;
+      if (s.seed !== undefined) opts.seed = s.seed;
+      pointLike(); strokeFill(); call('sampling', [JSON.stringify(s.dist), fmt(s.n)]); break;
+    case 'wg-clt':
+      if (s.params) opts.params = s.params;
+      if (s.trials !== undefined) opts.trials = s.trials;
+      if (s.seed !== undefined) opts.seed = s.seed;
+      if (s.fill) opts.fill = s.fill;
+      strokeFill(); call('clt', [JSON.stringify(s.dist), fmt(s.sampleSize)]); break;
+    case 'wg-random-walk':
+      if (s.walks !== undefined) opts.walks = s.walks;
+      if (s.seed !== undefined) opts.seed = s.seed;
+      if (s.brownian !== undefined) opts.brownian = s.brownian;
+      if (s.color) opts.color = s.color;
+      strokeFill(); call('randomWalk', [fmt(s.dims), fmt(s.steps)]); break;
+    case 'wg-monte-carlo':
+      if (s.seed !== undefined) opts.seed = s.seed;
+      pointLike(); strokeFill(); call('monteCarlo', [JSON.stringify(s.method), fmt(s.n)]); break;
+    case 'wg-correlation':
+      if (s.points) opts.points = s.points;
+      if (s.anscombe !== undefined) opts.anscombe = s.anscombe;
+      if (s.showRegression !== undefined) opts.showRegression = s.showRegression;
+      pointLike(); strokeFill(); call('correlation', []); break;
+    case 'wg-hypothesis':
+      if (s.mu1 !== undefined) opts.mu1 = s.mu1;
+      if (s.sigma !== undefined) opts.sigma = s.sigma;
+      if (s.alpha !== undefined) opts.alpha = s.alpha;
+      if (s.domain) opts.domain = s.domain;
+      if (s.fill) opts.fill = s.fill;
+      strokeFill(); call('hypothesis', [JSON.stringify(s.test), fmt(s.mu0), fmt(s.n)]); break;
+
+    // ── Lane D: linear algebra ────────────────────────────────────────────
+    case 'wg-matrix-grid':
+      if (s.extent !== undefined) opts.extent = s.extent;
+      if (s.gridStep !== undefined) opts.gridStep = s.gridStep;
+      strokeFill(); call('matrixGrid', [fmt(s.entries)]); break;
+    case 'wg-determinant':
+      if (s.fill) opts.fill = s.fill;
+      strokeFill(); call('determinant', [fmt(s.entries)]); break;
+    case 'wg-eigenvectors':
+      if (s.extent !== undefined) opts.extent = s.extent;
+      if (s.color) opts.color = s.color;
+      strokeFill(); call('eigenvectors', [fmt(s.entries)]); break;
+    case 'wg-matrix-compose':
+      if (s.extent !== undefined) opts.extent = s.extent;
+      strokeFill(); call('matrixCompose', [fmt(s.a), fmt(s.b)]); break;
+    case 'wg-dot-product':
+      if (s.color) opts.color = s.color;
+      strokeFill(); call('dotProduct', [fmt(s.u), fmt(s.v)]); break;
+    case 'wg-svd':
+      if (s.extent !== undefined) opts.extent = s.extent;
+      strokeFill(); call('svd', [fmt(s.entries)]); break;
+
+    // ── Lane E: graph theory ──────────────────────────────────────────────
+    case 'wg-graph':
+      if (s.n !== undefined) opts.n = s.n;
+      if (s.m !== undefined) opts.m = s.m;
+      if (s.p !== undefined) opts.p = s.p;
+      if (s.seed !== undefined) opts.seed = s.seed;
+      if (s.layout !== undefined) opts.layout = s.layout;
+      pointLike(); strokeFill(); call('graph', [JSON.stringify(s.graph)]); break;
+    case 'wg-traversal':
+      if (s.n !== undefined) opts.n = s.n;
+      if (s.m !== undefined) opts.m = s.m;
+      if (s.p !== undefined) opts.p = s.p;
+      if (s.seed !== undefined) opts.seed = s.seed;
+      if (s.start !== undefined) opts.start = s.start;
+      if (s.layout !== undefined) opts.layout = s.layout;
+      pointLike(); strokeFill(); call('traversal', [JSON.stringify(s.graph), JSON.stringify(s.algo)]); break;
+    case 'wg-shortest-path':
+      if (s.n !== undefined) opts.n = s.n;
+      if (s.m !== undefined) opts.m = s.m;
+      if (s.p !== undefined) opts.p = s.p;
+      if (s.seed !== undefined) opts.seed = s.seed;
+      if (s.from !== undefined) opts.from = s.from;
+      if (s.to !== undefined) opts.to = s.to;
+      if (s.color) opts.color = s.color;
+      if (s.layout !== undefined) opts.layout = s.layout;
+      strokeFill(); call('shortestPath', [JSON.stringify(s.graph)]); break;
+    case 'wg-mst':
+      if (s.n !== undefined) opts.n = s.n;
+      if (s.m !== undefined) opts.m = s.m;
+      if (s.p !== undefined) opts.p = s.p;
+      if (s.seed !== undefined) opts.seed = s.seed;
+      if (s.color) opts.color = s.color;
+      if (s.layout !== undefined) opts.layout = s.layout;
+      strokeFill(); call('mst', [JSON.stringify(s.graph), JSON.stringify(s.algo)]); break;
+    case 'wg-eulerian':
+      if (s.n !== undefined) opts.n = s.n;
+      if (s.m !== undefined) opts.m = s.m;
+      if (s.p !== undefined) opts.p = s.p;
+      if (s.seed !== undefined) opts.seed = s.seed;
+      if (s.color) opts.color = s.color;
+      if (s.layout !== undefined) opts.layout = s.layout;
+      strokeFill(); call('eulerian', [JSON.stringify(s.graph), JSON.stringify(s.mode)]); break;
   }
 }
 

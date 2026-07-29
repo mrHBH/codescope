@@ -13,6 +13,16 @@ import {
   GPoint, Midpoint, Centroid, Reflection, Intersection, Glider,
   GLine, LineThrough, Perpendicular, Parallel,
   GCircle, Circumcircle, Distance, Angle,
+  Circumcenter, Incenter, Orthocenter, Excenter, EulerLine, NinePointCircle,
+  PerpBisector, AngleBisector, Median, Altitude, TangentToCircle, TangentsFromPoint,
+  CircleByDiameter, Incircle, Excircle,
+  RadicalAxis, PolarLine, PolePoint, CommonTangents, ApolloniusCircle,
+  RotatedPoint, TranslatedPoint, DilatedPoint,
+  CircleInversion, MobiusPoint,
+  LocusCurve, RegularPolygon,
+  HLockedPoint, VLockedPoint, GridSnappedPoint, AngleSnappedPoint,
+  LengthMeasure, AngleMeasure, AreaMeasure, SlopeMeasure, RadiusMeasure,
+  GConic, EllipseFromFoci, ParabolaFromFocusDirectrix, HyperbolaFromFoci, ConicThrough5Points,
 } from '../../windgraph/interact/constraints';
 import { Mobject, Group, type RenderCtx } from '../../windgraph/mobject/mobject';
 import { Dot, Segment, Polyline, Polygon, Vector, Circle, Arc, Ellipse, Label } from '../../windgraph/mobject/primitives';
@@ -32,6 +42,23 @@ import { histogram, boxStats, kde, beeswarm, hexbin, regression, residuals } fro
 import { contourLevels, plotContourLines, plotFilledContours, contourLabelAnchors } from '../../windgraph/plot/contour';
 import { plotInequality, type Cmp } from '../../windgraph/plot/inequality';
 import { candlestick, waterfall, funnel, radar, windrose, ternaryToXY, ternaryFrame, parallelCoords, scatterMatrix } from '../../windgraph/plot/charts';
+import { normal, binomial, poisson, exponential, uniform, geometric, chiSquared, tDist, fDist, type Distribution } from '../../windgraph/stats/distributions';
+import { sample as statSample, histogram as statHistogram, sturgesBins } from '../../windgraph/stats/sampling';
+import { cltSimulation } from '../../windgraph/stats/clt';
+import { randomWalk1D, randomWalk2D, brownianMotion, multipleWalks2D } from '../../windgraph/stats/randomWalk';
+import { monteCarloPi, buffonsNeedle } from '../../windgraph/stats/monteCarlo';
+import { pearsonR, linearRegression as linReg, ANSCOMBE_QUARTET } from '../../windgraph/stats/correlation';
+import { normalPdf, normalCdf } from '../../windgraph/stats/distributions';
+import { mat2, applyMat2, det2, transformGrid, parallelogramVertices, type Mat2, type Vec2 as LVec2 } from '../../windgraph/linalg/matrix';
+import { eigen2, invariantLines } from '../../windgraph/linalg/eigen';
+import { dot2, project2, norm2 } from '../../windgraph/linalg/products';
+import { svd2, gramSchmidt2 } from '../../windgraph/linalg/decomp';
+import { completeGraph, cycleGraph, pathGraph, gridGraph, petersenGraph, starGraph, wheelGraph, binaryTree, randomGraph, circularLayout, type Graph } from '../../windgraph/graph/namedGraphs';
+import { runLayout, layoutPositions } from '../../windgraph/graph/forceLayout';
+import { bfs, dfs } from '../../windgraph/graph/traversal';
+import { toWeighted, dijkstra, shortestPath } from '../../windgraph/graph/traversal';
+import { kruskal, prim } from '../../windgraph/graph/mst';
+import { eulerianCircuit, eulerianPath, edgeTraceFromPath } from '../../windgraph/graph/eulerian';
 
 const COL_POINT = [0.97, 0.73, 0.33, 1];
 const COL_DERIVED = [0.40, 0.82, 0.95, 1];
@@ -200,6 +227,34 @@ export class WgScene {
       case 'wg-distance': one(s.a); one(s.b); break;
       case 'wg-plot-spline': many(s.points); break;
       case 'wg-plot-ode': many(s.through); break;
+      case 'wg-circumcenter': case 'wg-incenter': case 'wg-orthocenter':
+        one(s.a); one(s.b); one(s.c); break;
+      case 'wg-excenter': one(s.a); one(s.b); one(s.c); break;
+      case 'wg-euler-line': case 'wg-nine-point': one(s.a); one(s.b); one(s.c); break;
+      case 'wg-perp-bisector': one(s.a); one(s.b); break;
+      case 'wg-angle-bisector': one(s.a); one(s.vertex); one(s.b); break;
+      case 'wg-median': case 'wg-altitude': one(s.vertex); one(s.a); one(s.b); break;
+      case 'wg-tangent': case 'wg-tangents-from': one(s.circle); one(s.point); break;
+      case 'wg-circle-diameter': one(s.a); one(s.b); break;
+      case 'wg-incircle': one(s.a); one(s.b); one(s.c); break;
+      case 'wg-excircle': one(s.a); one(s.b); one(s.c); break;
+      case 'wg-radical-axis': case 'wg-common-tangents': one(s.c1); one(s.c2); break;
+      case 'wg-polar-line': one(s.circle); one(s.point); break;
+      case 'wg-pole-point': one(s.circle); one(s.line); break;
+      case 'wg-apollonius': one(s.c1); one(s.c2); one(s.c3); break;
+      case 'wg-rotated-pt': one(s.p); one(s.center); break;
+      case 'wg-translated-pt': one(s.p); break;
+      case 'wg-dilated-pt': one(s.p); one(s.center); break;
+      case 'wg-inversion': one(s.p); one(s.circle); break;
+      case 'wg-mobius': one(s.p); break;
+      case 'wg-locus': one(s.driver); one(s.dependent); break;
+      case 'wg-regular-polygon': one(s.center); break;
+      case 'wg-h-lock': case 'wg-v-lock': case 'wg-grid-snap': one(s.p); break;
+      case 'wg-angle-snap': one(s.p); one(s.center); break;
+      case 'wg-length': one(s.a); one(s.b); break;
+      case 'wg-slope': one(s.line); break;
+      case 'wg-radius': one(s.circle); break;
+      case 'wg-area': many(s.points); break;
     }
     return refs;
   }
@@ -1017,8 +1072,869 @@ export class WgScene {
         this.track(group, () => 'multi');
         break;
       }
-      case 'wg-conic':
-        throw new Error(`${who}: live conics resolve in Phase 4 (B5) — not yet supported`);
+      case 'wg-conic': {
+        const props = this.strokeProps(s, COL_PLOT);
+        const group = new Group();
+        this.register(id, group, s);
+        const resample = () => {
+          group.children.length = 0;
+          let conic: GConic | null = null;
+          if (s.conic === 'ellipse' && s.foci?.length >= 2) {
+            const f1 = this.pointOf(s.foci[0], who), f2 = this.pointOf(s.foci[1], who);
+            conic = new EllipseFromFoci(f1, f2, 3);
+          } else if (s.conic === 'hyperbola' && s.foci?.length >= 2) {
+            const f1 = this.pointOf(s.foci[0], who), f2 = this.pointOf(s.foci[1], who);
+            conic = new HyperbolaFromFoci(f1, f2, 1);
+          } else if (s.conic === 'parabola' && s.foci?.length >= 1 && s.directrix) {
+            const f = this.pointOf(s.foci[0], who), d = this.lineOf(s.directrix, who);
+            conic = new ParabolaFromFocusDirectrix(f, d);
+          }
+          if (conic) {
+            const pts = conic.sample(120);
+            if (pts.length >= 2) group.add(new Polyline(this.toWorld(pts), props));
+          }
+        };
+        this.plotResamples.push(resample);
+        resample();
+        this.track(group, () => this.lastParamSig);
+        break;
+      }
+
+      // ── Lane B: geometry constraints ────────────────────────────────────
+      case 'wg-circumcenter': {
+        const p = new Circumcenter(this.pointOf(s.a, who), this.pointOf(s.b, who), this.pointOf(s.c, who));
+        this.graph.add(p); this.points.set(id, p); this.addDot(id, p, s, true);
+        break;
+      }
+      case 'wg-incenter': {
+        const p = new Incenter(this.pointOf(s.a, who), this.pointOf(s.b, who), this.pointOf(s.c, who));
+        this.graph.add(p); this.points.set(id, p); this.addDot(id, p, s, true);
+        break;
+      }
+      case 'wg-orthocenter': {
+        const p = new Orthocenter(this.pointOf(s.a, who), this.pointOf(s.b, who), this.pointOf(s.c, who));
+        this.graph.add(p); this.points.set(id, p); this.addDot(id, p, s, true);
+        break;
+      }
+      case 'wg-excenter': {
+        const p = new Excenter(this.pointOf(s.a, who), this.pointOf(s.b, who), this.pointOf(s.c, who), s.which === 'b' ? 1 : s.which === 'c' ? 2 : 0);
+        this.graph.add(p); this.points.set(id, p); this.addDot(id, p, s, true);
+        break;
+      }
+      case 'wg-euler-line': {
+        const cc = new Circumcenter(this.pointOf(s.a, who), this.pointOf(s.b, who), this.pointOf(s.c, who));
+        const oh = new Orthocenter(this.pointOf(s.a, who), this.pointOf(s.b, who), this.pointOf(s.c, who));
+        this.graph.add(cc); this.graph.add(oh);
+        const l = new EulerLine(cc, oh);
+        this.graph.add(l); this.lines.set(id, l);
+        this.addInfiniteLine(id, l, s);
+        break;
+      }
+      case 'wg-nine-point': {
+        const pa = this.pointOf(s.a, who), pb = this.pointOf(s.b, who), pc = this.pointOf(s.c, who);
+        const cc = new Circumcenter(pa, pb, pc);
+        const oh = new Orthocenter(pa, pb, pc);
+        const circ = new Circumcircle(pa, pb, pc);
+        this.graph.add(cc); this.graph.add(oh); this.graph.add(circ);
+        const c = new NinePointCircle(cc, oh, circ);
+        this.graph.add(c); this.circles.set(id, c);
+        const props = this.strokeProps(s, COL_CIRCLE);
+        const m = new Circle(c.cx, c.cy, c.r, props, s.fill ? { color: s.fill } : undefined);
+        this.register(id, m, s);
+        this.track(m, () => { m.position = [c.cx, c.cy]; m.radius = c.r; return `${c.cx},${c.cy},${c.r}`; });
+        break;
+      }
+      case 'wg-perp-bisector': {
+        const l = new PerpBisector(this.pointOf(s.a, who), this.pointOf(s.b, who));
+        this.graph.add(l); this.lines.set(id, l);
+        this.addInfiniteLine(id, l, s);
+        break;
+      }
+      case 'wg-angle-bisector': {
+        const l = new AngleBisector(this.pointOf(s.a, who), this.pointOf(s.vertex, who), this.pointOf(s.b, who));
+        this.graph.add(l); this.lines.set(id, l);
+        this.addInfiniteLine(id, l, s);
+        break;
+      }
+      case 'wg-median': {
+        const l = new Median(this.pointOf(s.vertex, who), this.pointOf(s.a, who), this.pointOf(s.b, who));
+        this.graph.add(l); this.lines.set(id, l);
+        this.addInfiniteLine(id, l, s);
+        break;
+      }
+      case 'wg-altitude': {
+        const opposite = new LineThrough(this.pointOf(s.a, who), this.pointOf(s.b, who));
+        this.graph.add(opposite);
+        const l = new Altitude(this.pointOf(s.vertex, who), opposite);
+        this.graph.add(l); this.lines.set(id, l);
+        this.addInfiniteLine(id, l, s);
+        break;
+      }
+      case 'wg-tangent': {
+        const l = new TangentToCircle(this.circleOf(s.circle, who), this.pointOf(s.point, who));
+        this.graph.add(l); this.lines.set(id, l);
+        this.addInfiniteLine(id, l, s);
+        break;
+      }
+      case 'wg-tangents-from': {
+        const tf = new TangentsFromPoint(this.circleOf(s.circle, who), this.pointOf(s.point, who));
+        this.graph.add(tf);
+        const props = this.strokeProps(s, COL_LINE);
+        const group = new Group();
+        this.register(id, group, s);
+        this.track(group, () => {
+          group.children.length = 0;
+          if (!tf.lines) return 'none';
+          const half = Math.abs(plane.xMax - plane.xMin) * plane.unitX + Math.abs(plane.yMax - plane.yMin) * plane.unitY;
+          for (const l of tf.lines) {
+            group.add(new Segment([l.x0 - l.dx * half, l.y0 - l.dy * half], [l.x0 + l.dx * half, l.y0 + l.dy * half], props));
+          }
+          return `${tf.lines.map(l => `${l.x0},${l.y0},${l.dx},${l.dy}`).join('|')}`;
+        });
+        break;
+      }
+      case 'wg-circle-diameter': {
+        const c = new CircleByDiameter(this.pointOf(s.a, who), this.pointOf(s.b, who));
+        this.graph.add(c); this.circles.set(id, c);
+        const props = this.strokeProps(s, COL_CIRCLE);
+        const m = new Circle(c.cx, c.cy, c.r, props, s.fill ? { color: s.fill } : undefined);
+        this.register(id, m, s);
+        this.track(m, () => { m.position = [c.cx, c.cy]; m.radius = c.r; return `${c.cx},${c.cy},${c.r}`; });
+        break;
+      }
+      case 'wg-incircle': {
+        const c = new Incircle(this.pointOf(s.a, who), this.pointOf(s.b, who), this.pointOf(s.c, who));
+        this.graph.add(c); this.circles.set(id, c);
+        const props = this.strokeProps(s, COL_CIRCLE);
+        const m = new Circle(c.cx, c.cy, c.r, props, s.fill ? { color: s.fill } : undefined);
+        this.register(id, m, s);
+        this.track(m, () => { m.position = [c.cx, c.cy]; m.radius = c.r; return `${c.cx},${c.cy},${c.r}`; });
+        break;
+      }
+      case 'wg-excircle': {
+        const c = new Excircle(this.pointOf(s.a, who), this.pointOf(s.b, who), this.pointOf(s.c, who), s.which === 'b' ? 1 : s.which === 'c' ? 2 : 0);
+        this.graph.add(c); this.circles.set(id, c);
+        const props = this.strokeProps(s, COL_CIRCLE);
+        const m = new Circle(c.cx, c.cy, c.r, props, s.fill ? { color: s.fill } : undefined);
+        this.register(id, m, s);
+        this.track(m, () => { m.position = [c.cx, c.cy]; m.radius = c.r; return `${c.cx},${c.cy},${c.r}`; });
+        break;
+      }
+      case 'wg-radical-axis': {
+        const l = new RadicalAxis(this.circleOf(s.c1, who), this.circleOf(s.c2, who));
+        this.graph.add(l); this.lines.set(id, l);
+        this.addInfiniteLine(id, l, s);
+        break;
+      }
+      case 'wg-polar-line': {
+        const l = new PolarLine(this.circleOf(s.circle, who), this.pointOf(s.point, who));
+        this.graph.add(l); this.lines.set(id, l);
+        this.addInfiniteLine(id, l, s);
+        break;
+      }
+      case 'wg-pole-point': {
+        const p = new PolePoint(this.circleOf(s.circle, who), this.lineOf(s.line, who));
+        this.graph.add(p); this.points.set(id, p); this.addDot(id, p, s, true);
+        break;
+      }
+      case 'wg-common-tangents': {
+        const ct = new CommonTangents(this.circleOf(s.c1, who), this.circleOf(s.c2, who));
+        this.graph.add(ct);
+        const props = this.strokeProps(s, COL_LINE);
+        const group = new Group();
+        this.register(id, group, s);
+        this.track(group, () => {
+          group.children.length = 0;
+          const half = Math.abs(plane.xMax - plane.xMin) * plane.unitX + Math.abs(plane.yMax - plane.yMin) * plane.unitY;
+          for (const l of ct.lines) {
+            group.add(new Segment([l.x0 - l.dx * half, l.y0 - l.dy * half], [l.x0 + l.dx * half, l.y0 + l.dy * half], props));
+          }
+          return `${ct.lines.map(l => `${l.x0},${l.y0},${l.dx},${l.dy}`).join('|')}`;
+        });
+        break;
+      }
+      case 'wg-apollonius': {
+        const c1 = this.circleOf(s.c1, who), c2 = this.circleOf(s.c2, who);
+        const pA = new GPoint(c1.cx, c1.cy, false);
+        const pB = new GPoint(c2.cx, c2.cy, false);
+        const ratio = c1.r / (c2.r || 1);
+        const c = new ApolloniusCircle(pA, pB, ratio);
+        this.graph.add(c); this.circles.set(id, c);
+        const props = this.strokeProps(s, COL_CIRCLE);
+        const m = new Circle(c.cx, c.cy, c.r, props, s.fill ? { color: s.fill } : undefined);
+        this.register(id, m, s);
+        this.track(m, () => { m.position = [c.cx, c.cy]; m.radius = c.r; return `${c.cx},${c.cy},${c.r}`; });
+        break;
+      }
+      case 'wg-rotated-pt': {
+        const angSrc = this.num(s.angle as WgNum);
+        const p = new RotatedPoint(this.pointOf(s.p, who), this.pointOf(s.center, who), angSrc());
+        this.graph.add(p); this.points.set(id, p); this.addDot(id, p, s, true);
+        break;
+      }
+      case 'wg-translated-pt': {
+        const dxSrc = this.num(s.dx as WgNum), dySrc = this.num(s.dy as WgNum);
+        const p = new TranslatedPoint(this.pointOf(s.p, who), dxSrc(), dySrc());
+        this.graph.add(p); this.points.set(id, p); this.addDot(id, p, s, true);
+        break;
+      }
+      case 'wg-dilated-pt': {
+        const fSrc = this.num(s.factor as WgNum);
+        const p = new DilatedPoint(this.pointOf(s.p, who), this.pointOf(s.center, who), fSrc());
+        this.graph.add(p); this.points.set(id, p); this.addDot(id, p, s, true);
+        break;
+      }
+      case 'wg-inversion': {
+        const p = new CircleInversion(this.pointOf(s.p, who), this.circleOf(s.circle, who));
+        this.graph.add(p); this.points.set(id, p); this.addDot(id, p, s, true);
+        break;
+      }
+      case 'wg-mobius': {
+        const aSrc = this.num(s.a as WgNum), bSrc = this.num(s.b as WgNum);
+        const cSrc = this.num(s.c as WgNum), dSrc = this.num(s.d as WgNum);
+        const p = new MobiusPoint(this.pointOf(s.p, who), [aSrc(), 0], [bSrc(), 0], [cSrc(), 0], [dSrc(), 0]);
+        this.graph.add(p); this.points.set(id, p); this.addDot(id, p, s, true);
+        break;
+      }
+      case 'wg-locus': {
+        const driver = this.points.get(s.driver);
+        const dependent = this.points.get(s.dependent);
+        if (!driver || !dependent) throw new Error(`${who}: locus driver/dependent must be points`);
+        const n = s.samples ?? 80;
+        const props = this.strokeProps(s, COL_PLOT);
+        const group = new Group();
+        this.register(id, group, s);
+        const resample = () => {
+          group.children.length = 0;
+          const pts: Pt[] = [];
+          const ox = driver.x, oy = driver.y;
+          for (let i = 0; i <= n; i++) {
+            const t = i / n;
+            driver.x = ox + Math.cos(t * Math.PI * 2) * 2;
+            driver.y = oy + Math.sin(t * Math.PI * 2) * 2;
+            this.graph.update();
+            pts.push([plane.dToWx(dependent.x), plane.dToWy(dependent.y)]);
+          }
+          driver.x = ox; driver.y = oy;
+          this.graph.update();
+          if (pts.length >= 2) group.add(new Polyline(pts, props));
+        };
+        this.plotResamples.push(resample);
+        resample();
+        this.track(group, () => this.lastParamSig);
+        break;
+      }
+      case 'wg-regular-polygon': {
+        const cSrc = this.pt(s.center as WgPoint, who);
+        const nSrc = this.num(s.n as WgNum), rSrc = this.num(s.radius as WgNum);
+        const rotSrc = s.rot !== undefined ? this.num(s.rot as WgNum) : () => 0;
+        const props = this.strokeProps(s, COL_PLOT);
+        const group = new Group();
+        this.register(id, group, s);
+        const resample = () => {
+          group.children.length = 0;
+          const c = cSrc(), nn = Math.max(3, Math.round(nSrc())), r = rSrc() * plane.unitX, rot = rotSrc();
+          const pts: Pt[] = [];
+          for (let i = 0; i < nn; i++) {
+            const a = rot + (Math.PI * 2 * i) / nn;
+            pts.push([plane.dToWx(c[0] + Math.cos(a) * r / plane.unitX), plane.dToWy(c[1] + Math.sin(a) * r / plane.unitY)]);
+          }
+          group.add(new Polygon(pts, props, s.fill ? { color: s.fill } : undefined));
+        };
+        this.plotResamples.push(resample);
+        resample();
+        this.track(group, () => this.lastParamSig);
+        break;
+      }
+      case 'wg-h-lock': {
+        const src = this.pointOf(s.p, who);
+        const p = new HLockedPoint(src.x, src.y);
+        this.graph.add(p); this.points.set(id, p); this.addDot(id, p, s, true);
+        this.drag.register(p);
+        break;
+      }
+      case 'wg-v-lock': {
+        const src = this.pointOf(s.p, who);
+        const p = new VLockedPoint(src.x, src.y);
+        this.graph.add(p); this.points.set(id, p); this.addDot(id, p, s, true);
+        this.drag.register(p);
+        break;
+      }
+      case 'wg-grid-snap': {
+        const src = this.pointOf(s.p, who);
+        const stepSrc = s.step !== undefined ? this.num(s.step as WgNum) : () => 1;
+        const p = new GridSnappedPoint(src.x, src.y, stepSrc());
+        this.graph.add(p); this.points.set(id, p); this.addDot(id, p, s, true);
+        this.drag.register(p);
+        break;
+      }
+      case 'wg-angle-snap': {
+        const src = this.pointOf(s.p, who);
+        const center = this.pointOf(s.center, who);
+        const stepSrc = s.step !== undefined ? this.num(s.step as WgNum) : () => (Math.PI / 12);
+        const p = new AngleSnappedPoint(src.x, src.y, center, stepSrc());
+        this.graph.add(p); this.points.set(id, p); this.addDot(id, p, s, true);
+        this.drag.register(p);
+        break;
+      }
+      case 'wg-length': {
+        const a = this.pointOf(s.a, who), b = this.pointOf(s.b, who);
+        const meas = new LengthMeasure(a, b);
+        this.graph.add(meas);
+        const color = s.color ?? COL_LABEL;
+        const m = new Label('', 0, 0, 14, color);
+        this.register(id, m, s);
+        this.track(m, () => {
+          const v = meas.value;
+          m.text = v.toFixed(2);
+          m.position = [(a.x + b.x) / 2, (a.y + b.y) / 2 + 0.3];
+          return `${v}`;
+        });
+        break;
+      }
+      case 'wg-slope': {
+        const l = this.lineOf(s.line, who);
+        const color = s.color ?? COL_LABEL;
+        const m = new Label('', 0, 0, 14, color);
+        this.register(id, m, s);
+        this.track(m, () => {
+          const v = Math.abs(l.dx) < 1e-9 ? Infinity : l.dy / l.dx;
+          m.text = isFinite(v) ? `m=${v.toFixed(2)}` : 'm=∞';
+          m.position = [l.x0, l.y0 + 0.4];
+          return `${v}`;
+        });
+        break;
+      }
+      case 'wg-radius': {
+        const c = this.circleOf(s.circle, who);
+        const meas = new RadiusMeasure(c);
+        this.graph.add(meas);
+        const color = s.color ?? COL_LABEL;
+        const m = new Label('', 0, 0, 14, color);
+        this.register(id, m, s);
+        this.track(m, () => {
+          const v = meas.value;
+          m.text = `r=${v.toFixed(2)}`;
+          m.position = [c.cx, c.cy + c.r + 0.3];
+          return `${v}`;
+        });
+        break;
+      }
+      case 'wg-area': {
+        const pts = (s.points as string[]).map((pid) => this.pointOf(pid, who));
+        const meas = new AreaMeasure(pts);
+        this.graph.add(meas);
+        const color = s.color ?? COL_LABEL;
+        const m = new Label('', 0, 0, 14, color);
+        this.register(id, m, s);
+        this.track(m, () => {
+          const v = meas.value;
+          m.text = `A=${v.toFixed(2)}`;
+          let cx = 0, cy = 0;
+          for (const p of pts) { cx += p.x; cy += p.y; }
+          m.position = [cx / pts.length, cy / pts.length];
+          return `${v}`;
+        });
+        break;
+      }
+
+      // ── Lane C: stats & probability ─────────────────────────────────────
+      case 'wg-distribution': {
+        const props = this.strokeProps(s, COL_PLOT);
+        const group = new Group();
+        this.register(id, group, s);
+        const resample = () => {
+          group.children.length = 0;
+          const d = this.mkDist(s);
+          if (!d) return;
+          const d0 = s.domain ? (this.num(s.domain[0] as WgNum))() : -5;
+          const d1 = s.domain ? (this.num(s.domain[1] as WgNum))() : 5;
+          const n = s.samples ?? 200;
+          const pdfPts: Pt[] = [];
+          for (let i = 0; i <= n; i++) {
+            const x = d0 + (d1 - d0) * i / n;
+            pdfPts.push([x, d.pdf(x) * 12]);
+          }
+          group.add(new Polyline(this.toWorld(pdfPts), props));
+          if (s.showCdf) {
+            const cdfPts: Pt[] = [];
+            for (let i = 0; i <= n; i++) {
+              const x = d0 + (d1 - d0) * i / n;
+              cdfPts.push([x, d.cdf(x) * 6]);
+            }
+            group.add(new Polyline(this.toWorld(cdfPts), { ...props, color: COL_ANGLE }));
+          }
+        };
+        this.plotResamples.push(resample);
+        resample();
+        this.track(group, () => this.lastParamSig + '|' + this.lodScale);
+        break;
+      }
+      case 'wg-sampling': {
+        const color = s.color ?? COL_PLOT;
+        const group = new Group();
+        this.register(id, group, s);
+        const resample = () => {
+          group.children.length = 0;
+          const d = this.mkDist(s);
+          if (!d) return;
+          const n = Math.round((this.num(s.n as WgNum))());
+          const seed = s.seed ?? 42;
+          let st = seed;
+          const rng = () => { st = (st * 1664525 + 1013904223) & 0x7fffffff; return st / 0x7fffffff; };
+          const data = statSample(d, n, rng);
+          const bins = sturgesBins(n);
+          const hist = statHistogram(data, bins);
+          const props = this.strokeProps(s, color);
+          for (const b of hist) {
+            const x0 = b.x0, x1 = b.x1, h = b.count / n;
+            group.add(new Polygon(this.toWorld([[x0, 0], [x1, 0], [x1, h], [x0, h]]), props, { color: [...color.slice(0, 3), 0.4] as any }));
+          }
+          const r = s.radius ?? 3;
+          for (const v of data.slice(0, 200)) group.add(new Dot(plane.dToWx(v), plane.dToWy(0), r, color));
+        };
+        this.plotResamples.push(resample);
+        resample();
+        this.track(group, () => this.lastParamSig);
+        break;
+      }
+      case 'wg-clt': {
+        const props = this.strokeProps(s, COL_PLOT);
+        const group = new Group();
+        this.register(id, group, s);
+        const resample = () => {
+          group.children.length = 0;
+          const d = this.mkDist(s);
+          if (!d) return;
+          const ss = Math.round((this.num(s.sampleSize as WgNum))());
+          const trials = s.trials ? Math.round((this.num(s.trials as WgNum))()) : 500;
+          const seed = s.seed ?? 42;
+          let st = seed;
+          const rng = () => { st = (st * 1664525 + 1013904223) & 0x7fffffff; return st / 0x7fffffff; };
+          const result = cltSimulation(d, ss, trials, 30, rng);
+          const maxC = Math.max(...result.histogram.map(b => b.count), 1);
+          for (const b of result.histogram) {
+            const h = b.count / maxC;
+            group.add(new Polygon(this.toWorld([[b.x0, 0], [b.x1, 0], [b.x1, h], [b.x0, h]]), props, { color: s.fill ?? [0.36, 0.62, 0.98, 0.4] }));
+          }
+        };
+        this.plotResamples.push(resample);
+        resample();
+        this.track(group, () => this.lastParamSig);
+        break;
+      }
+      case 'wg-random-walk': {
+        const color = s.color ?? COL_PLOT;
+        const props = this.strokeProps(s, color);
+        const group = new Group();
+        this.register(id, group, s);
+        const resample = () => {
+          group.children.length = 0;
+          const steps = Math.round((this.num(s.steps as WgNum))());
+          const walks = s.walks ? Math.round((this.num(s.walks as WgNum))()) : 3;
+          const seed = s.seed ?? 42;
+          let st = seed;
+          const rng = () => { st = (st * 1664525 + 1013904223) & 0x7fffffff; return st / 0x7fffffff; };
+          if (s.dims === 1) {
+            for (let w = 0; w < walks; w++) {
+              const path = randomWalk1D(steps, 1, rng);
+              const pts: Pt[] = path.map((y, i) => [i, y] as Pt);
+              group.add(new Polyline(this.toWorld(pts), props));
+            }
+          } else {
+            if (s.brownian) {
+              const path = brownianMotion(steps, 0.01, 1, rng);
+              group.add(new Polyline(this.toWorld(path as Pt[]), props));
+            } else {
+              const all = multipleWalks2D(walks, steps, 1, rng);
+              for (const path of all) group.add(new Polyline(this.toWorld(path as Pt[]), props));
+            }
+          }
+        };
+        this.plotResamples.push(resample);
+        resample();
+        this.track(group, () => this.lastParamSig);
+        break;
+      }
+      case 'wg-monte-carlo': {
+        const color = s.color ?? COL_PLOT;
+        const props = this.strokeProps(s, color);
+        const group = new Group();
+        this.register(id, group, s);
+        const resample = () => {
+          group.children.length = 0;
+          const n = Math.round((this.num(s.n as WgNum))());
+          const seed = s.seed ?? 42;
+          let st = seed;
+          const rng = () => { st = (st * 1664525 + 1013904223) & 0x7fffffff; return st / 0x7fffffff; };
+          if (s.method === 'pi') {
+            const result = monteCarloPi(Math.min(n, 2000), rng);
+            const r = s.radius ?? 2.5;
+            for (const d of result.darts.slice(0, 500)) {
+              group.add(new Dot(plane.dToWx(d.x), plane.dToWy(d.y), r, d.inside ? [0.35, 0.80, 0.55, 1] : [0.90, 0.45, 0.45, 1]));
+            }
+            const circPts: Pt[] = [];
+            for (let i = 0; i <= 64; i++) { const a = Math.PI * 2 * i / 64; circPts.push([Math.cos(a), Math.sin(a)]); }
+            group.add(new Polyline(this.toWorld(circPts), props));
+          } else {
+            const result = buffonsNeedle(Math.min(n, 500), 1, 1, rng);
+            for (const nd of result.results.slice(0, 200)) {
+              const col = nd.crosses ? [0.90, 0.45, 0.45, 1] : [0.35, 0.80, 0.55, 1];
+              const half = 0.5;
+              const dx = Math.cos(nd.angle) * half, dy = Math.sin(nd.angle) * half;
+              group.add(new Segment([plane.dToWx(nd.x - dx), plane.dToWy(nd.y - dy)], [plane.dToWx(nd.x + dx), plane.dToWy(nd.y + dy)], { color: col, width: 1.5, cap: 'butt', join: 'miter' }));
+            }
+          }
+        };
+        this.plotResamples.push(resample);
+        resample();
+        this.track(group, () => this.lastParamSig);
+        break;
+      }
+      case 'wg-correlation': {
+        const color = s.color ?? COL_PLOT;
+        const props = this.strokeProps(s, color);
+        const group = new Group();
+        this.register(id, group, s);
+        const resample = () => {
+          group.children.length = 0;
+          const pts: [number, number][] = s.anscombe ? ANSCOMBE_QUARTET[s.anscombe - 1] : (s.points ?? []);
+          const r = s.radius ?? 4;
+          for (const p of pts) group.add(new Dot(plane.dToWx(p[0]), plane.dToWy(p[1]), r, color));
+          if (s.showRegression !== false && pts.length >= 2) {
+            const reg = linReg(pts);
+            const xs = pts.map(p => p[0]);
+            const x0 = Math.min(...xs), x1 = Math.max(...xs);
+            group.add(new Segment([plane.dToWx(x0), plane.dToWy(reg.slope * x0 + reg.intercept)], [plane.dToWx(x1), plane.dToWy(reg.slope * x1 + reg.intercept)], { color: COL_ANGLE, width: 2, cap: 'butt', join: 'miter' }));
+          }
+        };
+        this.plotResamples.push(resample);
+        resample();
+        this.track(group, () => this.lastParamSig);
+        break;
+      }
+      case 'wg-hypothesis': {
+        const props = this.strokeProps(s, COL_PLOT);
+        const group = new Group();
+        this.register(id, group, s);
+        const resample = () => {
+          group.children.length = 0;
+          const mu0 = (this.num(s.mu0 as WgNum))();
+          const sigma = s.sigma !== undefined ? (this.num(s.sigma as WgNum))() : 1;
+          const n = Math.round((this.num(s.n as WgNum))());
+          const alpha = s.alpha !== undefined ? (this.num(s.alpha as WgNum))() : 0.05;
+          const se = sigma / Math.sqrt(n);
+          const d0 = s.domain ? (this.num(s.domain[0] as WgNum))() : mu0 - 4 * se;
+          const d1 = s.domain ? (this.num(s.domain[1] as WgNum))() : mu0 + 4 * se;
+          const nn = 200;
+          const pdfPts: Pt[] = [];
+          for (let i = 0; i <= nn; i++) {
+            const x = d0 + (d1 - d0) * i / nn;
+            pdfPts.push([x, normalPdf(x, mu0, se)]);
+          }
+          group.add(new Polyline(this.toWorld(pdfPts), props));
+          if (s.mu1 !== undefined) {
+            const mu1 = (this.num(s.mu1 as WgNum))();
+            const altPts: Pt[] = [];
+            for (let i = 0; i <= nn; i++) {
+              const x = d0 + (d1 - d0) * i / nn;
+              altPts.push([x, normalPdf(x, mu1, se)]);
+            }
+            group.add(new Polyline(this.toWorld(altPts), { ...props, color: COL_ANGLE }));
+          }
+        };
+        this.plotResamples.push(resample);
+        resample();
+        this.track(group, () => this.lastParamSig);
+        break;
+      }
+
+      // ── Lane D: linear algebra ──────────────────────────────────────────
+      case 'wg-matrix-grid': {
+        const props = this.strokeProps(s, COL_PLOT);
+        const group = new Group();
+        this.register(id, group, s);
+        const resample = () => {
+          group.children.length = 0;
+          const e = (s.entries as WgNum[]).map(v => (this.num(v))());
+          const m: Mat2 = [e[0], e[1], e[2], e[3]];
+          const ext = s.extent !== undefined ? (this.num(s.extent as WgNum))() : 4;
+          const step = s.gridStep ?? 1;
+          const grid = transformGrid(m, ext, step);
+          for (const [a, b] of grid.lines) {
+            group.add(new Segment([plane.dToWx(a[0]), plane.dToWy(a[1])], [plane.dToWx(b[0]), plane.dToWy(b[1])], { ...props, width: 1 }));
+          }
+          const bi = grid.basisI, bj = grid.basisJ;
+          group.add(new Vector([plane.dToWx(0), plane.dToWy(0)], [plane.dToWx(bi[0]), plane.dToWy(bi[1])], { color: [0.90, 0.45, 0.45, 1], width: 3 }));
+          group.add(new Vector([plane.dToWx(0), plane.dToWy(0)], [plane.dToWx(bj[0]), plane.dToWy(bj[1])], { color: [0.35, 0.80, 0.55, 1], width: 3 }));
+        };
+        this.plotResamples.push(resample);
+        resample();
+        this.track(group, () => this.lastParamSig);
+        break;
+      }
+      case 'wg-determinant': {
+        const props = this.strokeProps(s, COL_PLOT);
+        const group = new Group();
+        this.register(id, group, s);
+        const resample = () => {
+          group.children.length = 0;
+          const e = (s.entries as WgNum[]).map(v => (this.num(v))());
+          const m: Mat2 = [e[0], e[1], e[2], e[3]];
+          const verts = parallelogramVertices(m);
+          const wPts = verts.map(v => [plane.dToWx(v[0]), plane.dToWy(v[1])] as Pt);
+          const det = det2(m);
+          const col = det >= 0 ? [0.35, 0.80, 0.55, 0.4] : [0.90, 0.45, 0.45, 0.4];
+          group.add(new Polygon(wPts, props, { color: s.fill ?? col }));
+        };
+        this.plotResamples.push(resample);
+        resample();
+        this.track(group, () => this.lastParamSig);
+        break;
+      }
+      case 'wg-eigenvectors': {
+        const color = s.color ?? COL_PLOT;
+        const props = this.strokeProps(s, color);
+        const group = new Group();
+        this.register(id, group, s);
+        const resample = () => {
+          group.children.length = 0;
+          const e = (s.entries as WgNum[]).map(v => (this.num(v))());
+          const m: Mat2 = [e[0], e[1], e[2], e[3]];
+          const ext = s.extent !== undefined ? (this.num(s.extent as WgNum))() : 4;
+          const lines = invariantLines(m);
+          for (const il of lines) {
+            const d = il.direction;
+            const len = ext;
+            group.add(new Segment([plane.dToWx(-d[0] * len), plane.dToWy(-d[1] * len)], [plane.dToWx(d[0] * len), plane.dToWy(d[1] * len)], { ...props, color: COL_ANGLE }));
+          }
+        };
+        this.plotResamples.push(resample);
+        resample();
+        this.track(group, () => this.lastParamSig);
+        break;
+      }
+      case 'wg-matrix-compose': {
+        const props = this.strokeProps(s, COL_PLOT);
+        const group = new Group();
+        this.register(id, group, s);
+        const resample = () => {
+          group.children.length = 0;
+          const ea = (s.a as WgNum[]).map((v: WgNum) => (this.num(v))());
+          const eb = (s.b as WgNum[]).map((v: WgNum) => (this.num(v))());
+          const ma: Mat2 = [ea[0], ea[1], ea[2], ea[3]];
+          const mb: Mat2 = [eb[0], eb[1], eb[2], eb[3]];
+          const ext = s.extent !== undefined ? (this.num(s.extent as WgNum))() : 3;
+          const gA = transformGrid(ma, ext, 1);
+          for (const [a, b] of gA.lines) group.add(new Segment([plane.dToWx(a[0]), plane.dToWy(a[1])], [plane.dToWx(b[0]), plane.dToWy(b[1])], { ...props, width: 0.7, color: COL_LINE }));
+          const composed: Mat2 = [ma[0]*mb[0]+ma[1]*mb[2], ma[0]*mb[1]+ma[1]*mb[3], ma[2]*mb[0]+ma[3]*mb[2], ma[2]*mb[1]+ma[3]*mb[3]];
+          const gC = transformGrid(composed, ext, 1);
+          for (const [a, b] of gC.lines) group.add(new Segment([plane.dToWx(a[0]), plane.dToWy(a[1])], [plane.dToWx(b[0]), plane.dToWy(b[1])], { ...props, width: 1.5 }));
+        };
+        this.plotResamples.push(resample);
+        resample();
+        this.track(group, () => this.lastParamSig);
+        break;
+      }
+      case 'wg-dot-product': {
+        const color = s.color ?? COL_PLOT;
+        const props = this.strokeProps(s, color);
+        const group = new Group();
+        this.register(id, group, s);
+        const resample = () => {
+          group.children.length = 0;
+          const u = (s.u as WgNum[]).map((v: WgNum) => (this.num(v))()) as LVec2;
+          const v = (s.v as WgNum[]).map((v2: WgNum) => (this.num(v2))()) as LVec2;
+          const o: Pt = [plane.dToWx(0), plane.dToWy(0)];
+          group.add(new Vector(o, [plane.dToWx(u[0]), plane.dToWy(u[1])], { color: [0.90, 0.45, 0.45, 1], width: 3 }));
+          group.add(new Vector(o, [plane.dToWx(v[0]), plane.dToWy(v[1])], { color: [0.35, 0.80, 0.55, 1], width: 3 }));
+          const proj = project2(u, v);
+          group.add(new Segment([plane.dToWx(proj[0]), plane.dToWy(proj[1])], [plane.dToWx(u[0]), plane.dToWy(u[1])], { ...props, color: COL_ANGLE, width: 1.5 }));
+          group.add(new Dot(plane.dToWx(proj[0]), plane.dToWy(proj[1]), 4, COL_ANGLE));
+        };
+        this.plotResamples.push(resample);
+        resample();
+        this.track(group, () => this.lastParamSig);
+        break;
+      }
+      case 'wg-svd': {
+        const props = this.strokeProps(s, COL_PLOT);
+        const group = new Group();
+        this.register(id, group, s);
+        const resample = () => {
+          group.children.length = 0;
+          const e = (s.entries as WgNum[]).map(v => (this.num(v))());
+          const m: Mat2 = [e[0], e[1], e[2], e[3]];
+          const ext = s.extent !== undefined ? (this.num(s.extent as WgNum))() : 3;
+          const result = svd2(m);
+          const n = 64;
+          const circPts: Pt[] = [];
+          for (let i = 0; i <= n; i++) {
+            const a = Math.PI * 2 * i / n;
+            const v: LVec2 = [Math.cos(a) * ext, Math.sin(a) * ext];
+            const tv = applyMat2(m, v);
+            circPts.push([plane.dToWx(tv[0]), plane.dToWy(tv[1])]);
+          }
+          group.add(new Polyline(circPts, props));
+          const u1 = result.U, s1 = result.S;
+          group.add(new Vector([plane.dToWx(0), plane.dToWy(0)], [plane.dToWx(u1[0] * s1[0] * ext), plane.dToWy(u1[1] * s1[0] * ext)], { color: [0.90, 0.45, 0.45, 1], width: 3 }));
+          group.add(new Vector([plane.dToWx(0), plane.dToWy(0)], [plane.dToWx(u1[2] * s1[1] * ext), plane.dToWy(u1[3] * s1[1] * ext)], { color: [0.35, 0.80, 0.55, 1], width: 3 }));
+        };
+        this.plotResamples.push(resample);
+        resample();
+        this.track(group, () => this.lastParamSig);
+        break;
+      }
+
+      // ── Lane E: graph theory ────────────────────────────────────────────
+      case 'wg-graph': {
+        const color = s.color ?? COL_PLOT;
+        const props = this.strokeProps(s, color);
+        const group = new Group();
+        this.register(id, group, s);
+        const resample = () => {
+          group.children.length = 0;
+          const g = this.mkGraph(s);
+          if (!g) return;
+          const positions = this.layoutGraph(g, s);
+          for (const e of g.edges) {
+            const a = positions[e[0]], b = positions[e[1]];
+            group.add(new Segment([plane.dToWx(a[0]), plane.dToWy(a[1])], [plane.dToWx(b[0]), plane.dToWy(b[1])], { ...props, width: 1.5 }));
+          }
+          const r = s.radius ?? 5;
+          for (const p of positions) group.add(new Dot(plane.dToWx(p[0]), plane.dToWy(p[1]), r, color));
+        };
+        this.plotResamples.push(resample);
+        resample();
+        this.track(group, () => this.lastParamSig);
+        break;
+      }
+      case 'wg-traversal': {
+        const color = s.color ?? COL_PLOT;
+        const props = this.strokeProps(s, color);
+        const group = new Group();
+        this.register(id, group, s);
+        const resample = () => {
+          group.children.length = 0;
+          const g = this.mkGraph(s);
+          if (!g) return;
+          const positions = this.layoutGraph(g, s);
+          const start = s.start !== undefined ? Math.round((this.num(s.start as WgNum))()) : 0;
+          const steps = s.algo === 'bfs' ? bfs(g, start) : dfs(g, start);
+          for (const e of g.edges) {
+            const a = positions[e[0]], b = positions[e[1]];
+            group.add(new Segment([plane.dToWx(a[0]), plane.dToWy(a[1])], [plane.dToWx(b[0]), plane.dToWy(b[1])], { ...props, width: 1, color: COL_LINE }));
+          }
+          for (let i = 0; i < steps.length; i++) {
+            const st = steps[i];
+            if (st.parent !== -1) {
+              const a = positions[st.parent], b = positions[st.node];
+              group.add(new Segment([plane.dToWx(a[0]), plane.dToWy(a[1])], [plane.dToWx(b[0]), plane.dToWy(b[1])], { ...props, width: 2.5, color: COL_ANGLE }));
+            }
+          }
+          const r = s.radius ?? 5;
+          for (let i = 0; i < positions.length; i++) {
+            const visited = steps.some(st => st.node === i);
+            group.add(new Dot(plane.dToWx(positions[i][0]), plane.dToWy(positions[i][1]), r, visited ? color : COL_LINE));
+          }
+        };
+        this.plotResamples.push(resample);
+        resample();
+        this.track(group, () => this.lastParamSig);
+        break;
+      }
+      case 'wg-shortest-path': {
+        const color = s.color ?? COL_PLOT;
+        const props = this.strokeProps(s, color);
+        const group = new Group();
+        this.register(id, group, s);
+        const resample = () => {
+          group.children.length = 0;
+          const g = this.mkGraph(s);
+          if (!g) return;
+          const positions = this.layoutGraph(g, s);
+          const wg = toWeighted(g);
+          const from = s.from !== undefined ? Math.round((this.num(s.from as WgNum))()) : 0;
+          const to = s.to !== undefined ? Math.round((this.num(s.to as WgNum))()) : g.nodes - 1;
+          const result = dijkstra(wg, from);
+          const path = shortestPath(result, to);
+          for (const e of g.edges) {
+            const a = positions[e[0]], b = positions[e[1]];
+            group.add(new Segment([plane.dToWx(a[0]), plane.dToWy(a[1])], [plane.dToWx(b[0]), plane.dToWy(b[1])], { ...props, width: 1, color: COL_LINE }));
+          }
+          for (let i = 0; i < path.length - 1; i++) {
+            const a = positions[path[i]], b = positions[path[i + 1]];
+            group.add(new Segment([plane.dToWx(a[0]), plane.dToWy(a[1])], [plane.dToWx(b[0]), plane.dToWy(b[1])], { ...props, width: 3, color: COL_ANGLE }));
+          }
+          const r = 5;
+          for (let i = 0; i < positions.length; i++) {
+            const onPath = path.includes(i);
+            group.add(new Dot(plane.dToWx(positions[i][0]), plane.dToWy(positions[i][1]), r, onPath ? color : COL_LINE));
+          }
+        };
+        this.plotResamples.push(resample);
+        resample();
+        this.track(group, () => this.lastParamSig);
+        break;
+      }
+      case 'wg-mst': {
+        const color = s.color ?? COL_PLOT;
+        const props = this.strokeProps(s, color);
+        const group = new Group();
+        this.register(id, group, s);
+        const resample = () => {
+          group.children.length = 0;
+          const g = this.mkGraph(s);
+          if (!g) return;
+          const positions = this.layoutGraph(g, s);
+          const wg = toWeighted(g);
+          const result = s.algo === 'prim' ? prim(wg) : kruskal(wg);
+          for (const e of g.edges) {
+            const a = positions[e[0]], b = positions[e[1]];
+            group.add(new Segment([plane.dToWx(a[0]), plane.dToWy(a[1])], [plane.dToWx(b[0]), plane.dToWy(b[1])], { ...props, width: 1, color: COL_LINE }));
+          }
+          for (const e of result.edges) {
+            const a = positions[e.from], b = positions[e.to];
+            group.add(new Segment([plane.dToWx(a[0]), plane.dToWy(a[1])], [plane.dToWx(b[0]), plane.dToWy(b[1])], { ...props, width: 3, color: COL_ANGLE }));
+          }
+          const r = 5;
+          for (const p of positions) group.add(new Dot(plane.dToWx(p[0]), plane.dToWy(p[1]), r, color));
+        };
+        this.plotResamples.push(resample);
+        resample();
+        this.track(group, () => this.lastParamSig);
+        break;
+      }
+      case 'wg-eulerian': {
+        const color = s.color ?? COL_PLOT;
+        const props = this.strokeProps(s, color);
+        const group = new Group();
+        this.register(id, group, s);
+        const resample = () => {
+          group.children.length = 0;
+          const g = this.mkGraph(s);
+          if (!g) return;
+          const positions = this.layoutGraph(g, s);
+          const path = s.mode === 'circuit' ? eulerianCircuit(g) : eulerianPath(g);
+          for (const e of g.edges) {
+            const a = positions[e[0]], b = positions[e[1]];
+            group.add(new Segment([plane.dToWx(a[0]), plane.dToWy(a[1])], [plane.dToWx(b[0]), plane.dToWy(b[1])], { ...props, width: 1, color: COL_LINE }));
+          }
+          if (path) {
+            for (let i = 0; i < path.length - 1; i++) {
+              const a = positions[path[i]], b = positions[path[i + 1]];
+              group.add(new Segment([plane.dToWx(a[0]), plane.dToWy(a[1])], [plane.dToWx(b[0]), plane.dToWy(b[1])], { ...props, width: 3, color: COL_ANGLE }));
+            }
+          }
+          const r = 5;
+          for (const p of positions) group.add(new Dot(plane.dToWx(p[0]), plane.dToWy(p[1]), r, color));
+        };
+        this.plotResamples.push(resample);
+        resample();
+        this.track(group, () => this.lastParamSig);
+        break;
+      }
+
       default:
         throw new Error(`object-resolver: unhandled kind "${s.kind}"`);
     }
@@ -1044,6 +1960,56 @@ export class WgScene {
   }
 
   private toWorld(pts: Pt[]): Pt[] { return pts.map(([x, y]) => [this.plane.dToWx(x), this.plane.dToWy(y)] as Pt); }
+
+  private mkDist(s: Record<string, any>): Distribution | null {
+    const p = (s.params as WgNum[] | undefined)?.map((v: WgNum) => (this.num(v))()) ?? [];
+    switch (s.dist) {
+      case 'normal': return normal(p[0] ?? 0, p[1] ?? 1);
+      case 'binomial': return binomial(Math.round(p[0] ?? 10), p[1] ?? 0.5);
+      case 'poisson': return poisson(p[0] ?? 3);
+      case 'exponential': return exponential(p[0] ?? 1);
+      case 'uniform': return uniform(p[0] ?? 0, p[1] ?? 1);
+      case 'geometric': return geometric(p[0] ?? 0.5);
+      case 'chi2': return chiSquared(Math.round(p[0] ?? 3));
+      case 't': return tDist(Math.round(p[0] ?? 5));
+      case 'f': return fDist(Math.round(p[0] ?? 5), Math.round(p[1] ?? 10));
+      default: return null;
+    }
+  }
+
+  private mkGraph(s: Record<string, any>): Graph | null {
+    const n = s.n !== undefined ? Math.round((this.num(s.n as WgNum))()) : 6;
+    const m = s.m !== undefined ? Math.round((this.num(s.m as WgNum))()) : 3;
+    const p = s.p !== undefined ? (this.num(s.p as WgNum))() : 0.3;
+    const seed = s.seed ?? 42;
+    let st = seed;
+    const rng = () => { st = (st * 1664525 + 1013904223) & 0x7fffffff; return st / 0x7fffffff; };
+    switch (s.graph) {
+      case 'petersen': return petersenGraph();
+      case 'complete': return completeGraph(n);
+      case 'cycle': return cycleGraph(n);
+      case 'path': return pathGraph(n);
+      case 'grid': return gridGraph(n, m);
+      case 'star': return starGraph(n);
+      case 'wheel': return wheelGraph(n);
+      case 'tree': return binaryTree(Math.min(n, 5));
+      case 'random': return randomGraph(n, p, rng);
+      default: return null;
+    }
+  }
+
+  private layoutGraph(g: Graph, s: Record<string, any>): [number, number][] {
+    const scale = 4;
+    const clamp = (v: number) => Math.max(-7, Math.min(7, v));
+    if (s.layout === 'circular') {
+      return circularLayout(g.nodes, scale).map(([x, y]) => [clamp(x), clamp(y)] as [number, number]);
+    }
+    const seed = s.seed ?? 42;
+    let st = seed;
+    const rng = () => { st = (st * 1664525 + 1013904223) & 0x7fffffff; return st / 0x7fffffff; };
+    const nodes = runLayout(g, 200, {}, rng);
+    return layoutPositions(nodes).map(([x, y]) => [clamp(x * scale), clamp(y * scale)] as [number, number]);
+  }
 
   private curveGroup(segs: Pt[][], props: { color: number[]; width: number; cap: 'butt'; join: 'miter' }): Group {
     const g = new Group();
