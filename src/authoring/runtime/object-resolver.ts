@@ -1076,27 +1076,32 @@ export class WgScene {
         const props = this.strokeProps(s, COL_PLOT);
         const group = new Group();
         this.register(id, group, s);
+        const fociPts = ((s.foci ?? []) as string[]).map((fid) => this.points.get(fid)).filter(Boolean) as GPoint[];
+        const dirLine = s.directrix ? this.lines.get(s.directrix) : undefined;
         const resample = () => {
           group.children.length = 0;
           let conic: GConic | null = null;
-          if (s.conic === 'ellipse' && s.foci?.length >= 2) {
-            const f1 = this.pointOf(s.foci[0], who), f2 = this.pointOf(s.foci[1], who);
-            conic = new EllipseFromFoci(f1, f2, 3);
-          } else if (s.conic === 'hyperbola' && s.foci?.length >= 2) {
-            const f1 = this.pointOf(s.foci[0], who), f2 = this.pointOf(s.foci[1], who);
-            conic = new HyperbolaFromFoci(f1, f2, 1);
-          } else if (s.conic === 'parabola' && s.foci?.length >= 1 && s.directrix) {
-            const f = this.pointOf(s.foci[0], who), d = this.lineOf(s.directrix, who);
-            conic = new ParabolaFromFocusDirectrix(f, d);
+          if (s.conic === 'ellipse' && fociPts.length >= 2) {
+            const d = Math.hypot(fociPts[0].x - fociPts[1].x, fociPts[0].y - fociPts[1].y);
+            conic = new EllipseFromFoci(fociPts[0], fociPts[1], d * 0.75);
+          } else if (s.conic === 'hyperbola' && fociPts.length >= 2) {
+            const d = Math.hypot(fociPts[0].x - fociPts[1].x, fociPts[0].y - fociPts[1].y);
+            conic = new HyperbolaFromFoci(fociPts[0], fociPts[1], Math.max(1, d * 0.3));
+          } else if (s.conic === 'parabola' && fociPts.length >= 1 && dirLine) {
+            conic = new ParabolaFromFocusDirectrix(fociPts[0], dirLine);
           }
           if (conic) {
             const pts = conic.sample(120);
-            if (pts.length >= 2) group.add(new Polyline(this.toWorld(pts), props));
+            if (pts.length >= 2) group.add(new Polyline(pts, props));
           }
         };
         this.plotResamples.push(resample);
         resample();
-        this.track(group, () => this.lastParamSig);
+        this.track(group, () => {
+          let sig = this.lastParamSig;
+          for (const p of fociPts) sig += `|${p.x.toFixed(1)},${p.y.toFixed(1)}`;
+          return sig;
+        });
         break;
       }
 
@@ -1333,11 +1338,11 @@ export class WgScene {
         this.register(id, group, s);
         const resample = () => {
           group.children.length = 0;
-          const c = cSrc(), nn = Math.max(3, Math.round(nSrc())), r = rSrc() * plane.unitX, rot = rotSrc();
+          const c = cSrc(), nn = Math.max(3, Math.round(nSrc())), rx = rSrc() * plane.unitX, ry = rSrc() * plane.unitY, rot = rotSrc();
           const pts: Pt[] = [];
           for (let i = 0; i < nn; i++) {
             const a = rot + (Math.PI * 2 * i) / nn;
-            pts.push([plane.dToWx(c[0] + Math.cos(a) * r / plane.unitX), plane.dToWy(c[1] + Math.sin(a) * r / plane.unitY)]);
+            pts.push([c[0] + Math.cos(a) * rx, c[1] + Math.sin(a) * ry]);
           }
           group.add(new Polygon(pts, props, s.fill ? { color: s.fill } : undefined));
         };
@@ -1385,9 +1390,9 @@ export class WgScene {
         const m = new Label('', 0, 0, 14, color);
         this.register(id, m, s);
         this.track(m, () => {
-          const v = meas.value;
+          const v = meas.value / plane.unitX;
           m.text = v.toFixed(2);
-          m.position = [(a.x + b.x) / 2, (a.y + b.y) / 2 + 0.3];
+          m.position = [(a.x + b.x) / 2, (a.y + b.y) / 2 + plane.unitY * 0.3];
           return `${v}`;
         });
         break;
@@ -1428,7 +1433,7 @@ export class WgScene {
         const m = new Label('', 0, 0, 14, color);
         this.register(id, m, s);
         this.track(m, () => {
-          const v = meas.value;
+          const v = meas.value / (plane.unitX * plane.unitY);
           m.text = `A=${v.toFixed(2)}`;
           let cx = 0, cy = 0;
           for (const p of pts) { cx += p.x; cy += p.y; }
@@ -2100,7 +2105,7 @@ export class WgScene {
       const sig = this.syncables[idx]();
       let sc = this.sliceCaches[idx];
       if (!sc) { sc = new EmitCache(); this.sliceCaches[idx] = sc; }
-      if (sig !== sc.signature) {
+      if (!sc.captured || sig !== sc.signature) {
         this.scratchInst.length = 0;
         this.scratchCrv.length = seedRows * 6;
         this.scratchCrv.fill(0);

@@ -507,3 +507,22 @@ If this file and the code disagree, investigate before trusting either.
   `graphTheoryDoc` (E: Petersen, complete, BFS grid, Kruskal MST, Eulerian
   circuit). World now hosts 8 boards. VALID_KINDS set updated. World test
   updated (4→8 boards). **382 tests green; tsc clean.**
+- 2026-07-29 — **Catalog board bug-fix pass (user: empty graph card + dead n
+  slider + messy overlap).** Three root causes, all in the resolver/cache layer:
+  (1) **empty graph card** = `EmitCache.signature` initialised to `''`, which
+  equals a param-less scene's `lastParamSig` (`''`) → the first-emit slice gate
+  `sig !== sc.signature` was `'' !== ''` = false → the slice was never captured
+  and replayed empty forever (only param-less boards hit it; linalg/stats survived
+  because their sliders make the sig non-empty). Added a `captured` flag to
+  EmitCache; gate is now `!sc.captured || sig !== sc.signature`. (2) **n-gon off-
+  screen / dead slider** = `this.pt(literal)` returns WORLD coords but the loop
+  treated the centre as data and ran `dToWx` a second time (→ ~37000px off-card);
+  the constraint graph lives in world space, so the polygon is now built in world
+  directly (slider re-runs resample → sides change live). Same double-conversion
+  hid the **conic** (also `sample()` is world, not data → dropped `toWorld`; and
+  `semiMajor:3` was world px vs a ~280px focus gap = degenerate → now sized from
+  the live focus distance, with foci in the track sig so dragging them re-runs it).
+  (3) **measurement labels** showed px magnitudes (`A=244550`) → scaled by unitX /
+  unitX·unitY to data units. Probe-driven: direct `group.emit` gave 544 instances
+  while the slice path gave 0, which localised the bug to capture, not geometry.
+  **382 tests green; tsc clean.**

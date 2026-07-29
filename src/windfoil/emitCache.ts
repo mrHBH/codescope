@@ -30,11 +30,16 @@ export class EmitCache {
   /** Cumulative rebuild count — a cache that climbs while idle is thrashing. */
   misses = 0;
 
-  invalidate() { this.valid = false; this.sig = ''; }
+  invalidate() { this.valid = false; this.sig = ''; this.captured = false; }
 
   // ── Slice-cache API (per-mobject composition in WgScene) ─────────────────
   /** Caller-managed signature (WgScene keys slices on geometry state). */
   signature = '';
+  /** Whether capture() has ever run. A signature of '' is a legitimate geometry
+   *  state (e.g. a param-less scene's lastParamSig), so it cannot double as the
+   *  "never captured" sentinel — without this flag the first emit of such a
+   *  mobject matches the '' default and is skipped forever (empty slice). */
+  captured = false;
   get instLen(): number { return this.cInstLen; }
   get crvLen(): number { return this.cCrvLen; }
   get rwsLen(): number { return this.cRwsLen; }
@@ -122,6 +127,7 @@ export class EmitCache {
       }
     }
     this.cInstLen = nInst;
+    this.captured = true;
   }
 
   private replay(inst: number[], crv: number[], rws: number[]) {
