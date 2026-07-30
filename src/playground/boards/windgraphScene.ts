@@ -18,7 +18,7 @@ import { layoutStr } from '../../layout/metrics';
 import type { FontFace } from '../../windfoil/font';
 import type { AppState } from '../../state';
 import { AnalyticPanel } from '../../ui/analyticPanel';
-import { positionBoardPanel, renderBoardPanel } from './sliderOverlay';
+import { positionBoardPanel, renderBoardPanel, panelHitXY, boardScreenChromeSig, renderBoardScreenChrome } from './sliderOverlay';
 
 const BLUE: Color = [0.36, 0.62, 0.98, 1];
 const GOLD: Color = [0.92, 0.74, 0.42, 1];
@@ -164,20 +164,23 @@ export class WindgraphSceneBoard {
 
   // ── s.interactive contract ──────────────────────────────────────────────
 
-  tryBeginDrag(wx: number, wy: number, scale: number): boolean {
+  tryBeginDrag(wx: number, wy: number, scale: number, sx?: number, sy?: number): boolean {
     this.ensure();
-    // Sliders first — the panel is in world space (doc coords at the board
-    // corner), so hit-test with the world pointer directly (no screen-px
-    // conversion). At app=null (headless) the panel sits at the board corner.
+    // Sliders first. In 3D the panel is a screen-HUD overlay, so hit-test with the
+    // pointer's screen px; in 2D it is world-space, so use doc coords (panelHitXY).
     positionBoardPanel(this, this.app);
-    if (this.panel && this.panel.pointerDown(wx, wy)) return true;
+    const [px, py] = panelHitXY(this, wx, wy, sx, sy);
+    if (this.panel && this.panel.pointerDown(px, py)) return true;
     const began = this.scene.tryBeginDrag(wx, wy, scale);
     if (began) this.rev++;
     return began;
   }
   dragTo(wx: number, wy: number) {
     if (this.panel && this.panel.isDragging) {
-      this.panel.drag(wx, wy);
+      // 3D panel lives in screen px → drive the drag with the live pointer screen
+      // position; 2D panel is world-space → doc coords.
+      const useScreen = !!this.app?.cam3d.active;
+      this.panel.drag(useScreen ? this.app!.mx : wx, useScreen ? this.app!.my : wy);
       return;
     }
     this.scene.dragTo(wx, wy);
@@ -186,13 +189,14 @@ export class WindgraphSceneBoard {
   get dragging(): boolean { return this.built && ((this.panel?.isDragging ?? false) || this.scene.dragging); }
   private hoverKey = '';
   private hoverRes = false;
-  updateHover(wx: number, wy: number, scale: number): boolean {
+  updateHover(wx: number, wy: number, scale: number, sx?: number, sy?: number): boolean {
     this.ensure();
-    const key = `${wx}|${wy}|${Math.round(scale * 50)}|${this.rev}`;
+    const key = `${wx}|${wy}|${Math.round(scale * 50)}|${sx ?? -1}|${sy ?? -1}|${this.rev}`;
     if (key === this.hoverKey) return this.hoverRes;
     this.hoverKey = key;
     positionBoardPanel(this, this.app);
-    this.panel?.updateHover(wx, wy);
+    const [hx, hy] = panelHitXY(this, wx, wy, sx, sy);
+    this.panel?.updateHover(hx, hy);
     if ((this.panel?.hovered ?? -1) >= 0) { this.scene.drag.hover = null; return (this.hoverRes = true); }
     if (wx < this.x0 - 40 || wx > this.x0 + this.width + 40 || wy < this.y0 - 40 || wy > this.y0 + this.height + 40) {
       this.scene.drag.hover = null;
@@ -280,7 +284,16 @@ export class WindgraphSceneBoard {
     const tSize = 18 * k;
     layoutStr(inst, this.doc.meta.title, TITLE, atlas.table, font, { x: this.x0 + 16 * k, y: this.y0 + tSize * 0.4, size: tSize });
     positionBoardPanel(this, this.app);
-    renderBoardPanel(this, inst, crv, rws, font, atlas);
+    // In 3D the panel is drawn into the screen HUD (screen-constant, undistorted);
+    // emitting it here too would stack a perspective-distorted copy underneath.
+    if (!this.app?.cam3d.active) renderBoardPanel(this, inst, crv, rws, font, atlas);
+  }
+
+  /** Standalone 3D: the panel lives in the screen HUD (the world renders it itself
+   *  when this board is hosted, so these only fire when the board is s.interactive). */
+  screenChromeSig(s: AppState): string { return boardScreenChromeSig(this, s); }
+  renderScreenChrome(s: AppState, hud: { inst: number[]; crv: number[]; rws: number[] }, font: FontFace, atlas: any) {
+    renderBoardScreenChrome(this, s, hud, font, atlas);
   }
 }
 

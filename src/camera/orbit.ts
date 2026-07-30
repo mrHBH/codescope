@@ -262,6 +262,26 @@ export function orbitZoomToRect(x0: number, y0: number, x1: number, y1: number, 
   controls.setLookAt(cx, cy + dist * Math.cos(eps), cz + dist * Math.sin(eps), cx, cy, cz, animate);
 }
 
+// Frame a doc-space rect while KEEPING the current tilt + azimuth (unlike
+// orbitZoomToRect, which flattens to top-down). Computes the same fit distance
+// the 2D frameRect uses (the +240 / 0.9 margin) so a board button frames a board
+// identically in 2D and 3D, then glides target + distance along the current view
+// direction so the orientation is preserved. Fixes the 3D toolbar buttons doing
+// nothing (they only set 2D targets, which the 3D sync overwrites every frame).
+export function orbitFrameRect(x0: number, y0: number, x1: number, y1: number, Cw: number, Ch: number, animate = true) {
+  if (!ready) return;
+  const w = Math.max(x1 - x0, 1), h = Math.max(y1 - y0, 1);
+  const [cx, , cz] = transformPoint(GROUND_MODEL, (x0 + x1) / 2, (y0 + y1) / 2, 0);
+  const z = Math.min((Cw / (w + 240)) * 0.9, (Ch / (h + 240)) * 0.9);
+  const dist = Ch / (2 * z * Math.tan((camera.fov * DEG2RAD) / 2));
+  const t = controls.getTarget(_ro);
+  const d = _rd.copy(camera.position).sub(t).normalize();
+  const ex = cx + d.x * dist, ey = d.y * dist, ez = cz + d.z * dist;
+  panPX = 0; panPY = 0;
+  inTransition = animate;
+  controls.setLookAt(ex, ey, ez, cx, 0, cz, animate);
+}
+
 export function orbitDolly(delta: number) {
   if (ready) controls.dolly(delta, false);
 }

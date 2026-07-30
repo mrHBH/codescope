@@ -201,10 +201,10 @@ export interface AppState {
 
   // windgraph Phase-5 interactivity demo (world-space, draggable; see windgraph/interact/demo.ts)
   interactive: (Board & {
-    tryBeginDrag(wx: number, wy: number, scale: number): boolean;
+    tryBeginDrag(wx: number, wy: number, scale: number, sx?: number, sy?: number): boolean;
     dragTo(wx: number, wy: number): void;
     endDrag(): void;
-    updateHover(wx: number, wy: number, scale: number): boolean;
+    updateHover(wx: number, wy: number, scale: number, sx?: number, sy?: number): boolean;
     autoDrive(): void;
     readonly dragging: boolean;
     /** Screen-space slider chrome signature (positions panels; cheap, every frame). */

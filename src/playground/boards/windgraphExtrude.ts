@@ -15,7 +15,7 @@ import { strokeInto } from '../../windgraph/stroke/stroke';
 import { layoutStr } from '../../layout/metrics';
 import type { GlyphAtlas } from '../../windfoil/bands';
 import { AnalyticPanel } from '../../ui/analyticPanel';
-import { positionBoardPanel, renderBoardPanel } from './sliderOverlay';
+import { positionBoardPanel, renderBoardPanel, panelHitXY, boardScreenChromeSig, renderBoardScreenChrome } from './sliderOverlay';
 import { orbitPolar, isEnabled } from '../../camera/orbit';
 import { isTilted, toggleTilt } from '../../camera/camera';
 
@@ -158,14 +158,16 @@ export class WindgraphExtrudeBoard {
 
   // ── s.interactive contract (slider only; everything else → camera) ───────
 
-  tryBeginDrag(wx: number, wy: number, _scale: number): boolean {
+  tryBeginDrag(wx: number, wy: number, _scale: number, sx?: number, sy?: number): boolean {
     this.ensure();
     positionBoardPanel(this, this.app);
-    return !!(this.panel && this.panel.pointerDown(wx, wy));
+    const [px, py] = panelHitXY(this, wx, wy, sx, sy);
+    return !!(this.panel && this.panel.pointerDown(px, py));
   }
   dragTo(wx: number, wy: number) {
     if (this.panel && this.panel.isDragging) {
-      this.panel.drag(wx, wy);
+      const useScreen = !!this.app?.cam3d.active;
+      this.panel.drag(useScreen ? this.app!.mx : wx, useScreen ? this.app!.my : wy);
     }
   }
   endDrag() { this.panel?.endDrag(); }
@@ -173,13 +175,14 @@ export class WindgraphExtrudeBoard {
 
   private hoverKey = '';
   private hoverRes = false;
-  updateHover(wx: number, wy: number, scale: number): boolean {
+  updateHover(wx: number, wy: number, scale: number, sx?: number, sy?: number): boolean {
     this.ensure();
-    const key = `${wx}|${wy}|${Math.round(scale * 50)}|${this.rev}`;
+    const key = `${wx}|${wy}|${Math.round(scale * 50)}|${sx ?? -1}|${sy ?? -1}|${this.rev}`;
     if (key === this.hoverKey) return this.hoverRes;
     this.hoverKey = key;
     positionBoardPanel(this, this.app);
-    this.panel?.updateHover(wx, wy);
+    const [hx, hy] = panelHitXY(this, wx, wy, sx, sy);
+    this.panel?.updateHover(hx, hy);
     return (this.hoverRes = (this.panel?.hovered ?? -1) >= 0);
   }
 
@@ -263,9 +266,9 @@ export class WindgraphExtrudeBoard {
     this.headline.emit(ctx);
     this.tag.emit(ctx);
 
-    // Slider panel: world-space, at the board's corner (screen-constant size).
+    // Slider panel: 2D world-space (here); 3D screen-HUD (renderScreenChrome).
     positionBoardPanel(this, this.app);
-    renderBoardPanel(this, inst, crv, rws, font, atlas);
+    if (!this.app?.cam3d.active) renderBoardPanel(this, inst, crv, rws, font, atlas);
 
     // Standalone: pad the trailing xf gap (slider chrome) and publish the buffer.
     if (own) {
@@ -278,8 +281,10 @@ export class WindgraphExtrudeBoard {
     }
   }
 
-  /** Slider panel is now rendered in the board's emit (world buffer), not the
-   *  screen HUD. These are no-ops kept for interface compatibility. */
-  screenChromeSig() { return ''; }
-  renderScreenChrome() {}
+  /** Standalone 3D: the panel lives in the screen HUD (the world renders it itself
+   *  when this board is hosted, so these only fire when the board is s.interactive). */
+  screenChromeSig(s: AppState): string { return boardScreenChromeSig(this, s); }
+  renderScreenChrome(s: AppState, hud: { inst: number[]; crv: number[]; rws: number[] }, font: FontFace, atlas: GlyphAtlas) {
+    renderBoardScreenChrome(this, s, hud, font, atlas);
+  }
 }

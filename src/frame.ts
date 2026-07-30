@@ -1303,7 +1303,7 @@ export function runFrame(s: AppState): () => void {
       if (boardVis(g.x0, g.y0, gR, gB) || (g as any).cinematicHud) {
         // Update hover BEFORE emit so the hover ring is current; the cursor is
         // applied once at the end of the frame (deferred write).
-        const over = !wheelCool && s.pointerInput && (g.dragging || g.updateHover(s.mwx, s.mwy, cameraScale(s)));
+        const over = !wheelCool && s.pointerInput && (g.dragging || g.updateHover(s.mwx, s.mwy, cameraScale(s), s.mx, s.my));
         // Frame-level dirty tracking: a board exposing frameSig() skips the
         // whole emit + conversion + upload when nothing changed — the pass
         // redraws the persistent GPU buffers. A still scene costs ~0 JS.

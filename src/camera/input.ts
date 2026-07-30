@@ -182,7 +182,7 @@ export function attachInput(s: AppState): () => void {
       s.dragging = true; s.velX = s.velY = 0; s.lastMoveT = performance.now();
       if (s.pointerInput && s.interactive) {
         const w = scrToDoc(s, b.x, b.y);
-        if (s.interactive.tryBeginDrag(w.x, w.y, cameraScale(s))) {
+        if (s.interactive.tryBeginDrag(w.x, w.y, cameraScale(s), b.x, b.y)) {
           setOrbitEnabled(false);
           e.preventDefault();
         }
@@ -202,7 +202,7 @@ export function attachInput(s: AppState): () => void {
     if (s.pointerInput) {
       // windgraph interactive board: grab a draggable point (takes priority over
       // panning). Suppresses camera motion for the duration of the drag.
-      if (s.interactive && s.interactive.tryBeginDrag(w.x, w.y, cameraScale(s))) {
+      if (s.interactive && s.interactive.tryBeginDrag(w.x, w.y, cameraScale(s), b.x, b.y)) {
         s.velX = s.velY = 0; s.pressed = null;
         return;
       }
@@ -557,6 +557,24 @@ export function attachInput(s: AppState): () => void {
       s.velX = 0;
       s.tgtX = s.camX; s.tgtY = s.camY; s.tgtZ = s.camZ;
     }
+  }, { passive: false, capture: true });
+
+  // 3D wheel = pan by default, matching 2D (plain scroll pans; only ctrl / right+
+  // scroll zooms). camera-controls binds the wheel to DOLLY on the canvas, and that
+  // listener fires in the target phase — so to make plain scroll PAN instead we
+  // intercept earlier, in the capture phase on window, and stop the event before it
+  // reaches the canvas, converting it to a screen-space truck. Modifier-scroll is
+  // left untouched so the library's cursor-anchored dolly still owns zoom (the 3D
+  // equivalent of 2D ctrl/right+scroll). Without this, the scroll gesture that pans
+  // in 2D dollies in 3D — the "everything shrinks when I scroll" bug.
+  on(window, 'wheel', (e: WheelEvent) => {
+    if (!s.cam3d.active || !s.cameraInput) return;
+    if (e.ctrlKey || rg.down) return;
+    e.preventDefault();
+    e.stopPropagation();
+    s.lastWheelT = performance.now();
+    rg.wheel();
+    orbitTruck(e.deltaX, e.deltaY, s.tCanvas.height);
   }, { passive: false, capture: true });
 
   // ── 3D picking ────────────────────────────────────────────────────────────
