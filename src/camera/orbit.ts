@@ -138,10 +138,13 @@ export function enterOrbit(docX: number, docY: number, viewZ: number, viewHpx: n
   controls.setLookAt(wx, wy + dist * Math.cos(eps), wz + dist * Math.sin(eps), wx, wy, wz, false);
 }
 
-// Ease back toward top-down; the caller polls orbitPolar()/orbitTargetLocal()
-// to hand control to the 2D path once flattened.
+// Smoothly ease back toward top-down (north-up). Animates BOTH axes simultaneously:
+// polar→0 (tilt) AND azimuth→0 (rotation), so the handoff to 2D (which is always
+// azimuth=0) has no rotation snap. normalizeRotations ensures the azimuth ease
+// takes the short way around.
 export function flattenOrbit(): boolean {
-  controls.rotateTo(controls.azimuthAngle, 0, true); // polar 0 = top-down
+  controls.normalizeRotations();
+  controls.rotateTo(0, 0, true);
   return true;
 }
 

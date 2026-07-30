@@ -1095,11 +1095,20 @@ export class WgScene {
             if (pts.length >= 2) group.add(new Polyline(pts, props));
           }
         };
-        this.plotResamples.push(resample);
+        // Point-driven rebuild: the ellipse/hyperbola/parabola geometry depends
+        // on the foci / directrix POINTS, not on slider params — so it must NOT
+        // live in plotResamples (those only re-run on a param change, which left
+        // the conic frozen while a focus was dragged). Rebuild inside the track
+        // closure, gated on a sig that includes the foci + directrix positions
+        // (same pattern as wg-plot-spline). lastParamSig stays in the sig so a
+        // future param binding would also trigger it.
+        let lastConicSig = '';
         resample();
         this.track(group, () => {
           let sig = this.lastParamSig;
           for (const p of fociPts) sig += `|${p.x.toFixed(1)},${p.y.toFixed(1)}`;
+          if (dirLine) sig += `|L${dirLine.x0.toFixed(1)},${dirLine.y0.toFixed(1)},${dirLine.dx.toFixed(1)},${dirLine.dy.toFixed(1)}`;
+          if (sig !== lastConicSig) { resample(); lastConicSig = sig; }
           return sig;
         });
         break;

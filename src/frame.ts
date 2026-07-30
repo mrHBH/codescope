@@ -1220,11 +1220,25 @@ export function runFrame(s: AppState): () => void {
     mark('term+tree');
 
     // windgraph demo board (world-space).
-    // In 3D (cinematic flight) the 2D view bounds/zoom are stale, so pass the
-    // camera's on-axis scale and unbounded extents (culling is per-board above).
+    // In 3D, ray-cast the 4 viewport corners onto the ground plane to get the
+    // visible doc-space rect — this lets boards cull sub-boards by visibility
+    // (same as 2D) instead of emitting all 8 every frame. The camera target is
+    // always on the ground and visible, so it's included as a reference point:
+    // behind-camera rays (looking at the sky above the horizon) return points on
+    // the far side of the camera, which conservatively expands the rect rather
+    // than wrongly shrinking it.
     const boardView = _boardView;
     if (s.cam3d.active) {
-      boardView.zoom = cameraScale(s); boardView.left = -1e12; boardView.right = 1e12; boardView.top = -1e12; boardView.bottom = 1e12;
+      const cx = s.viewX, cy = s.viewY;
+      let minX = cx, maxX = cx, minY = cy, maxY = cy;
+      for (let k = 0; k < 4; k++) {
+        const p = scrToDoc(s, k & 1 ? Cw : 0, k & 2 ? Ch : 0);
+        if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x;
+        if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y;
+      }
+      boardView.zoom = cameraScale(s);
+      boardView.left = minX - 200; boardView.right = maxX + 200;
+      boardView.top = minY - 200; boardView.bottom = maxY + 200;
     } else {
       boardView.zoom = s.viewZ; boardView.left = vL; boardView.right = vR; boardView.top = vT; boardView.bottom = vB;
     }
@@ -1295,7 +1309,24 @@ export function runFrame(s: AppState): () => void {
         // redraws the persistent GPU buffers. A still scene costs ~0 JS.
         const gAny = g as any;
         if (canFrameSkip && typeof gAny.frameSig === 'function') {
-          const fullSig = `${s.staticRev}|${Cw}x${Ch}|${s.viewX},${s.viewY},${s.viewZ},${s.cam3d.active ? 1 : 0},${s.lowResSharpen ? 1 : 0}|${gAny.frameSig(boardView)}`;
+          // In 3D, geometry is camera-independent — the view-projection matrix
+          // transforms cached instances in the shader. Raw viewZ must NOT be in
+          // the skip sig, or a dolly changes it every frame and the full
+          // emit+conversion path runs 120×/s (the FPS tank). But the uncached
+          // chrome (title, slider panels) uses k=1/cameraScale for screen-
+          // constant size — if the sig is fully constant, skipped frames
+          // freeze the panel's world-space size and it drifts on screen as the
+          // camera dollies. Fix: quantize cameraScale to ~4% log2 bands and put
+          // THAT in the sig — the frame re-emits at band boundaries (re-rendering
+          // chrome at the correct k) and skips between them (cost ~0, screen
+          // size within 4% — imperceptible). The board's sigFor + frameSig
+          // capture every geometry change (rev/hover/zoom-band/LOD); the render
+          // pass redraws persistent buffers through the live VP.
+          const cs = cameraScale(s);
+          const camSig = s.cam3d.active
+            ? `3d${Math.round(Math.log2(Math.max(cs, 1e-6)) * 16)}`
+            : `${s.viewX},${s.viewY},${s.viewZ}`;
+          const fullSig = `${s.staticRev}|${Cw}x${Ch}|${camSig},${s.cam3d.active ? 1 : 0},${s.lowResSharpen ? 1 : 0}|${gAny.frameSig(boardView)}`;
           if (fullSig === lastFrameSig) {
             skipFrame = true;
             skipCount++;
@@ -1534,7 +1565,8 @@ export function runFrame(s: AppState): () => void {
     // HUD frame-skip: chrome changes only on hover, panel/menu interaction, or
     // the 8Hz readout tick — otherwise the pass redraws persistent buffers.
     const chip = s.fpsChip;
-    const hudSig = `${Cw}x${Ch}|${s.toolbar?.hoveredId ?? ''}|${chip ? `${chip.mode}|${chip.status}|${chip.pressed ? 1 : 0}` : ''}|${s.hudDebugText}|${s.hudDebugExtra}|${s.analyticMenu?.open ? 'M' + Math.floor(now / 50) : ''}|${s.panel?.open ? 'P' + Math.floor(now / 50) : ''}`;
+    const chromeSig = s.interactive?.screenChromeSig?.(s) ?? '';
+    const hudSig = `${Cw}x${Ch}|${s.toolbar?.hoveredId ?? ''}|${chip ? `${chip.mode}|${chip.status}|${chip.pressed ? 1 : 0}` : ''}|${s.hudDebugText}|${s.hudDebugExtra}|${s.analyticMenu?.open ? 'M' + Math.floor(now / 50) : ''}|${s.panel?.open ? 'P' + Math.floor(now / 50) : ''}|${chromeSig}`;
     s.screenHud?.frame(pass, Cw, Ch, now, s.baseCrv, s.baseRws, hudSig);
     pass.end();
     // Resolve the offscreen render to the full-res swapchain: cinematic grade

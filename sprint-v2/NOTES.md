@@ -302,6 +302,131 @@ from the code lives here. Newest entries at the bottom of each section.
   grew comparison/logical operators (`> < >= <= == != && || !`, precedence
   `||`<`&&`<cmp<`+`<`*`<unary<`^`) so piecewise conditions `{x>0: …}` compile — this
   is the Lane-L grammar extension; Lane L should extend, not re-add it.
+- **D20 — Board chrome must live OUTSIDE the zoom-quantized geometry cache;
+  sliders use the reference affordance (2026-07-30, polish pass).** Two coupled
+  rules born of the "chrome resizes on zoom + only-n-updates" report. (a) The
+  board's `EmitCache` is keyed on `sigFor` which quantizes zoom to ~9% log2 bands
+  (`windgraphScene.ts sigFor`) so panning/zoom replay cheaply — but screen-constant
+  chrome (title, sliders, hover ring) computed with `k=1/zoom` MUST NOT be baked
+  into that cache, or it snaps at every band while the frame-skip sig (`frame.ts`
+  embeds raw `viewZ`) forces a per-frame replay anyway = worst of both. Fix: the
+  cache wraps ONLY world-space geometry (border, plane grid, scene, hover ring);
+  title + sliders emit after `cache.run(...)` every frame at exact `k` (~10 inst,
+  negligible). (b) A slider's grab target is the FULL ROW, not the knob — the old
+  `hypot(wx-knobX,wy-g.y)<=14*k` missed most presses on the track line, so a
+  continuous slider (μ/σ, step 0.1 ≈ 2px of bell shift) read as dead while an
+  integer-stepped `n` (visible vertex-count change) was the only one that "worked".
+  Now `tryBeginDrag`/`updateHover` test the row rect (`x0..x0+panelW*k ×
+  rowY..rowY+rowH`) and click-to-position from pointer x, matching `AnalyticPanel`
+  (`analyticPanel.ts:121-131`). The slider visual is the AnalyticPanel language
+  (track rect + accent fill + square thumb + right-aligned value chip, yasmineOS
+  palette via `addRect`) — D5's "chrome themed via the palette" finally holds for
+  board sliders too. **Meta-lesson (why green tests ≠ product):** Phase-4 counted a
+  kind done at engine-wiring + a headless unit test; the surfacing boards were
+  stubs and CP6 (the taste gate that forces panels to become rich) was still
+  pending, so nothing ever reconciled "tests green" with "looks/works like a
+  product". Future parity work: a kind is NOT done until its board reads as a
+  showcase AND its chrome is on-brand — verify at the board level, not just the
+  resolver. Headless has no WebGPU adapter, so pixel verification is the user's
+  machine at CP6; headless contract tests (track-grab, live-bind, grid-skip) are
+  the reproducible stand-in.
+- **D20 addendum — `plotResamples` is PARAM-only; point-driven geometry must
+  rebuild in the track closure (2026-07-30).** `WgScene.update()` runs the
+  `plotResamples` list ONLY when `paramSig()` changes (`object-resolver.ts`
+  `update`). So any kind whose shape depends on a *draggable point* (conic foci,
+  a spline's control pts, a locus driver) will FREEZE on drag if its rebuild is
+  parked in `plotResamples` — the track sync notices the point move and marks the
+  slice dirty, but re-emits the group's stale children. Rule: param-driven
+  resample → `plotResamples` is fine; point-driven resample → call `resample()`
+  inside the `track(group, () => { sig = …; if (sig !== last) resample(); return sig; })`
+  closure, with the point coords in `sig` (see `wg-plot-spline`, and the fixed
+  `wg-conic`). Caught by the user dragging the ellipse's foci; pinned by the
+  `wg-conic ellipse rebuilds when a focus is dragged` test.
+- **D21 — 3D zoom parity + screen-space board sliders (user: 3D zoom freezes the
+  chip & tanks fps; panel sliders must be analytic + fixed-size in BOTH modes,
+  2026-07-30).** Two bugs, both traced to "world-space chrome under a perspective
+  camera". (1) **3D zoom ≠ 2D.** The fps chip reads `s.viewZ` (`frame.ts:973`), but
+  in 3D `stepCamera` set `viewZ = camZ` and never read the orbit camera back → the
+  chip's number froze at the entry zoom. Fix: `camera.ts stepCamera` now reflects
+  the orbit pose into `viewX/viewY/viewZ` (`orbitTargetLocal` + `orbitScale(Ch)`)
+  every frame while `cam3d.active && !exiting` → the chip tracks the dolly live,
+  exactly like the 2D wheel path; the 2D→3D handoff on exit still overwrites with
+  the flattened top-down framing. The **fps tank** was separate: a 3D dolly is a
+  *camera* move, so world geometry need not change — yet each board's `sigFor` put
+  the LIVE quantized zoom `zq` in the 3D cache key, and `frame.ts`'s frame-skip sig
+  embeds it too, so the eased glide swept ~9% zoom bands and forced a full
+  marching-squares/plot-resample rebuild (×8 boards) continuously. 2D needs `zq`
+  (its tile clip depends on zoom); 3D's clip is the ±1e12 sentinel, so `zq` there
+  was pure waste. Fix: in 3D the board freezes the zoom band to a SETTLED value
+  (`zq3d`, committed 120ms after the last change — the same settle-debounce the LOD
+  path already uses, no timers in the hot path, idle-safe), so the glide zooms via
+  the view-projection matrix with zero JS emit and one rebuild on settle. Verified
+  safe: the skip path (`frame.ts:1376`) only guards the buffer upload; the render
+  pass redraws the persistent instances + the board's cached `xfBuffer()`/mesh
+  through the live VP (`frame.ts:1460-1511`), so a skipped emit still draws
+  correctly through the moving camera. (2) **3D sliders warped.** The board sliders
+  were a hand-rolled copy of `AnalyticPanel`'s constants drawn in WORLD space
+  (`k=1/zoom`); a rect on the tilted ground plane projects to a trapezoid — world
+  space *cannot* be screen-constant under perspective. Fix: each board now owns a
+  real `AnalyticPanel` (`panel` field) drawn as a SCREEN-SPACE overlay through the
+  existing screen HUD (`app.ts onBuild` → new optional `renderScreenChrome` on the
+  `s.interactive` contract; `frame.ts` folds a cheap `screenChromeSig` into the HUD
+  skip key so the panel tracks pan/zoom/orbit without defeating HUD frame-skip).
+  The panel is pinned to the board's projected top-left corner via
+  `boards/sliderOverlay.ts worldToScreenPx` (2D = ortho formula, 3D = the full orbit
+  VP incl. GROUND_MODEL; identity at `app=null` so headless tests address it in
+  board-local px). At `scale=1` the panel's device-px size is pixel-identical to the
+  old 2D world-space sliders (same WIDTH/PAD/ROW_H constants) → 2D unchanged, 3D a
+  crisp fixed rectangle, one component both modes (honours "no second convention").
+  Hit-testing stays in the existing world-coordinate contract: the board's
+  `tryBeginDrag`/`dragTo`/`updateHover` project the incoming world pointer back to
+  device px (`worldToScreenPx`) before the panel's own screen-px hit-test — in 3D
+  this round-trips the ray-cast click (`scrToDoc`) to the original device px; in 2D
+  it cancels to the old world-space rect. **Consequence: input.ts and the headless
+  slider tests are UNCHANGED** (the track-grab / quantized-drag / extrude-slider
+  tests pass as-is because at `app=null` the transform is the identity and the panel
+  reproduces the old track x-range `x0+20..x0+232` + row y exactly). The world's
+  `tryBeginDrag`/`updateHover` test every board's panel first (screen-space chrome
+  floats above world content / camera pan). The dead world-space slider code
+  (`sliderGeom`, the SL_* palette consts, the per-frame slider emit loop) is deleted
+  from both boards. **Verification caveat:** the headless browser has NO WebGPU
+  adapter (screenshot = "No WebGPU adapter"), so pixel + fps confirmation is the
+  user's machine; headless proof = `tsc` clean (only the pre-existing
+  `font.ts` opentype-types error, untouched) + the two touched suites green
+  (13 scene + 13 world) + the projection being the exact inverse of the screen-HUD
+   ortho VP by construction.
+
+- **D22 — 3D zoom parity: the frame-skip sig must NOT embed raw viewZ in 3D
+  (2026-07-30, supersedes the zq3d freeze in D21).** The D21 fix froze the
+  board's zoom band (`zq3d`) so the cache wouldn't rebuild during a dolly —
+  but it left the FRAME-LEVEL skip sig (`frame.ts:1312`) embedding raw
+  `s.viewX,viewY,viewZ`. A 3D dolly changes `viewZ` every frame → the sig
+  never matched → the full emit+conversion+upload path ran 120×/s (replay 8
+  boards + composition + bulk-copy + upload = the FPS tank). The 120ms
+  `zq3d` debounce also caused the "delayed quality change" — quality snapped
+  on settle instead of updating continuously like 2D. **The real fix:** (a)
+  the frame-skip sig uses `'3d'` (a constant) instead of raw camera position
+  in 3D — geometry is camera-independent; the VP transforms cached instances
+  in the shader, so the sig is stable between geometry changes (rev/hover/
+  zq-band/LOD) and frames skip between them (cost ~0), same as 2D between
+  wheel ticks. (b) `frame.ts` computes the actual visible ground-plane rect
+  for `boardView` in 3D (ray-casts 4 viewport corners via `scrToDoc` +
+  includes the camera target as a reference point) instead of the ±1e12
+  sentinel — this lets the world's `backdropParts` cull sub-boards by
+  visibility (only visible boards emit, same as 2D) and lets all downstream
+  code (`sigFor`, `backdropParts`, `WgScene.emit`, `emitObject`) use the
+  same 2D tile-quantized clip path (no 3D special-case). (c) Removed the
+  `zq3d` freeze/debounce — `sigFor` uses live `zq` (same as 2D), so quality
+  updates at ~9% band boundaries during the glide (no delay). `backdropParts`
+  clamps the 3D rect to the content area so behind-camera rays (looking at
+  the sky above the horizon) don't inflate the grid. **Net: 3D zoom now
+  behaves exactly like 2D — per-frame cost ~0 (skipped), full emit only at
+  band boundaries, quality updates continuously during the glide.** The
+  render pass redraws persistent instFA/xfBuf/mesh through the live
+  `orbitViewProj` every frame (including skipped ones) — the VP is set as a
+  uniform every frame, and `frameDataVersion` only gates the buffer UPLOAD
+  (not the draw call). This is the same mechanism 2D uses (skip between
+  wheel ticks, redraw through the ortho VP).
 
 ## 2. Technical tips (file:line anchored)
 

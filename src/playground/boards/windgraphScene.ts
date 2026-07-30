@@ -13,9 +13,12 @@ import { emitTS } from '../../authoring/emitTS';
 import { WgScene } from '../../authoring/runtime/object-resolver';
 import { NumberPlane, type PlaneView } from '../../windgraph/coords/numberPlane';
 import { EmitCache } from '../../windfoil/emitCache';
-import { strokeInto, fillQuads, circleQuads } from '../../windgraph/stroke/stroke';
+import { strokeInto } from '../../windgraph/stroke/stroke';
 import { layoutStr } from '../../layout/metrics';
 import type { FontFace } from '../../windfoil/font';
+import type { AppState } from '../../state';
+import { AnalyticPanel } from '../../ui/analyticPanel';
+import { positionBoardPanel, renderBoardPanel } from './sliderOverlay';
 
 const BLUE: Color = [0.36, 0.62, 0.98, 1];
 const GOLD: Color = [0.92, 0.74, 0.42, 1];
@@ -94,8 +97,13 @@ export class WindgraphSceneBoard {
   private homeB: { x: number; y: number } | null = null;
   /** Numeric params surface as analytic sliders (task 1.5). */
   private sliders: { name: string; label: string; min: number; max: number; step: number }[] = [];
-  private sliderDrag: string | null = null;
-  private lastZoom = 1;
+  /** Screen-space slider panel (analytic, fixed-size, identical in 2D and 3D). */
+  panel: AnalyticPanel | null = null;
+  /** Host AppState (set by the world) for world→screen projection of the panel. */
+  app: AppState | null = null;
+  /** Debounce LOD resample: only resample when zoom settles (not every frame). */
+  private lodSettleTimer = 0;
+  private lastLod = 1;
 
   constructor(doc: SceneDoc = demoDoc()) {
     this.doc = doc;
@@ -117,25 +125,20 @@ export class WindgraphSceneBoard {
     const B = this.scene.points.get('B');
     if (B?.free) this.homeB = { x: B.x, y: B.y };
     for (const [name, p] of Object.entries(this.doc.params)) {
-      if ((p as any).kind !== 'number') continue;
-      const def = (p as any).default ?? 0;
-      const min = (p as any).min ?? def - 5, max = (p as any).max ?? def + 5;
-      this.sliders.push({ name, label: (p as any).label ?? name, min, max, step: (p as any).step ?? (max - min) / 200 });
+      const spec = p as { kind?: string; default?: number; min?: number; max?: number; step?: number; label?: string };
+      if (spec.kind !== 'number') continue;
+      const def = spec.default ?? 0;
+      const min = spec.min ?? def - 5, max = spec.max ?? def + 5;
+      this.sliders.push({ name, label: spec.label ?? name, min, max, step: spec.step ?? (max - min) / 200 });
     }
+    this.panel = new AnalyticPanel(this.sliders.map((sl) => ({
+      kind: 'slider' as const, id: sl.name, label: sl.label, min: sl.min, max: sl.max, step: sl.step,
+      get: () => (this.params.get(sl.name) as number | undefined) ?? sl.min,
+      set: (v: number) => this.setParam(sl.name, v),
+    })));
     this.built = true;
   }
 
-  /** Slider row geometry in world units (constant screen size via k = 1/zoom). */
-  private sliderGeom(k: number) {
-    const x = this.x0 + 20 * k, w = 240 * k, rowH = 36 * k;
-    const yTop = this.y0 + 52 * k;
-    return this.sliders.map((sl, i) => {
-      const y = yTop + i * rowH;
-      const val = this.params.get(sl.name) ?? sl.min;
-      const t = Math.max(0, Math.min(1, (val - sl.min) / (sl.max - sl.min || 1)));
-      return { sl, x, y, w, knobX: x + t * w, k };
-    });
-  }
 
   /** Diagnostics — cumulative cache rebuilds (flat while idle = caches hold). */
   get cacheMisses(): number { return this.cache.misses; }
@@ -163,50 +166,37 @@ export class WindgraphSceneBoard {
 
   tryBeginDrag(wx: number, wy: number, scale: number): boolean {
     this.ensure();
-    // Sliders first (they overlay the board's top-left).
-    const k = 1 / Math.max(this.lastZoom, 1e-6);
-    for (const g of this.sliderGeom(k)) {
-      if (Math.hypot(wx - g.knobX, wy - g.y) <= 14 * k) {
-        this.sliderDrag = g.sl.name;
-        this.rev++;
-        return true;
-      }
-    }
+    // Sliders first — the panel is in world space (doc coords at the board
+    // corner), so hit-test with the world pointer directly (no screen-px
+    // conversion). At app=null (headless) the panel sits at the board corner.
+    positionBoardPanel(this, this.app);
+    if (this.panel && this.panel.pointerDown(wx, wy)) return true;
     const began = this.scene.tryBeginDrag(wx, wy, scale);
     if (began) this.rev++;
     return began;
   }
   dragTo(wx: number, wy: number) {
-    if (this.sliderDrag) {
-      const k = 1 / Math.max(this.lastZoom, 1e-6);
-      const g = this.sliderGeom(k).find((gg) => gg.sl.name === this.sliderDrag);
-      if (g) {
-        const t = Math.max(0, Math.min(1, (wx - g.x) / g.w));
-        const raw = g.sl.min + t * (g.sl.max - g.sl.min);
-        const val = Math.max(g.sl.min, Math.min(g.sl.max, Math.round(raw / g.sl.step) * g.sl.step));
-        this.setParam(g.sl.name, val);
-      }
+    if (this.panel && this.panel.isDragging) {
+      this.panel.drag(wx, wy);
       return;
     }
     this.scene.dragTo(wx, wy);
   }
-  endDrag() { this.sliderDrag = null; this.scene.endDrag(); }
-  get dragging(): boolean { return this.built && (this.sliderDrag !== null || this.scene.dragging); }
+  endDrag() { this.panel?.endDrag(); this.scene.endDrag(); }
+  get dragging(): boolean { return this.built && ((this.panel?.isDragging ?? false) || this.scene.dragging); }
   private hoverKey = '';
   private hoverRes = false;
   updateHover(wx: number, wy: number, scale: number): boolean {
     this.ensure();
-    // Static-pointer guard (frame.ts calls this every frame).
     const key = `${wx}|${wy}|${Math.round(scale * 50)}|${this.rev}`;
     if (key === this.hoverKey) return this.hoverRes;
     this.hoverKey = key;
+    positionBoardPanel(this, this.app);
+    this.panel?.updateHover(wx, wy);
+    if ((this.panel?.hovered ?? -1) >= 0) { this.scene.drag.hover = null; return (this.hoverRes = true); }
     if (wx < this.x0 - 40 || wx > this.x0 + this.width + 40 || wy < this.y0 - 40 || wy > this.y0 + this.height + 40) {
       this.scene.drag.hover = null;
       return (this.hoverRes = false);
-    }
-    const k = 1 / Math.max(this.lastZoom, 1e-6);
-    for (const g of this.sliderGeom(k)) {
-      if (Math.hypot(wx - g.knobX, wy - g.y) <= 14 * k) return (this.hoverRes = true);
     }
     return (this.hoverRes = this.scene.updateHover(wx, wy, scale));
   }
@@ -229,40 +219,47 @@ export class WindgraphSceneBoard {
    *  can ask "would this frame differ?" before deciding to emit at all.
    *  Quantizes both camera axes: view∩board clip snaps to a coarse tile (pan
    *  replays within a tile), zoom snaps to ~9% log2 bands (zoom replays
-   *  instead of re-running marching squares / resampling every frame). */
+   *  instead of re-running marching squares / resampling every frame).
+   *  In 3D, boardView carries the actual visible ground-plane rect (not a
+   *  sentinel), so the same tile-quantized clip + zq works for both modes —
+   *  3D zoom rebuilds at the same band boundaries as 2D (no debounce, no
+   *  delayed quality change), and frame-skip handles the per-frame cost. */
   sigFor(view: PlaneView): string {
     this.ensure();
     const z = Math.max(view.zoom, 1e-6);
-    const lod = Math.max(0.3, Math.min(3, Math.round(Math.sqrt(z) * 10) / 10));
     const zq = Math.pow(2, Math.round(Math.log2(z) * 8) / 8);
-    if (view.left < -1e11) return `3d|${this.rev}|${this.scene.hoveredId ?? ''}|${lod}|${zq}`;
+    if (view.left < -1e11) {
+      // Legacy sentinel (unbounded 3D): no tile clip. Rare now that frame.ts
+      // computes actual 3D bounds; kept as a safe fallback.
+      return `${this.rev}|${this.scene.hoveredId ?? ''}|${zq}`;
+    }
     const TILE = 1200;
     const eL = Math.floor(Math.max(view.left, this.x0) / TILE) * TILE;
     const eT = Math.floor(Math.max(view.top, this.y0) / TILE) * TILE;
     const eR = Math.ceil(Math.min(view.right, this.x0 + this.width) / TILE) * TILE;
     const eB = Math.ceil(Math.min(view.bottom, this.y0 + this.height) / TILE) * TILE;
-    return `${this.rev}|${this.scene.hoveredId ?? ''}|${lod}|${zq}|${eL},${eT},${eR},${eB}`;
+    return `${this.rev}|${this.scene.hoveredId ?? ''}|${zq}|${eL},${eT},${eR},${eB}`;
   }
 
   emit(font: FontFace, atlas: any, inst: number[], crv: number[], rws: number[], now: number, view: PlaneView) {
     this.ensure();
-    this.lastZoom = view.zoom;
-    // Zoom LOD for plots: sample density follows √zoom in 10% steps — the
-    // overview decimates (chords are subpixel there), deep zoom refines.
-    // A change bumps rev so the cache rebuilds once at the new density.
+    // Zoom LOD for plots: debounce — only resample when zoom settles (150ms
+    // after the last zoom change), not every frame during a zoom gesture.
     const lod = Math.max(0.3, Math.min(3, Math.round(Math.sqrt(Math.max(view.zoom, 1e-6)) * 10) / 10));
-    if (this.scene.setLodScale(lod)) this.rev++;
+    if (lod !== this.lastLod) {
+      this.lastLod = lod;
+      clearTimeout(this.lodSettleTimer);
+      this.lodSettleTimer = setTimeout(() => {
+        if (this.scene.setLodScale(lod)) this.rev++;
+      }, 150) as unknown as number;
+    }
+    // Cached geometry: border, grid, scene, hover ring — keyed on quantized
+    // zoom so panning replays within a tile and zoom only rebuilds at bands.
     this.cache.run(this.sigFor(view), inst, crv, rws, () => {
-      // Board chrome: border + title.
       const { x0, y0, width, height } = this;
       strokeInto([[x0, y0], [x0 + width, y0], [x0 + width, y0 + height], [x0, y0 + height], [x0, y0]], { width: 1.5 }, BORDER, inst, crv, rws);
-      const title = this.doc.meta.title;
-      const tSize = 18 / Math.max(view.zoom, 0.05);
-      layoutStr(inst, title, TITLE, atlas.table, font, { x: x0 + 16 / Math.max(view.zoom, 0.05), y: y0 + tSize * 0.4, size: tSize });
-      // Grid + axes, then the resolved scene.
       this.plane.render({ font, atlas, inst, crv, rws }, view);
       this.scene.emit({ font, atlas, inst, crv, rws }, view);
-      // Hover ring around the grabbed/hovered point.
       const h = this.scene.drag.hover;
       if (h) {
         const rr = 16 / Math.max(view.zoom, 0.05);
@@ -274,18 +271,16 @@ export class WindgraphSceneBoard {
         }
         strokeInto(ring, { width: 2 / Math.max(view.zoom, 0.05) }, GOLD, inst, crv, rws);
       }
-      // Param sliders (analytic chrome; screen-constant size).
-      const k = 1 / Math.max(view.zoom, 0.05);
-      for (const g of this.sliderGeom(k)) {
-        const active = this.sliderDrag === g.sl.name;
-        const trackCol: Color = active ? [0.45, 0.50, 0.62, 1] : [0.30, 0.32, 0.40, 1];
-        strokeInto([[g.x, g.y], [g.x + g.w, g.y]], { width: 4 * k }, trackCol, inst, crv, rws);
-        fillQuads(circleQuads(g.knobX, g.y, (active ? 9 : 7) * k, 18), active ? GOLD : [0.80, 0.84, 0.94, 1], inst, crv, rws);
-        const val = this.params.get(g.sl.name) ?? g.sl.min;
-        const label = `${g.sl.label} = ${val.toFixed(2)}`;
-        layoutStr(inst, label, TITLE, atlas.table, font, { x: g.x, y: g.y - 16 * k, size: 15 * k });
-      }
     });
+    // Uncached chrome: title + slider panel. The panel is positioned in doc
+    // coords at the board's corner (world-space, screen-constant size k=1/zoom),
+    // drawn into the world instance buffer — "in 3D" through the live VP, like
+    // the context menu. In 2D the ortho VP maps it to the same screen position.
+    const k = 1 / Math.max(view.zoom, 0.05);
+    const tSize = 18 * k;
+    layoutStr(inst, this.doc.meta.title, TITLE, atlas.table, font, { x: this.x0 + 16 * k, y: this.y0 + tSize * 0.4, size: tSize });
+    positionBoardPanel(this, this.app);
+    renderBoardPanel(this, inst, crv, rws, font, atlas);
   }
 }
 

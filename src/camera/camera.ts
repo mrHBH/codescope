@@ -97,13 +97,20 @@ export function stepCamera(s: AppState, dt: number, now: number) {
   const c = s.cam3d;
   if (c.active) {
     updateOrbit(dt);
+    // Sync ALL 2D camera fields from the orbit camera every frame while in 3D
+    // (including during exit). This keeps the 2D ortho VP continuously matched
+    // to the orbit VP — at the handoff (polar→0) the 2D VP already equals the
+    // flattened orbit VP, so there is no position/zoom snap. Without this, only
+    // the polar animated during exit while viewX/Y/Z drifted via the 2D easing
+    // path, then jumped at the handoff.
+    const Ch = s.tCanvas.height;
+    const t = orbitTargetLocal();
+    const z = orbitScale(Ch);
+    s.camX = s.tgtX = s.viewX = t.x;
+    s.camY = s.tgtY = s.viewY = t.y;
+    s.camZ = s.tgtZ = s.viewZ = z;
+    s.velX = s.velY = 0;
     if (c.exiting && orbitPolar() < 1e-2) {
-      const Ch = s.tCanvas.height;
-      const { x, y } = orbitTargetLocal();
-      const z2d = orbitScale(Ch);
-      s.camX = s.tgtX = s.viewX = x;
-      s.camY = s.tgtY = s.viewY = y;
-      s.camZ = s.tgtZ = s.viewZ = z2d;
       disableOrbit();
       c.active = false; c.exiting = false;
     }
@@ -157,10 +164,12 @@ export function toggle3D(s: AppState) {
 // Continuous 2D↔3D tilt (task 2.4): glide between the flat top-down view and a
 // tilted orbit with no snap. enter3D is pixel-identical to 2D at top-down (OQ-9),
 // then tiltOrbit eases the polar via the camera-controls transition.
+// 2D→3D: enter at top-down (no tilt) — the user tilts manually via right-drag.
+// 3D→2D: smooth animated flatten back to top-down, then stepCamera hands to 2D.
 export function isTilted(s: AppState): boolean {
   return s.cam3d.active && !s.cam3d.exiting;
 }
-export function toggleTilt(s: AppState, polar = 0.9) {
+export function toggleTilt(s: AppState, _polar = 0.9) {
   if (isTilted(s)) exit3D(s);
-  else { enter3D(s); tiltOrbit(polar, true); }
+  else enter3D(s); // no tiltOrbit — stay at top-down, user tilts manually
 }

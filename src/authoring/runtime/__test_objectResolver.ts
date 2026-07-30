@@ -165,6 +165,30 @@ test('wg-conic resolves (Phase 4 B5)', () => {
   assert(scene.mobjects.has('k'));
 });
 
+test('wg-conic ellipse rebuilds when a focus is dragged (point-driven, not param)', () => {
+  const plane = new NumberPlane();
+  const doc = mkDoc({
+    f1: { kind: 'wg-point', id: 'f1', at: [-2, 0], free: true },
+    f2: { kind: 'wg-point', id: 'f2', at: [2, 0], free: true },
+    k: { kind: 'wg-conic', id: 'k', conic: 'ellipse', foci: ['f1', 'f2'] },
+  });
+  const scene = new WgScene(doc, new Map(), plane);
+  const k = scene.mobjects.get('k')!;
+  assert(k.children.length === 1, 'ellipse emits one polyline');
+  const before = (k.children[0] as any).points.map((p: number[]) => p.slice());
+  // Drag focus f1 — a POINT change, no slider param involved.
+  const f1 = scene.points.get('f1')!;
+  f1.set(f1.x + 300, f1.y + 150);
+  scene.update();
+  assert(k.children.length === 1, 'still one polyline after drag');
+  const after = (k.children[0] as any).points as number[][];
+  let moved = 0;
+  for (let i = 0; i < before.length; i++) {
+    if (Math.abs(before[i][0] - after[i][0]) > 1e-6 || Math.abs(before[i][1] - after[i][1]) > 1e-6) moved++;
+  }
+  assert(moved > before.length / 2, `ellipse reshaped on focus drag (${moved}/${before.length} pts moved)`);
+});
+
 test('mobjects are real Mobject instances (clip targets for 1.3)', () => {
   const scene = new WgScene(triangleScene(), new Map(), new NumberPlane());
   for (const m of scene.mobjects.values()) assert(m instanceof Mobject);

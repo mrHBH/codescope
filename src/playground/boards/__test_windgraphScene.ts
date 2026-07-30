@@ -86,17 +86,20 @@ test('updateHover: true over a free point, false far away', () => {
 test('slider drag maps pointer x to a quantized param value', () => {
   const b = board();
   const k = 1; // lastZoom defaults to 1 before any emit
-  const x = b.x0 + 20 * k, w = 240 * k;
-  const yTop = b.y0 + 52 * k;
-  // 'a' default 1.2 in [0.2, 3] → t = 1/2.8 ≈ 0.357 → knobX ≈ x + 85.7
-  const knobX = x + ((1.2 - 0.2) / 2.8) * w;
-  assert(b.tryBeginDrag(knobX, yTop, 1), 'should grab the slider knob');
+  // New geometry: x0 = b.x0+8, panelW=236, PAD=12 → tx0=b.x0+20, tx1=b.x0+232
+  const tx0 = b.x0 + 20 * k, tx1 = b.x0 + 232 * k;
+  const trackW = tx1 - tx0;
+  // Row 0: rowY = b.y0+8, rowH=34 → valid y = b.y0+25 (mid-row)
+  const rowMidY = b.y0 + 25 * k;
+  // 'a' default 1.2 in [0.2, 3] → t = 1/2.8 ≈ 0.357 → knobX ≈ tx0 + 75.7
+  const knobX = tx0 + ((1.2 - 0.2) / 2.8) * trackW;
+  assert(b.tryBeginDrag(knobX, rowMidY, 1), 'should grab the slider row');
   assert(b.dragging);
-  b.dragTo(x + w, yTop); // drag to max
+  b.dragTo(tx1, rowMidY); // drag to max
   b.endDrag();
   approx(b.params.get('a'), 3, 0.001);
-  assert(b.tryBeginDrag(x + w, yTop, 1), 'knob now sits at max — grab it there');
-  b.dragTo(x, yTop); // drag to min
+  assert(b.tryBeginDrag(tx1, rowMidY, 1), 'knob now sits at max — grab it there');
+  b.dragTo(tx0, rowMidY); // drag to min
   b.endDrag();
   approx(b.params.get('a'), 0.2, 0.001);
 });

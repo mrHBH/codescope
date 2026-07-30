@@ -6,8 +6,9 @@ If this file and the code disagree, investigate before trusting either.
 ## Current position
 
 - **Phase:** 4 — **All lanes complete + IR wired** (A+B+C+D+E+K domain + IR)
-- **Next task:** CP6 gallery cull prep — build demo boards showcasing B/C/D/E
-  kinds on the `#windgraph` world. Then Phase 5 (depth).
+- **Next task:** CP6 verdict (user feel-test on #windgraph). Polish pass done
+  2026-07-30 (D20): reference sliders + track grab + uncached chrome + grid floor
+  + LOD debounce + enriched boards. 45 targeted tests green; tsc clean. STOPPED.
 - **Track A (Phase 2, concurrent):** **2.1–2.5 DONE + extrude demo + CP3 polish.**
   Per-instance z wiring (D10); analytic extrude renderer (D9); glyph/math extrusion;
   continuous tilt; contact shadows (D11). Demo `boards/windgraphExtrude.ts` (4th
@@ -526,3 +527,102 @@ If this file and the code disagree, investigate before trusting either.
   unitX·unitY to data units. Probe-driven: direct `group.emit` gave 544 instances
   while the slice path gave 0, which localised the bug to capture, not geometry.
   **382 tests green; tsc clean.**
+- 2026-07-30 — **Catalog-board polish pass (user: panels limited/buggy, sliders
+  ugly + only-n-updates, zoom tanks fps + chrome resizes + grid hairlines).**
+  Assessment: sprint counted a kind "done" at engine-wiring + headless test, but
+  the surfacing boards were stubs and the chrome off-brand; CP6 (taste gate) was
+  still pending so nothing reconciled green-tests with product feel. Four fixes,
+  all local: (1) **sliders → reference look + full-row track grab** — replaced the
+  knob-only `strokeInto` line + `circleQuads` dot with the AnalyticPanel language
+  (track rect + accent fill + square thumb + right-aligned value chip, yasmineOS
+  palette, `addRect`); `tryBeginDrag`/`updateHover` now hit the whole row and
+  click-to-position, so μ/σ/a–d respond on press, not only a 14·k knob — this was
+  the "only n updates" cause (n's integer step is the one unmistakable shape
+  change; the rest looked dead). (2) **chrome uncached from zoom-quantized
+  geometry** — title + sliders now emit every frame at exact k=1/zoom OUTSIDE the
+  `sigFor`-keyed cache (cheap, ~10 inst), so they no longer snap at the ~9% zoom
+  bands; the frame-skip sig embeds raw viewZ so zoom never skips anyway → the old
+  design paid the per-frame replay tank AND snapped the chrome (worst of both).
+  (3) **grid** — `numberPlane` line width floored 1→1.5 screen px (1px hairlines
+  alias harshly / vanish at overview) and minor grid skipped below 0.3× zoom
+  (doubles line count for zero payoff at overview). (4) **LOD resample debounced**
+  150ms after the last zoom change (was every band during a zoom gesture = full
+  resample across all on-screen boards). Boards enriched: stats `randomWalk.steps`
+  now param-bound (was `seed:99` dead weight); graph-theory swapped the fixed
+  `petersen` (no slider) for a `random` graph with live `n`+`p` sliders driving the
+  BFS traversal. Headless verification: 3 new contract tests in
+  `__test_windgraphWorld.ts` (track-grab sets min/max; walk+traversal resample on
+  param change; overview grid sparser than 1×) + updated slider-drag test; **45
+  green across scene/world/resolver/emitCache; tsc clean.** NOTE: headless
+  Chromium has NO WebGPU adapter → cannot screenshot pixels here; visual gate =
+  user's machine at CP6. Awaiting CP6 verdict. STOPPED.
+- 2026-07-30 — **Conic focus-drag fix (user: oval ignores its foci).** Real
+  invalidation bug, not feel: `wg-conic` registered its `resample()` in
+  `plotResamples`, which `update()` only runs on a *slider param* change
+  (`object-resolver.ts:2062`) — dragging F1/F2 moves *points*, so the ellipse
+  polyline never rebuilt (the track sync saw the move but re-emitted stale
+  children). Fix: rebuild inside the track closure gated on a sig carrying the
+  foci + directrix positions (the `wg-plot-spline` pattern); dropped the
+  param-only registration. Regression test drags a focus, asserts the polyline
+  reshapes. **15 resolver tests green; tsc clean.** Latent-class check: the only
+  other point-driven kinds (`regular-polygon`/`rotated-pt`/`locus`) use fixed or
+  param centers on current boards, so none are exposed — conic was the sole live
+  case. Awaiting CP6. STOPPED.
+- 2026-07-30 — **Pre-CP6 bug-fix pass (user: 3D zoom ≠ 2D + panel sliders must be
+  analytic/fixed-size both modes).** (1) 3D zoom: the chip read the stale 2D
+  `viewZ` (never synced from the orbit camera) → frozen number; and the eased dolly
+  swept each board's live zoom-band sig → full marching-squares/resample rebuild ×8
+  boards per glide → the tank. Fix: `camera.ts stepCamera` reflects the orbit pose
+  into `viewX/Y/Z` (chip tracks live); boards freeze the 3D zoom band to a settled
+  value (120ms debounce, like the LOD path) so the glide zooms via the VP with zero
+  emit + one rebuild on settle (render pass redraws persistent buffers through the
+  live VP — verified the skip path only gates the upload). (2) Sliders: the
+  world-space hand-rolled sliders warped under perspective (a ground-plane rect is a
+  screen trapezoid). Now each board owns a real `AnalyticPanel` drawn as a
+  screen-space HUD overlay pinned to the board's projected corner
+  (`boards/sliderOverlay.ts worldToScreenPx`); at scale=1 it's pixel-identical to
+  the old 2D sliders, and crisp+fixed in 3D — one component both modes. Hits stay in
+  the world-coordinate contract (project pointer→screen px inside the board), so
+  input.ts + the headless slider tests are UNCHANGED and pass as-is. Dead world-
+  space slider code deleted. **tsc clean (only pre-existing font.ts opentype-types
+  error, untouched); 13 scene + 13 world tests green.** Visual+fps = user's machine
+  (headless has no WebGPU adapter). Awaiting CP6. STOPPED.
+- 2026-07-30 — **3D zoom parity fix (user: 3D zoom tanks fps + delayed quality
+  change ≠ 2D smoothness).** Root cause: the D21 `zq3d` freeze + 120ms debounce
+  prevented per-band rebuilds but left the FRAME-SKIP sig embedding raw `viewZ`
+  → every dolly frame changed the sig → no skip → full emit (8-board replay +
+  composition + upload) ran 120×/s = the tank. And the 120ms debounce snapped
+  quality on settle = "delayed quality change". Fix (3 changes, all matching
+  2D's path): (1) `frame.ts` frame-skip sig uses `'3d'` instead of raw
+  `viewX,viewY,viewZ` in 3D — geometry is camera-independent (the VP transforms
+  cached instances in the shader), so the sig is stable between geometry
+  changes (rev/hover/zq-band/LOD) → frames skip between bands (cost ~0), full
+  emit at bands only (same as 2D). (2) `frame.ts` computes the actual visible
+  ground-plane rect for `boardView` in 3D (ray-casts 4 viewport corners via
+  `scrToDoc`) instead of the ±1e12 sentinel — this enables sub-board culling
+  (only visible boards emit, same as 2D) and lets `sigFor`/`backdropParts`/
+  `WgScene.emit`/`emitObject` all use the 2D tile-quantized clip path (no
+  3D special-case). (3) Removed the `zq3d` freeze/debounce from both boards —
+  `sigFor` uses live `zq` (same as 2D), so quality updates at band boundaries
+  during the glide (no delay). `backdropParts` clamps the 3D rect to the content
+  area so behind-camera rays (looking at the sky above the horizon) don't
+  inflate the grid. **tsc clean (only pre-existing font.ts error); 57 tests
+  green across 5 suites.** Visual+fps = user's machine (no WebGPU adapter
+  headless). Awaiting CP6. STOPPED.
+- 2026-07-30 — **Instant 2D↔3D toggle + slider panels in world space (user:
+  no camera movement on toggle; panels should be in 3D like context menus).**
+  (1) Toggle: `tiltOrbit` + `flattenOrbit` now use `animate=false` — the 2D↔3D
+  button snaps instantly (no eased camera tilt). `exit3D` still eases control
+  back to 2D via `stepCamera`'s polar<1e-2 handoff (one frame). (2) Panels:
+  moved from screen-HUD overlay to WORLD instance buffer — each board's `emit`
+  renders its `AnalyticPanel` after the title (uncached, in doc coords at the
+  board's corner, screen-constant size `k=1/cameraScale`). In 3D the panel sits
+  on the ground plane, perspective-foreshortened through the orbit VP ("in 3D"
+  like the context menu). In 2D the ortho VP maps it to the same screen
+  position as the old HUD overlay. Hit-testing uses world coords directly (no
+  `worldToScreenPx` conversion — the panel is in doc space). `renderScreenChrome`/
+  `screenChromeSig` are no-ops (panels not in HUD). `frameSig` includes panel
+  interaction state (open/hover/drag) so hover highlights and slider drags don't
+  stall on skipped frames. `sliderOverlay.ts` `SliderBoard` interface gains
+  `app` field (for `cameraScale`). Dead `sliderGeom`/`KNOB` code deleted.
+  **tsc clean; 57 tests green across 5 suites.** Awaiting CP6. STOPPED.

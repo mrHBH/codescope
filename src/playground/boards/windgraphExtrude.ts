@@ -11,8 +11,11 @@ import type { PlaneView } from '../../windgraph/coords/numberPlane';
 import { Polygon, Circle, Label, Tex } from '../../windgraph/mobject/primitives';
 import type { RenderCtx } from '../../windgraph/mobject/mobject';
 import { emitBlobShadow, emitShadow, pushWalls, pushCap, insetLoop } from '../../windgraph/space3d/extrude';
-import { strokeInto, fillQuads, circleQuads } from '../../windgraph/stroke/stroke';
+import { strokeInto } from '../../windgraph/stroke/stroke';
 import { layoutStr } from '../../layout/metrics';
+import type { GlyphAtlas } from '../../windfoil/bands';
+import { AnalyticPanel } from '../../ui/analyticPanel';
+import { positionBoardPanel, renderBoardPanel } from './sliderOverlay';
 import { orbitPolar, isEnabled } from '../../camera/orbit';
 import { isTilted, toggleTilt } from '../../camera/camera';
 
@@ -21,7 +24,6 @@ const TEAL: number[] = [0.30, 0.85, 0.75, 1];
 const GOLD: number[] = [0.92, 0.74, 0.42, 1];
 const BORDER: number[] = [0.25, 0.26, 0.30, 1];
 const TITLE: number[] = [0.60, 0.64, 0.74, 1];
-const KNOB: number[] = [0.80, 0.84, 0.94, 1];
 
 const MAX_H = 130;
 
@@ -65,8 +67,8 @@ export class WindgraphExtrudeBoard {
   private cyl!: Circle;
   private headline!: Tex;
   private tag!: Label;
-  private sliderDrag = false;
-  private lastZoom = 1;
+  /** Screen-space slider panel (analytic, fixed-size, identical in 2D and 3D). */
+  panel: AnalyticPanel | null = null;
   private built = false;
   private emits = 0;
 
@@ -84,6 +86,10 @@ export class WindgraphExtrudeBoard {
     // analytic painter order never has to hide one behind the other.
     this.headline = new Tex('z = f(x, y)', this.x0 + this.width / 2, this.y0 + 210, 76, GOLD, 'middle');
     this.tag = new Label('drag the slider · double-tap (or the cube) to tilt into 3D', this.x0 + this.width / 2, this.y0 + 720, 22, TITLE, 'middle');
+    this.panel = new AnalyticPanel([{
+      kind: 'slider' as const, id: 'extrude', label: 'extrude', min: 0, max: MAX_H, step: 1,
+      get: () => this.extrude, set: (v: number) => { if (v !== this.extrude) { this.extrude = v; this.rev++; } },
+    }]);
     this.built = true;
   }
 
@@ -152,46 +158,29 @@ export class WindgraphExtrudeBoard {
 
   // ── s.interactive contract (slider only; everything else → camera) ───────
 
-  private sliderGeom(k: number) {
-    const x = this.x0 + 26 * k, w = 320 * k, y = this.y0 + 96 * k;
-    const t = Math.max(0, Math.min(1, this.extrude / MAX_H));
-    return { x, y, w, knobX: x + t * w, k };
-  }
-
   tryBeginDrag(wx: number, wy: number, _scale: number): boolean {
     this.ensure();
-    const k = 1 / Math.max(this.lastZoom, 1e-6);
-    const g = this.sliderGeom(k);
-    if (Math.hypot(wx - g.knobX, wy - g.y) <= 16 * k || (wx >= g.x - 8 * k && wx <= g.x + g.w + 8 * k && Math.abs(wy - g.y) <= 12 * k)) {
-      this.sliderDrag = true;
-      this.applySlider(wx, g);
-      return true;
+    positionBoardPanel(this, this.app);
+    return !!(this.panel && this.panel.pointerDown(wx, wy));
+  }
+  dragTo(wx: number, wy: number) {
+    if (this.panel && this.panel.isDragging) {
+      this.panel.drag(wx, wy);
     }
-    return false;
   }
-  dragTo(wx: number, _wy: number) {
-    if (!this.sliderDrag) return;
-    const k = 1 / Math.max(this.lastZoom, 1e-6);
-    this.applySlider(wx, this.sliderGeom(k));
-  }
-  private applySlider(wx: number, g: { x: number; w: number }) {
-    const t = Math.max(0, Math.min(1, (wx - g.x) / g.w));
-    const val = Math.round(t * MAX_H);
-    if (val !== this.extrude) { this.extrude = val; this.rev++; }
-  }
-  endDrag() { this.sliderDrag = false; }
-  get dragging(): boolean { return this.sliderDrag; }
+  endDrag() { this.panel?.endDrag(); }
+  get dragging(): boolean { return this.panel?.isDragging ?? false; }
 
   private hoverKey = '';
   private hoverRes = false;
-  updateHover(wx: number, wy: number, _scale: number): boolean {
+  updateHover(wx: number, wy: number, scale: number): boolean {
     this.ensure();
-    const key = `${wx}|${wy}|${Math.round(this.lastZoom * 50)}|${this.rev}`;
+    const key = `${wx}|${wy}|${Math.round(scale * 50)}|${this.rev}`;
     if (key === this.hoverKey) return this.hoverRes;
     this.hoverKey = key;
-    const k = 1 / Math.max(this.lastZoom, 1e-6);
-    const g = this.sliderGeom(k);
-    return (this.hoverRes = Math.hypot(wx - g.knobX, wy - g.y) <= 16 * k);
+    positionBoardPanel(this, this.app);
+    this.panel?.updateHover(wx, wy);
+    return (this.hoverRes = (this.panel?.hovered ?? -1) >= 0);
   }
 
   // ── continuous tilt (standalone route; in the world the world owns this) ──
@@ -211,9 +200,6 @@ export class WindgraphExtrudeBoard {
     this.ensure();
     const z = Math.max(view.zoom, 1e-6);
     const zq = Math.pow(2, Math.round(Math.log2(z) * 8) / 8);
-    // Geometry is camera-independent (walls are depth-tested), so the signature
-    // only tracks the 2D↔3D swap (sharp analytic top below the threshold, grounded
-    // shadow above it) — not the continuous pose. Orbiting frame-skips once settled.
     const tilted = isEnabled() && orbitPolar() > 0.06 ? 1 : 0;
     return `xtr|${this.rev}|${this.extrude}|${zq}|${tilted}`;
   }
@@ -221,7 +207,6 @@ export class WindgraphExtrudeBoard {
   emit(font: FontFace, atlas: any, inst: number[], crv: number[], rws: number[], _now: number, view: PlaneView, _camX?: number, _camY?: number) {
     this.ensure();
     this.emits++;
-    this.lastZoom = view.zoom;
 
     // Per-instance 3D buffer (D10): the world hands us its comp buffer (xfTarget);
     // standalone we own one. Either way it must stay 1:1 with `inst` — emitters that
@@ -278,12 +263,9 @@ export class WindgraphExtrudeBoard {
     this.headline.emit(ctx);
     this.tag.emit(ctx);
 
-    // Slider (analytic, screen-constant; flat).
-    const g = this.sliderGeom(k);
-    const drag = this.sliderDrag;
-    strokeInto([[g.x, g.y], [g.x + g.w, g.y]], { width: 4 * k }, drag ? [0.45, 0.50, 0.62, 1] : [0.30, 0.32, 0.40, 1], inst, crv, rws);
-    fillQuads(circleQuads(g.knobX, g.y, (drag ? 10 : 8) * k, 18), drag ? GOLD : KNOB, inst, crv, rws);
-    layoutStr(inst, `extrude = ${h}`, TITLE, atlas.table, font, { x: g.x, y: g.y - 18 * k, size: 16 * k });
+    // Slider panel: world-space, at the board's corner (screen-constant size).
+    positionBoardPanel(this, this.app);
+    renderBoardPanel(this, inst, crv, rws, font, atlas);
 
     // Standalone: pad the trailing xf gap (slider chrome) and publish the buffer.
     if (own) {
@@ -295,4 +277,9 @@ export class WindgraphExtrudeBoard {
       for (let i = 0; i < xfArr.length; i++) this._xfFA[i] = xfArr[i];
     }
   }
+
+  /** Slider panel is now rendered in the board's emit (world buffer), not the
+   *  screen HUD. These are no-ops kept for interface compatibility. */
+  screenChromeSig() { return ''; }
+  renderScreenChrome() {}
 }

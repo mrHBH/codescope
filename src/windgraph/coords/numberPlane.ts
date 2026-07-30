@@ -49,7 +49,9 @@ export class NumberPlane {
   render(ctx: PlaneCtx, view: PlaneView) {
     const { inst, crv, rws } = ctx;
     const z = Math.max(view.zoom, 1e-9);
-    const px = 1 / z; // ~1 screen-px line width in world units
+    // Floor line width to 1.5 screen px — 1px hairlines alias harshly at deep
+    // zoom and vanish at overview. 1.5px reads as a soft grid line at every scale.
+    const px = 1.5 / z;
 
     // Visible data range = domain ∩ (view rect mapped to data).
     const dxMin = Math.max(this.xMin, (view.left - this.worldX0) / this.unitX);
@@ -79,7 +81,9 @@ export class NumberPlane {
         strokeInto([[wXlo, wy], [wXhi, wy]], { width: px }, color, inst, crv, rws);
       }
     };
-    vlines(stepX / 5, this.style.minor); hlines(stepY / 5, this.style.minor);
+    // Skip minor grid at overview zoom — it's invisible noise below 0.3× and
+    // doubles the line count for zero visual payoff.
+    if (z >= 0.3) { vlines(stepX / 5, this.style.minor); hlines(stepY / 5, this.style.minor); }
     vlines(stepX, this.style.major); hlines(stepY, this.style.major);
 
     // Axes (data x=0 / y=0) when in range.

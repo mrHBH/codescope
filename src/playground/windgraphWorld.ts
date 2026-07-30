@@ -26,6 +26,8 @@ import { strokeInto } from '../windgraph/stroke/stroke';
 import { layoutStr, tw } from '../layout/metrics';
 import type { FontFace } from '../windfoil/font';
 import type { PlaneView } from '../windgraph/coords/numberPlane';
+import type { GlyphAtlas } from '../windfoil/bands';
+import { positionBoardPanel } from './boards/sliderOverlay';
 
 const BLUE: Color = [0.36, 0.62, 0.98, 1];
 const GOLD: Color = [0.92, 0.74, 0.42, 1];
@@ -103,11 +105,12 @@ export function geometryCatalogDoc(): SceneDoc {
 
 /** Lane C stats: distributions, CLT, random walks, Monte Carlo, correlation. */
 export function statsDoc(): SceneDoc {
-  return scene({ title: 'stats & probability — distributions, CLT, Monte Carlo' }, (s) => {
+  return scene({ title: 'stats & probability — distributions, walks, regression' }, (s) => {
     s.param.number('mu', { default: 0, min: -3, max: 3, step: 0.1, label: 'μ' });
     s.param.number('sigma', { default: 1, min: 0.3, max: 3, step: 0.1, label: 'σ' });
+    s.param.number('steps', { default: 24, min: 4, max: 120, step: 2, label: 'walk steps' });
     s.wg.distribution('norm', 'normal', { params: [{ $param: 'mu' }, { $param: 'sigma' }], showCdf: true, domain: [-6, 6], stroke: { color: BLUE, width: 2.5 } });
-    s.wg.randomWalk('walk', 2, 18, { walks: 2, seed: 99, stroke: { color: GREEN, width: 1.6 } });
+    s.wg.randomWalk('walk', 2, { $param: 'steps' }, { walks: 3, seed: 99, stroke: { color: GREEN, width: 1.6 } });
     s.wg.correlation('corr', { points: [[-3, -2.5], [-2, -1.2], [-1, -0.6], [0, 0.3], [1, 0.9], [2, 1.8], [3, 2.6], [2.5, 2.1], [-1.5, -1.0], [0.5, 0.1]], showRegression: true, color: GOLD, radius: 4, stroke: { color: RED, width: 2 } });
   });
 }
@@ -129,8 +132,10 @@ export function linalgDoc(): SceneDoc {
 
 /** Lane E graph theory: named graphs, traversal, MST, Eulerian paths. */
 export function graphTheoryDoc(): SceneDoc {
-  return scene({ title: 'graph theory — layout, traversal, MST, Euler' }, (s) => {
-    s.wg.traversal('petersen-bfs', 'petersen', 'bfs', { start: 0, layout: 'circular', color: GOLD, radius: 6, stroke: { color: TEAL, width: 1.6 } });
+  return scene({ title: 'graph theory — random graph + BFS traversal' }, (s) => {
+    s.param.number('n', { default: 7, min: 3, max: 12, step: 1, label: 'nodes n' });
+    s.param.number('p', { default: 0.45, min: 0.1, max: 0.9, step: 0.05, label: 'edge prob p' });
+    s.wg.traversal('trav', 'random', 'bfs', { n: { $param: 'n' }, p: { $param: 'p' }, seed: 11, start: 0, layout: 'force', color: GOLD, radius: 6, stroke: { color: TEAL, width: 1.8 } });
   });
 }
 
@@ -217,6 +222,12 @@ export class WindgraphWorld {
   }
 
   tryBeginDrag(wx: number, wy: number, scale: number): boolean {
+    // Slider panels are in world space (doc coords at each board's corner), so
+    // hit-test with the world pointer directly — no screen-px conversion.
+    for (const b of this.boards) {
+      positionBoardPanel(b, this.app);
+      if (b.panel && b.panel.pointerDown(wx, wy)) { this.active = b; return true; }
+    }
     const b = this.boardAt(wx, wy);
     if (!b) return false;
     if (!b.tryBeginDrag(wx, wy, scale)) return false; // board background → camera pan
@@ -234,6 +245,12 @@ export class WindgraphWorld {
     const key = `${wx}|${wy}|${Math.round(scale * 50)}|${this.boards.map((b) => b.rev).join(',')}`;
     if (key === this.hoverKey) return this.hoverRes;
     this.hoverKey = key;
+    // Slider panels hover-test in world coords (panels are in doc space).
+    for (const b of this.boards) {
+      positionBoardPanel(b, this.app);
+      b.panel?.updateHover(wx, wy);
+      if ((b.panel?.hovered ?? -1) >= 0) return (this.hoverRes = true);
+    }
     const b = this.boardAt(wx, wy);
     this.hoverRes = b ? b.updateHover(wx, wy, scale) : false;
     return this.hoverRes;
@@ -266,10 +283,17 @@ export class WindgraphWorld {
   private backdropParts(view: PlaneView) {
     const z = Math.max(view.zoom, 1e-4);
     const sentinel = view.left < -1e11;
-    const vL = sentinel ? this.overview.x - 2000 : view.left;
-    const vT = sentinel ? this.overview.y - 2000 : view.top;
-    const vR = sentinel ? this.overview.x + this.overview.w + 2000 : view.right;
-    const vB = sentinel ? this.overview.y + this.overview.h + 2000 : view.bottom;
+    // In 3D the visible ground rect can extend past the horizon (behind-camera
+    // rays). Clamp to the content area so the grid and board culling stay
+    // bounded. In 2D the viewport is always finite; the sentinel fallback uses
+    // the overview + margin.
+    const oL = this.overview.x - 2000, oT = this.overview.y - 2000;
+    const oR = this.overview.x + this.overview.w + 2000, oB = this.overview.y + this.overview.h + 2000;
+    const is3d = sentinel || !!this.app?.cam3d.active;
+    const vL = sentinel ? oL : is3d ? Math.max(view.left, oL) : view.left;
+    const vT = sentinel ? oT : is3d ? Math.max(view.top, oT) : view.top;
+    const vR = sentinel ? oR : is3d ? Math.min(view.right, oR) : view.right;
+    const vB = sentinel ? oB : is3d ? Math.min(view.bottom, oB) : view.bottom;
     // Line grid: screen spacing ~140-280px, cached over the view + a 3-step
     // margin quantized to the step itself — bounded line count at every zoom,
     // and the key never contains raw zoom (niceStep is a step-function of it).
@@ -282,7 +306,9 @@ export class WindgraphWorld {
 
   /** Frame-skip signature: the frame loop compares this to decide whether the
    *  world would emit identically — if so it redraws persistent GPU buffers
-   *  with zero JS emit / conversion / upload (a still scene costs ~nothing). */
+   *  with zero JS emit / conversion / upload (a still scene costs ~nothing).
+   *  Panel interaction state (open/hover/drag) is included so hover highlights
+   *  and slider drags don't stall on skipped frames. */
   frameSig(view: PlaneView): string {
     const bp = this.backdropParts(view);
     let sig = bp.sig;
@@ -290,6 +316,8 @@ export class WindgraphWorld {
       sig += '|';
       sig += (b.x0 <= bp.vR && b.x0 + b.width >= bp.vL && b.y0 <= bp.vB && b.y0 + b.height >= bp.vT)
         ? b.sigFor(view) : 'off';
+      // Panel interaction state (uncached chrome in the world buffer).
+      sig += b.panel ? `p${b.panel.open ? 1 : 0},${b.panel.hovered},${b.panel.isDragging ? 1 : 0}` : '';
     }
     return sig;
   }
@@ -365,6 +393,7 @@ export class WindgraphWorld {
     // Boards compose into the same comp buffers (their caches see number[] and
     // behave identically; the pre-allocated backing means no reallocs).
     const tB: number[] = [];
+    for (const b of this.boards) b.app = this.app;
     for (const b of this.boards) {
       const tb0 = performance.now();
       if (b.x0 <= vR && b.x0 + b.width >= vL && b.y0 <= vB && b.y0 + b.height >= vT) {
@@ -445,6 +474,12 @@ export class WindgraphWorld {
     const b = this.boards[3] as WindgraphExtrudeBoard;
     return b.getBounds ? b.getBounds() : null;
   }
+
+  /** Slider panels are now rendered in the world instance buffer (in each
+   *  board's emit), not the screen HUD. These are no-ops kept for interface
+   *  compatibility. */
+  screenChromeSig(_s: AppState): string { return ''; }
+  renderScreenChrome() {}
 
   private drawMasthead(font: FontFace, atlas: any, inst: number[], crv: number[], rws: number[], cL: number, cT: number, cR: number, cB: number) {
     if (0 > cR || 2600 < cL || -210 > cB || 20 < cT) return;

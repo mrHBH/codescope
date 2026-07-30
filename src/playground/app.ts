@@ -80,6 +80,9 @@ export function finishApp(s: AppState, onBack: () => void, extras: ToolbarButton
       toolbar.render(hud.inst, hud.crv, hud.rws, now);
       s.panel?.render(s.font, s.atlas, hud.inst, hud.crv, hud.rws, ANALYTIC_PANEL_THEME);
       s.fpsChip?.render(hud.inst, hud.crv, hud.rws, s.font, s.atlas, uiScale(s));
+      // Screen-space slider chrome of the active interactive board (windgraph):
+      // fixed-size analytic panels pinned to each board's projected corner.
+      s.interactive?.renderScreenChrome?.(s, hud, s.font, s.atlas);
       // In 3D the menu is world-projected and drawn into the scene buffer by
       // frame.ts; drawing it here too would stack a second copy. Only render the
       // screen-space overlay when it isn't world-projected (2D, or no menu).

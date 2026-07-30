@@ -207,6 +207,10 @@ export interface AppState {
     updateHover(wx: number, wy: number, scale: number): boolean;
     autoDrive(): void;
     readonly dragging: boolean;
+    /** Screen-space slider chrome signature (positions panels; cheap, every frame). */
+    screenChromeSig?(s: AppState): string;
+    /** Render screen-space slider chrome into the HUD overlay buffers. */
+    renderScreenChrome?(s: AppState, hud: { inst: number[]; crv: number[]; rws: number[] }, font: FontFace, atlas: GlyphAtlas): void;
   }) | null;
 
   // windgraph Phase-7 3D graphing demo (true 3D mesh; see windgraph/space3d/demo.ts)

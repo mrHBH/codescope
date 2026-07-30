@@ -2,7 +2,16 @@
 
 Ground rules for any AI agent working in this repository. Read this before doing
 anything. For deeper technical facts, also consult repo memory
-(`/memories/repo/codescope.md`), `VISION.md`, and `PROGRESS.md`.
+(`/memories/repo/codescope.md`), `VISION.md`, `PROGRESS.md`, and
+`docs/ALGORITHM.md` (the math behind the renderer).
+
+**codescope builds on top of [windfoil](https://github.com/texel-org/windfoil)**
+(texel-org), the open-source analytic WebGPU vector renderer. The core
+winding-integral math, row-band acceleration structure, and minification guard
+are from upstream; codescope adds 3D transforms, convex clip polygons, solid
+rect fast path, anisotropic AA, and a full TypeScript host layer. See
+`docs/ALGORITHM.md` for the full derivation and `package.json` for sync
+scripts.
 
 Active sprint: **windgraph v2** — expanding the windgraph math engine into the
 most comprehensive plotting/geometry/animation system anywhere, leading with
@@ -57,3 +66,4 @@ editor, terminal, and file tree entirely through a closed-form coverage integral
   windgraph v2's physics lane.
 - `src/playground/` — demo boards + toolbar buttons; windgraph v2 boards
   register here.
+- `docs/` — algorithm derivation (`ALGORITHM.md`), architecture notes.

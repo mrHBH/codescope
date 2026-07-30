@@ -4,6 +4,7 @@
 import { WindgraphWorld } from './windgraphWorld';
 import { WindgraphSceneBoard } from './boards/windgraphScene';
 import { WindgraphExtrudeBoard } from './boards/windgraphExtrude';
+import { NumberPlane } from '../windgraph/coords/numberPlane';
 
 let passed = 0, failed = 0;
 function test(name: string, fn: () => void) {
@@ -155,6 +156,52 @@ test('world emit: board writes the comp xf buffer it was handed, aligned', () =>
   let sawTop = false;
   for (let i = 0; i < n; i++) if (Math.abs(compXf[i * 8 + 2] - 60) < 1e-6) sawTop = true;
   assert(sawTop, 'a top face instance carries z=extrude in the comp buffer');
+});
+
+test('slider track grab: clicking the track (not the knob) sets the value', () => {
+  const w = new WindgraphWorld();
+  const stats = w.boards[5] as WindgraphSceneBoard;
+  stats.ensure();
+  const k = 1;
+  // μ is the first slider row: rowY = y0+8, rowH = 34 → mid-row y = y0+25.
+  const rowMidY = stats.y0 + 25 * k;
+  const tx0 = stats.x0 + 20 * k; // track left (x0 + 8 + PAD)
+  // Press on the far-LEFT of the track — the old knob-only hit would miss here.
+  assert(w.tryBeginDrag(tx0, rowMidY, 1), 'track-left press must grab the slider');
+  w.endDrag();
+  approx(stats.params.get('mu'), -3, 0.001); // left end = min
+  // Press on the far-RIGHT of the track.
+  const tx1 = stats.x0 + 232 * k;
+  assert(w.tryBeginDrag(tx1, rowMidY, 1), 'track-right press must grab the slider');
+  w.endDrag();
+  approx(stats.params.get('mu'), 3, 0.001); // right end = max
+});
+
+test('stats walk + graph traversal are param-bound (formerly dead objects move)', () => {
+  const w = new WindgraphWorld();
+  const stats = w.boards[5] as WindgraphSceneBoard;
+  stats.ensure();
+  const walk = stats.scene.mobjects.get('walk')!;
+  const ptsBefore = (walk.children[0] as any).points.length;
+  stats.setParam('steps', 90);
+  const ptsAfter = (walk.children[0] as any).points.length;
+  assert(ptsAfter > ptsBefore, `walk resampled on steps change (${ptsBefore}→${ptsAfter})`);
+  const graphTh = w.boards[7] as WindgraphSceneBoard;
+  graphTh.ensure();
+  const trav = graphTh.scene.mobjects.get('trav')!;
+  const dotsBefore = trav.children.length;
+  graphTh.setParam('n', 12);
+  const dotsAfter = trav.children.length;
+  assert(dotsAfter !== dotsBefore, `traversal resampled on n change (${dotsBefore}→${dotsAfter})`);
+});
+
+test('grid: overview zoom skips minor lines (fewer instances than at 1×)', () => {
+  const plane = new NumberPlane();
+  const mkCtx = () => ({ font: mockFont, atlas: mockAtlas, inst: [] as number[], crv: [] as number[], rws: [] as number[] });
+  const inView = { left: -800, right: 800, top: -600, bottom: 600 };
+  const c1 = mkCtx(); plane.render(c1, { zoom: 1, ...inView });
+  const cLow = mkCtx(); plane.render(cLow, { zoom: 0.2, ...inView });
+  assert(cLow.inst.length < c1.inst.length, `overview grid ${cLow.inst.length} should be sparser than 1× ${c1.inst.length}`);
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);
