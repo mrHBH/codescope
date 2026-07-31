@@ -148,8 +148,6 @@ export function makeQualityPanel(s: AppState, include3D = false): AnalyticPanel 
         get: () => s.meshSmooth, set: (v) => { s.meshSmooth = v; } },
       { kind: 'toggle', id: 'aa', label: 'Anti-aliasing (MSAA 4×)',
         get: () => s.meshAA, set: setAA, enabled: () => !!s.cam3d.active },
-      { kind: 'toggle', id: 'shadows', label: 'Real cast shadows',
-        get: () => s.realShadows, set: (v) => { s.realShadows = v; } },
     );
   }
   return new AnalyticPanel(items);

@@ -128,7 +128,7 @@ test('standalone emit: board owns an xf buffer aligned 1:1 with instances', () =
   let sawTop = false, sawFlat = false;
   for (let i = 0; i < n; i++) { const z = xf![i * 8 + 2]; if (Math.abs(z - 60) < 1e-6) sawTop = true; if (z === 0) sawFlat = true; }
   assert(sawTop, 'a top face instance sits at z=extrude');
-  assert(sawFlat, 'chrome/shadow instances stay at z=0');
+  assert(sawFlat, 'chrome instances stay at z=0');
 });
 
 test('curve3d board: 2D emits top-down silhouette bands (no tube mesh in flat view)', () => {

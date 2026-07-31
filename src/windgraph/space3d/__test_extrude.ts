@@ -1,12 +1,12 @@
-// ── Extrusion geometry tests (Phase 2.2 / 2.5, depth-tested walls) ────────────
+// ── Extrusion geometry tests (Phase 2.2, depth-tested walls) ────────────────
 // Run with: bun src/windgraph/space3d/__test_extrude.ts
 //
-// The side walls now go through the mesh3d depth-tested pipeline (pushWalls), so
-// the analytic pass only emits the sharp top face + the grounded shadow. These
-// tests verify: pushWalls builds a watertight wall tube with correct z + shading,
-// emitPrism emits top (+shadow) only, and shadows sit a hair under the ground.
+// The side walls go through the mesh3d depth-tested pipeline (pushWalls), so the
+// analytic pass only emits the sharp top face. These tests verify: pushWalls
+// builds a watertight wall tube with correct z + shading, emitPrism emits the
+// top face only (shadows were removed 2026-07-31).
 
-import { emitPrism, emitShadow, emitBlobShadow, pushWalls, pushCap, insetLoop } from './extrude';
+import { emitPrism, pushWalls, pushCap, insetLoop } from './extrude';
 import type { RenderCtx } from '../mobject/mobject';
 
 let passed = 0, failed = 0;
@@ -33,15 +33,6 @@ test('emitPrism emits ONLY the top face (walls are mesh3d now)', () => {
   near(c.xf![4] + c.xf![5] + c.xf![6] + c.xf![7], 0, 1e-9, 'top face Euler path');
 });
 
-test('emitPrism + shadow: 3 shadow layers (z=-1) then top (z=h)', () => {
-  const c = ctx();
-  emitPrism(c, square, { h: 40, color: [1, 0, 0, 1], shadow: true });
-  const n = c.inst.length / 16;
-  assert(n === 4, `expected 4 instances (3 shadow + top), got ${n}`);
-  for (let k = 0; k < 3; k++) near(c.xf![k * 8 + 2], -1, 1e-9, `shadow layer ${k} under ground (z=-1)`);
-  near(c.xf![(n - 1) * 8 + 2], 40, 1e-9, 'top face at z=h');
-});
-
 test('pushWalls: a 4-pt loop → 4 wall quads = 8 tris = 24 verts, z in {z0v,z1v}', () => {
   const m: number[] = [];
   pushWalls(m, [square.flatMap((p) => [p[0], p[1]])], 0, -40, [1, 0, 0, 1]);
@@ -62,28 +53,6 @@ test('pushWalls: outward normals give varied shading (not all flat)', () => {
   const shades = new Set<number>();
   for (let v = 0; v < m.length / 7; v++) shades.add(Math.round(m[v * 7 + 3] * 1000));
   assert(shades.size >= 2, `expected varied wall shading, got ${shades.size} distinct`);
-});
-
-test('emitShadow layers sit under the ground (z=-1)', () => {
-  const c = ctx();
-  emitShadow(c, square, { h: 40, layers: 3 });
-  const n = c.inst.length / 16;
-  assert(n === 3, `expected 3 shadow layers, got ${n}`);
-  for (let k = 0; k < n; k++) near(c.xf![k * 8 + 2], -1, 1e-9, `shadow ${k} z=-1`);
-});
-
-test('emitShadow h=0 emits nothing', () => {
-  const c = ctx();
-  emitShadow(c, square, { h: 0 });
-  assert(c.inst.length === 0, 'no shadow at h=0');
-});
-
-test('emitBlobShadow layers under the ground', () => {
-  const c = ctx();
-  emitBlobShadow(c, 0, 0, 60, 20, { h: 30, layers: 3 });
-  const n = c.inst.length / 16;
-  assert(n === 3, `expected 3 blob layers, got ${n}`);
-  for (let k = 0; k < n; k++) near(c.xf![k * 8 + 2], -1, 1e-9, `blob ${k} z=-1`);
 });
 
 test('zero extrude → emitPrism emits nothing', () => {

@@ -1,16 +1,16 @@
 // ── windgraph v2 · extrude demo board (sprint-v2 Phase 2, CP3) ───────────────
 // The moat in one board: a polygon + a cylinder that extrude on a slider, a LaTeX
-// headline whose glyphs rise, all casting analytic contact shadows — and the whole
-// thing lifts into a continuous tilted orbit on double-tap (no 2D/3D mode switch).
-// Implements the world's board contract; emits through the per-instance z buffer
-// (D10) so elevation is invisible flat in 2D and reveals as the camera tilts (OQ-9).
+// headline whose glyphs rise — and the whole thing lifts into a continuous tilted
+// orbit on double-tap (no 2D/3D mode switch). Implements the world's board
+// contract; emits through the per-instance z buffer (D10) so elevation is
+// invisible flat in 2D and reveals as the camera tilts (OQ-9).
 
 import type { FontFace } from '../../windfoil/font';
 import type { AppState } from '../../state';
 import type { PlaneView } from '../../windgraph/coords/numberPlane';
 import { Polygon, Circle, Label, Tex } from '../../windgraph/mobject/primitives';
 import type { RenderCtx } from '../../windgraph/mobject/mobject';
-import { emitBlobShadow, emitShadow, pushWalls, pushCap, insetLoop } from '../../windgraph/space3d/extrude';
+import { pushWalls, pushCap, insetLoop } from '../../windgraph/space3d/extrude';
 import { strokeInto } from '../../windgraph/stroke/stroke';
 import { layoutStr, tw } from '../../layout/metrics';
 import { AnalyticPanel } from '../../ui/analyticPanel';
@@ -35,13 +35,11 @@ export class WindgraphExtrudeBoard {
   rev = 0;
   /** Live extrusion height (world px), slider-bound. */
   extrude = 52;
-  /** Quality dials, read from the app's settings panel when hosted (fallbacks for
+  /** Quality dial, read from the app's settings panel when hosted (fallback for
    *  headless/standalone-without-panel). smooth = Gouraud the round walls (cylinder
-   *  + glyph sides); realShadows = depth-mapped cast shadows (skips the analytic
-   *  contact blobs). `meshAA` = 2× SUPERSAMPLING (drives renderScale; MSAA was
-   *  replaced in D19 — the resolve target black-screened), a whole-frame dial. */
+   *  + glyph sides). `meshAA` = MSAA 4× (the AA dial). Shadows were removed
+   *  (2026-07-31, user). */
   get smooth(): boolean { return this.app?.meshSmooth ?? true; }
-  get realShadows(): boolean { return this.app?.realShadows ?? false; }
   /** AppState ref (set when hosted standalone) for the continuous tilt toggle. */
   app: AppState | null = null;
   /** Per-instance 3D buffer the world sets before emit (D10); standalone = none. */
@@ -57,10 +55,6 @@ export class WindgraphExtrudeBoard {
    *  before the analytic pass so the solids are watertight at every angle. */
   private _meshKey = '';
   private _meshFA = new Float32Array(0);
-  /** Ground quad (2 tris at vertex z=0 over the board footprint, doc coords) used by
-   *  the shadow caster pass (so open ground isn't self-shadowed) and the catcher
-   *  pass (paints the grounded shadow). Color is unused by both. */
-  private _groundFA = new Float32Array(0);
   private _atlas: any = null;
 
   private square!: Polygon;
@@ -105,12 +99,6 @@ export class WindgraphExtrudeBoard {
    *  walls-only (its sharp top is the analytic pass, raised by EXTRUDE_PLUG_EPS so
    *  it caps the walls with no sliver — no inset, which was the old seam cause). */
   private buildMesh() {
-    // Ground quad over the footprint (constant; rebuild is cheap).
-    if (this._groundFA.length === 0) {
-      const x0 = this.x0, y0 = this.y0, x1 = this.x0 + this.width, y1 = this.y0 + this.height;
-      const v = (x: number, y: number) => [x, y, 0, 0, 0, 0, 0];
-      this._groundFA = new Float32Array([...v(x0, y0), ...v(x1, y0), ...v(x1, y1), ...v(x0, y0), ...v(x1, y1), ...v(x0, y1)]);
-    }
     const key = `${this.extrude}|${this.smooth ? 1 : 0}`;
     if (this._meshKey === key) return;
     this._meshKey = key;
@@ -132,25 +120,6 @@ export class WindgraphExtrudeBoard {
   /** Depth-tested mesh for frame.ts (null when flat / not yet built). */
   getMesh(): Float32Array | null {
     return this._meshFA.length ? this._meshFA : null;
-  }
-
-  /** Ground quad for the shadow caster + catcher passes (null until first emit). */
-  getGround(): Float32Array | null {
-    return this._groundFA.length ? this._groundFA : null;
-  }
-
-  /** Doc-space content bounds for the shadow light frustum (null when flat). Tight
-   *  to the shapes (not the whole board) so the shadow map's depth precision isn't
-   *  wasted on empty board area — a loose frustum detaches shadows at any sane bias.
-   *  The margin covers the light-direction cast offset (∝ height). */
-  getBounds(): { minX: number; maxX: number; minY: number; maxY: number; minZ: number; maxZ: number } | null {
-    if (this.extrude <= 0) return null;
-    const m = this.extrude * 0.6 + 60; // room for the cast offset + penumbra
-    const minX = this.x0 + 180 - 128 - m;          // square left / headline left
-    const maxX = this.x0 + 760 + 104 + m;          // cylinder right
-    const minY = this.y0 + 120 - m;                // headline top
-    const maxY = this.y0 + 520 + 128 + m;          // square/cylinder bottom
-    return { minX, maxX, minY, maxY, minZ: -this.extrude - 2, maxZ: 2 };
   }
 
   get cacheMisses(): number { return this.emits; }
@@ -241,26 +210,10 @@ export class WindgraphExtrudeBoard {
     this.tag.elevation = 0;
 
     // Build the depth-tested wall mesh (cached on extrude). The analytic pass then
-    // only draws tops + shadows + chrome; the shared depth buffer occludes the
-    // solids correctly at every angle (no painter-order gaps, no culling seams).
+    // only draws tops + chrome; the shared depth buffer occludes the solids
+    // correctly at every angle (no painter-order gaps, no culling seams).
     this._atlas = atlas;
     this.buildMesh();
-
-    // Analytic contact shadows only when tilted AND real shadows are off (the real
-    // shadow map, when enabled, draws the grounded shadow itself). At top-down the
-    // extrusion is invisible, so its shadow must be too (seamless 2D read, OQ-9).
-    const po = isEnabled() ? orbitPolar() : 0;
-    if (h > 0 && po > 0.06 && !this.realShadows) {
-      emitShadow(ctx, this.square.points, { h, strength: 0.22 });
-      const ccx = this.cyl.position[0], ccy = this.cyl.position[1], cr = this.cyl.radius;
-      const cylPts: [number, number][] = [];
-      for (let i = 0; i < 64; i++) { const a = (i / 64) * Math.PI * 2; cylPts.push([ccx + Math.cos(a) * cr, ccy + Math.sin(a) * cr]); }
-      emitShadow(ctx, cylPts, { h, strength: 0.22 });
-      const ms = this.headline.measure(atlas);
-      const hSize = this.headline.size;
-      emitBlobShadow(ctx, this.headline.position[0], this.headline.position[1] + (ms.d - ms.h) * hSize / 2,
-        Math.max(20, ms.w * hSize / 2), Math.max(10, (ms.h + ms.d) * hSize * 0.42), { h: h * 0.85, strength: 0.18 });
-    }
 
     // Analytic tops: box/cylinder draw theirs only near top-down (sharp 2D
     // silhouette; the closed mesh solid owns the 3D body), the headline always

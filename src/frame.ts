@@ -18,7 +18,7 @@ import { orbitCameraLocal } from './camera/orbit';
 import type { EditorTheme } from './editor/editor';
 import type { TerminalTheme } from './editor/terminal';
 import type { FileTreeTheme } from './editor/fileTree';
-import { DEPTH_FORMAT, lightViewProj } from './windfoil/mesh3d';
+import { DEPTH_FORMAT } from './windfoil/mesh3d';
 import { EmitCache } from './windfoil/emitCache';
 import { ANALYTIC_MENU_THEME } from './ui/analyticMenu';
 import { poseXform } from './camera/screenWorld';
@@ -1476,22 +1476,8 @@ export function runFrame(s: AppState): () => void {
     // backdrop is painted here instead of showing a CSS background through a
     // transparent canvas (which cost a full-screen compositor blend per frame).
     const bd = s.themeCol.backdrop;
-    // Real cast shadows (Phase 2 quality dial): a depth-only pass from the light
-    // direction into the shadow map, run BEFORE the main pass so the ground catcher
-    // can sample it. beginShadow stamps the on-flag (off → no sampling, no catcher).
-    // Only the GROUND samples the map (the grounded shadow is the payoff); the solids
-    // do NOT self-sample — that produced shadow acne + flicker on lit faces. Gated to
-    // tilted 3D with an extrude board present; top-down stays the flat 2D read (OQ-9).
     const ib: any = s.interactive;
     const imesh: Float32Array | null = ib?.getMesh?.() ?? null;
-    const ground: Float32Array | null = ib?.getGround?.() ?? null;
-    const bounds = ib?.getBounds?.() ?? null;
-    const shadowOn = !!s.realShadows && s.cam3d.active && !!imesh && imesh.length > 0 && !!ground && !!bounds;
-    if (s.meshRenderer) {
-      const lv = bounds ? lightViewProj(bounds) : new Float32Array(16);
-      const sp = s.meshRenderer.beginShadow(enc, lv, shadowOn, 0.0012);
-      if (sp) { s.meshRenderer.castVerts(sp, imesh!); s.meshRenderer.castVerts(sp, ground!); sp.end(); }
-    }
     const pass = enc.beginRenderPass({
       colorAttachments: [{
         view: msaaView ?? colorView,
@@ -1546,10 +1532,6 @@ export function runFrame(s: AppState): () => void {
         }
         s.meshRenderer.setViewProj(meshVP);
         s.meshRenderer.drawTris(pass, imesh);
-        // Grounded shadow: a transparent darkening quad on the ground plane, sampled
-        // from the shadow map. After the solids (so it hides behind them) and with no
-        // depth write (so the analytic chrome/tops drawn next still show).
-        if (shadowOn && ground) s.meshRenderer.drawCatcher(pass, ground);
       }
     }
     // Per-instance 3D (D10): an interactive board may expose xfBuffer() — the

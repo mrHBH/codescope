@@ -90,6 +90,52 @@ If this file and the code disagree, investigate before trusting either.
 
 ## Log
 
+- 2026-07-31 — **Grid still too fine when zooming at an angle (user: "the grid
+  renders at an ultra high resolution, zooming in at an angle in 3D").** The grid
+  GEOMETRY is correct (square world cells); the density complaint is the DEPTH-AXIS
+  FORESHORTENING — at a tilt, grid lines running toward the horizon compress
+  (on-screen spacing = 90px·cos(polar)), forming a long dense gradient before the
+  true moiré point. The moiré fade only kicked in below 1.5px spacing, so most of
+  that compressed gradient rendered as an "ultra-high-resolution" mass. Fix: fade
+  the grid out once the on-screen spacing drops below ~12px (ramp 4→12px, driven by
+  the DENSEST axis via min), so the compression gradient fades smoothly and the
+  grid never renders as a dense mush — the grid stays fully visible where the
+  spacing is comfortable and vanishes toward the horizon. Grid stays geometrically
+  correct (no step distortion — a compensated step would make the world cells
+  rectangular, which is wrong for a math grid, and would pulse on orbit). tsc
+  clean; 24/24 suites green; vite build ok. Visual verdict = user (tilt + zoom).
+- 2026-07-31 — **Grid gray + high-altitude FPS tank fixed (user: "switch to 3D
+  at high altitude, zoom in → grid becomes hyper-fine/gray, tanks fps").** TWO
+  root causes. (1) GRAY GRID = f32 PRECISION in the fillRule-3 grid shader:
+  `wx = place.x + rc.x − band.z` summed the large ABSOLUTE 3D coordinates
+  (~1e6) before subtracting the phase, so at fine steps the distance-to-line
+  went to noise → the whole grid read as gray. Reordered to
+  `(place.x − band.z) + rc.x` (close operands subtract exactly per Sterbenz →
+  the value stays rect-local). 2D was immune because the upload makes place
+  camera-relative. Also sharpened the moiré fade to reach 0 at 1.5px spacing
+  (was only 0 at gs→0, so a dense ~1-coverage grid lingered as gray). (2) FPS
+  TANK = altitude-specific rebuild cost in the CURVE3D board: `lodDetail` had a
+  0.5 zoom FLOOR, so at altitude (viewZ 0.01) it still built a 140k-vertex
+  detail-1 tube mesh (19ms) and 22ms/frame of 2D Bézier strokes whose
+  screen-constant width became ~350 world px — the band table duplicated every
+  tall ribbon edge across its bands, exploding the curve output. Removed the
+  floor (altitude content is sub-pixel → collapses to ~6k verts / 2.2ms mesh,
+  coarse cheap strokes) and capped the 2D stroke world width at 80px. World
+  cold-rebuild at z=0.01: 42ms → 8.2ms. Remaining band-crossing rebuild cost is
+  the general plot-LOD banding (all zooms), already slated for worker offload
+  (Phase 5). tsc clean; 24/24 suites green; vite build ok. Visual verdict = user.
+- 2026-07-31 — **Shadows REMOVED everywhere (user: "in the extrusion demo the
+  shadows are rather stupid; lets just remove it from now on").** Deleted the
+  whole shadow feature: mesh3d.ts shadow map machinery (castPipe/catchPipe,
+  beginShadow/castVerts/drawCatcher, fsCatch/vsCast, shadowFactor, lightViewProj,
+  SHADOW_FORMAT) + the WGSL group-1 su bindings; frame.ts's depth-only caster pass
+  + ground-catcher draw; extrude.ts's analytic `emitShadow`/`emitBlobShadow`
+  contact shadows + the `PrismOpts.shadow` option; the extrude board's analytic
+  blob emission + `realShadows` + `getGround`/`getBounds` (shadow-only contract);
+  the world's getGround/getBounds; the quality panel's "Real cast shadows" toggle;
+  `state.realShadows`. Mesh renderer simplified to tri + line pipelines. 8 fewer
+  extrude tests (shadow tests removed); 24/24 suites green; tsc clean (only
+  pre-existing font.ts); vite build ok. Visual verdict = user.
 - 2026-07-31 — **AA defaults ON in 3D, OFF in 2D, and no longer fights the
   resolution slider (user: "let AA default on in 3D; apply it only to the 3D
   meshes; keep the resolution slider when AA is toggled").** Centralized the

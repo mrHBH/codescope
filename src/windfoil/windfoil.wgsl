@@ -428,15 +428,27 @@ fn fs(in : VsOut) -> @location(0) vec4f {
   if (I.place.w >= 2.5) {
     let gs = max(I.band.x, 1e-9);        // world units between lines
     let gW = max(I.band.y, 0.0);         // desired screen px line width
-    let wx = I.place.x + rc.x - I.band.z;
-    let wy = I.place.y + rc.y - I.band.w;
+    // Phase-relative coordinate: subtract the phase FIRST (place.x and band.z are
+    // both large in 3D — their difference is exact, Sterbenz — then add the small
+    // rect-local rc). The old `place.x + rc.x - band.z` summed the large absolute
+    // place with rc first, so at fine steps the f32 distance-to-line went to noise
+    // and the whole grid read as gray mush (3D-only: the 2D upload makes place
+    // camera-relative, so it stayed small and precise).
+    let wx = (I.place.x - I.band.z) + rc.x;
+    let wy = (I.place.y - I.band.w) + rc.y;
     let dx = abs(wx - gs * round(wx / gs));   // dist to nearest vertical line
     let dy = abs(wy - gs * round(wy / gs));   // dist to nearest horizontal line
     // Box-filtered coverage: 0.5·gW px solid core + 0.5 px AA skirt each side.
     let covV = clamp(0.5 + 0.5 * gW - dx / s.x, 0.0, 1.0);
     let covH = clamp(0.5 + 0.5 * gW - dy / s.y, 0.0, 1.0);
-    // Moiré guard: once the spacing is under ~3 px the pattern beats — fade out.
-    let fade = min(clamp(gs / (3.0 * s.x), 0.0, 1.0), clamp(gs / (3.0 * s.y), 0.0, 1.0));
+    // Moiré guard: at a tilt the ground plane is foreshortened — grid lines
+    // running toward the horizon compress to sub-pixel long before the "moiré"
+    // point, reading as an ultra-high-resolution mush. Fade the grid out once
+    // the on-screen spacing (gs/s ≈ pixels between lines) drops below ~12px, so
+    // the compression gradient fades smoothly and never renders as a dense
+    // mass. The grid geometry stays correct (square world cells); only the
+    // compressed region vanishes.
+    let fade = min(clamp((gs / s.x - 4.0) / 8.0, 0.0, 1.0), clamp((gs / s.y - 4.0) / 8.0, 0.0, 1.0));
     return shade(I.color, max(covV, covH) * fade);
   }
 

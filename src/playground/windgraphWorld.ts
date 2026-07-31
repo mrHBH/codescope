@@ -459,16 +459,6 @@ export class WindgraphWorld {
     return a ?? b;
   }
 
-  /** Ground quad + content bounds of the extrude board, for the shadow pass. */
-  getGround(): Float32Array | null {
-    const b = this.boards[3] as WindgraphExtrudeBoard;
-    return b.getGround ? b.getGround() : null;
-  }
-  getBounds() {
-    const b = this.boards[3] as WindgraphExtrudeBoard;
-    return b.getBounds ? b.getBounds() : null;
-  }
-
   private drawMasthead(font: FontFace, atlas: any, inst: number[], crv: number[], rws: number[], cL: number, cT: number, cR: number, cB: number) {
     if (0 > cR || 2600 < cL || -210 > cB || 20 < cT) return;
     const title = 'windgraph';

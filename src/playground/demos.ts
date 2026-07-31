@@ -122,7 +122,7 @@ export const DEMOS: Demo[] = [
   },
   {
     id: 'extrude', name: 'Continuous 2D↔3D',
-    blurb: 'The moat: a prism and cylinder extrude on a slider, glyphs rise off the page, contact shadows ground them — double-tap to glide into a tilted orbit. One space, no mode switch.',
+    blurb: 'The moat: a prism and cylinder extrude on a slider, glyphs rise off the page — double-tap to glide into a tilted orbit. One space, no mode switch.',
     boot: bootExtrude,
   },
   {

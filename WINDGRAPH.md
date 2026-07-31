@@ -312,8 +312,10 @@ already exists in the FX ctx); representations morph, never switch.
       "only we can do this" animation in the plan)
 - [ ] **P1** `y=f(x)` ribbon → `z=f(x,y)` surface morph (extrude along z while
       the function gains a second argument)
-- [ ] **P1** **Analytic contact shadows** of elevated objects on the ground plane
-      (soft penumbra via the same coverage integral — sharp shadow edges at any zoom)
+- [ ] **P1** ~~**Analytic contact shadows** of elevated objects on the ground plane
+      (soft penumbra via the same coverage integral — sharp shadow edges at any zoom)~~
+      — **CULLED 2026-07-31: user found shadows "rather stupid"; the whole shadow
+      feature (analytic blobs + depth-mapped cast shadows) was removed.**
 - [ ] **P2** 2.5D layering: boards at different z, focus/depth cues
 - [ ] **P2** Time as the 3rd axis: `y=f(x,t)` → surface where z=time, with a
       sweeping slice line linked to the live 2D curve

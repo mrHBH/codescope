@@ -35,16 +35,17 @@ function torusKnot(t: number): Vec3 {
   return [r * Math.cos(2 * t) * 95, r * Math.sin(2 * t) * 95, s * 132];
 }
 
-// The mesh rebuilds at QUANTIZED √2 zoom bands (the plot-LOD pattern), so the
-// silhouette stays round as you zoom: detail ~ z^0.75 scales BOTH the centerline
-// tolerance and the radial segment count. Base = 64-gon/10px-chord (the same
-// relative smoothness as the approved extrude cylinder); the cap (detail ≤ 3,
+// The mesh/strokes rebuild at QUANTIZED √2 zoom bands (the plot-LOD pattern), so
+// the silhouette stays round as you zoom: detail ~ z^0.75 scales BOTH the
+// centerline tolerance and the radial segment count. Base = 64-gon/10px-chord (the
+// same relative smoothness as the approved extrude cylinder); the cap (detail ≤ 3,
 // ~460k verts) keeps facets sub-pixel to ~5× zoom, then the deep-zoom facets are
-// the accepted D3 "sampled content" tradeoff. Rebuilds are one-frame hitches at
-// band crossings only — a still frame redraws the SAME Float32Array (mesh3d
-// gates the upload on the reference), so orbiting never rebuilds and never pops.
+// the accepted D3 "sampled content" tradeoff. NO zoom floor: at high altitude
+// (viewZ << 0.5) the content is sub-pixel, so detail collapses and the rebuilds
+// stay cheap — a floor here built a 140k-vertex mesh for content ~a pixel on
+// screen and tanked the fps while zooming at altitude.
 function lodDetail(viewZ: number): number {
-  const z = Math.max(viewZ, 0.5);
+  const z = Math.max(viewZ, 1e-4);
   const zq = Math.pow(2, Math.round(Math.log2(z) * 2) / 2);
   return Math.min(Math.pow(zq, 0.75), 3);
 }
@@ -169,7 +170,12 @@ export class WindgraphCurve3DBoard {
     if (!in3D(this.app)) {
       const detail = lodDetail(Math.max(view.zoom, 1e-6));
       const { helix: hlx, knot } = this.polylines(detail);
-      const w = Math.max(3.5 / Math.max(view.zoom, 1e-6), 0.4); // screen-constant
+      // Screen-constant width, but CAP the world width: at high altitude (zoom <<
+      // 1) an uncapped 3.5/zoom stroke becomes hundreds of world px wide, and the
+      // band table duplicates every tall ribbon edge across all its bands → the
+      // curve output (and emit time) explodes. A capped width is sub-pixel on
+      // screen there, so it is invisible but keeps the banding bounded.
+      const w = Math.min(Math.max(3.5 / Math.max(view.zoom, 1e-6), 0.4), 80);
       const hx = x0 + 330, hy = y0 + 420;
       const hq: number[] = [];
       strokeQuadPath(polyToQuads(hlx.map((p) => [p[0] + hx, p[1] + hy]), false), { width: w, cap: 'round', join: 'round' }, false, hq);

@@ -90,7 +90,7 @@ whether the adapter contract holds.
 | 2.2 | Extrude renderer: top face (existing `polygonQuads` offset by z) + side-wall quads through `mesh3d`, lit with existing `LIGHT_DIR` Gouraud | board: square extrudes 0→h on slider, silhouette stays sharp at 1000× |
 | 2.3 | Glyph/math extrusion: generalize the fireworks/logo per-instance 3D to `MathTex` + `Label` | board: extruded LaTeX headline, tilts with camera |
 | 2.4 | Continuous camera tilt generalized from 🗻 to any board (double-tap toggle, no snap) | any 2D board lifts into orbit and back |
-| 2.5 | Analytic contact shadows for elevated objects on the ground plane (coverage-integral penumbra) | extruded square casts soft shadow, shadow edge zoom-sharp |
+| ~~2.5~~ | ~~Analytic contact shadows~~ — **CULLED 2026-07-31: user found shadows "rather stupid"; the entire shadow feature (analytic blobs + depth-mapped cast shadows) was removed** | ~~extruded square casts soft shadow~~ |
 
 **🔍 CP3 — the 3D feel.** Extrude slider, tilt toggle, orbit drag, 1000× zoom
 on a silhouette edge. Report: does 2D↔3D read as *one continuous space* or as

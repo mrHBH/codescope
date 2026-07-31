@@ -58,12 +58,10 @@ export interface PrismOpts {
   opacity?: number;
   outline?: number[];   // optional top-rim stroke color
   outlineWidth?: number;
-  shadow?: boolean | ShadowOpts; // grounded contact shadow
 }
 
-// Emit the ANALYTIC parts of a prism into the windfoil pass: contact shadow (a hair
-// under the ground so the depth-tested walls occlude it) + the lit top face + an
-// optional sharp rim. The SIDE WALLS are NOT drawn here — they go through the
+// Emit the ANALYTIC parts of a prism into the windfoil pass: the lit top face +
+// an optional sharp rim. The SIDE WALLS are NOT drawn here — they go through the
 // depth-tested mesh3d pipeline (pushWalls, built once per extrude value by the
 // board). That makes the solid watertight at every camera angle: the old analytic
 // painter-order + back-face-culling walls always left a gap at some angle (the
@@ -75,11 +73,6 @@ export function emitPrism(ctx: RenderCtx, pts: Pt[], o: PrismOpts) {
   if (h <= 0 || pts.length < 3) return;
   const baseZ = o.baseZ ?? 0;
   const opacity = o.opacity ?? 1;
-
-  if (o.shadow) {
-    const so: ShadowOpts = typeof o.shadow === 'object' ? o.shadow : {};
-    emitShadow(ctx, pts, { h: h + baseZ, ...so });
-  }
 
   // Top face: polygon fill + optional rim, lifted to baseZ + h (sharp silhouette).
   const topShade = shade(0, 0, 1);
@@ -182,72 +175,4 @@ export function insetLoop(loop: number[], px: number): number[] {
     out.push(loop[i * 2] - (dx / l) * px, loop[i * 2 + 1] - (dy / l) * px);
   }
   return out;
-}
-
-// ── analytic contact shadows (task 2.5, resolves OQ-2) ───────────────────────
-// An elevated object casts a soft shadow on the ground plane: its silhouette is
-// projected along the light direction to z=0, then drawn as a stack of concentric
-// analytic fills whose alpha falls off outward — a penumbra that stays razor-sharp
-// at any zoom (every layer edge is a coverage integral, never a raster blur). The
-// offset, spread and strength all scale with height, so the shadow animates
-// continuously with elevation. Batched into the same pass (a handful of fills).
-
-export interface ShadowOpts {
-  h?: number;           // elevation driving offset/penumbra/strength
-  color?: number[];     // shadow color (default near-black, premultiplied over)
-  strength?: number;    // core opacity (default 0.20 — a soft contact shadow)
-  offset?: number;      // light-cast offset scale (default 0.35)
-  feather?: number;     // absolute penumbra width per layer, world px (default 5)
-  layers?: number;      // concentric fills (default 3)
-}
-
-// Expand a polygon outward from its centroid by an ABSOLUTE world-px amount (a
-// feather, NOT a scale factor — scaling blew the shadow into a halo bigger than
-// the object at tall extrusions, reading as a hole that hid the base).
-function expandPoly(pts: Pt[], px: number): Pt[] {
-  let cx = 0, cy = 0;
-  for (const p of pts) { cx += p[0]; cy += p[1]; }
-  cx /= pts.length; cy /= pts.length;
-  return pts.map((p) => {
-    const dx = p[0] - cx, dy = p[1] - cy;
-    const l = Math.hypot(dx, dy) || 1;
-    return [p[0] + (dx / l) * px, p[1] + (dy / l) * px] as Pt;
-  });
-}
-
-export function emitShadow(ctx: RenderCtx, pts: Pt[], o: ShadowOpts) {
-  const { inst, crv, rws } = ctx;
-  const h = o.h ?? 0;
-  if (h <= 0 || pts.length < 3) return;
-  const color = o.color ?? [0.012, 0.016, 0.04, 1];
-  const strength = o.strength ?? 0.20;
-  const offset = o.offset ?? 0.35;
-  const feather = o.feather ?? 5;
-  const layers = o.layers ?? 3;
-  // Cast away from the light, foreshortened by the light's vertical component.
-  // Grows gently with height so a raised object's shadow slides out from under it,
-  // but stays footprint-sized (a grounded contact shadow, never a halo).
-  const offX = -(LIGHT_DIR[0] / LIGHT_DIR[2]) * h * offset;
-  const offY = -(LIGHT_DIR[1] / LIGHT_DIR[2]) * h * offset;
-  const step = feather + h * 0.02; // soft penumbra widens a touch with height
-  // Outer (faint, feathered) first → inner (darker, sharp footprint) on top.
-  for (let i = layers - 1; i >= 0; i--) {
-    const a = strength * Math.pow(0.62, i);
-    const ring = expandPoly(pts, i * step).map((p) => [p[0] + offX, p[1] + offY] as Pt);
-    const i0 = inst.length >> 4;
-    fillQuads(polygonQuads(ring, true), [color[0], color[1], color[2], (color[3] ?? 1) * a], inst, crv, rws);
-    writeInstXf(ctx, i0, inst.length >> 4, -1, 1, null); // a hair under the ground so depth-tested walls occlude it
-  }
-}
-
-// Soft elliptical contact shadow for glyphs/labels (no polygon silhouette handy):
-// an N-gon ellipse stands in for the text bbox footprint.
-export function emitBlobShadow(ctx: RenderCtx, cx: number, cy: number, rx: number, ry: number, o: ShadowOpts, segs = 28) {
-  if (rx <= 0 || ry <= 0) return;
-  const pts: Pt[] = [];
-  for (let i = 0; i < segs; i++) {
-    const a = (i / segs) * Math.PI * 2;
-    pts.push([cx + Math.cos(a) * rx, cy + Math.sin(a) * ry] as Pt);
-  }
-  emitShadow(ctx, pts, o);
 }
