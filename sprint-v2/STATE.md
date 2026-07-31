@@ -5,10 +5,15 @@ If this file and the code disagree, investigate before trusting either.
 
 ## Current position
 
-- **Phase:** 4 — **All lanes complete + IR wired** (A+B+C+D+E+K domain + IR)
-- **Next task:** CP6 verdict (user feel-test on #windgraph). Polish pass done
-  2026-07-30 (D20): reference sliders + track grab + uncached chrome + grid floor
-  + LOD debounce + enriched boards. 45 targeted tests green; tsc clean. STOPPED.
+- **Phase:** 4/5 — **F3D-2 DONE: 3D space curves = watertight Gouraud mesh tubes
+  (2026-07-31, D26 mesh pivot — user verdict: flat analytic ribbons were
+  "unstable and ugly"; accept mesh3d for 3D bodies).** Torus knot + helix as
+  static-cached tubes (`pushTube`), depth-tested crossings, flat analytic chrome
+  on top. `#curve3d` route + 9th world board. The depth-write pipeline variant +
+  opaqueCount pass stay as infra for locally-planar 3D content. 10 curve + 27
+  world tests. **Next task:** CP6 verdict (pending) OR continue F3D —
+  grid-in-plane, quiver3D (F3D-8), then F3D-1 parametric surfaces (mesh morph).
+- **Track A (Phase 2, concurrent):** **2.1–2.5 DONE + extrude demo + CP3 polish.**
 - **Track A (Phase 2, concurrent):** **2.1–2.5 DONE + extrude demo + CP3 polish.**
   Per-instance z wiring (D10); analytic extrude renderer (D9); glyph/math extrusion;
   continuous tilt; contact shadows (D11). Demo `boards/windgraphExtrude.ts` (4th
@@ -85,6 +90,53 @@ If this file and the code disagree, investigate before trusting either.
 
 ## Log
 
+- 2026-07-31 — **F3D-2 PIVOT to mesh tubes (user verdict on #curve3d: "kinda
+  unstable and ugly — accept that for 3D we will need mesh3d").** Flat analytic
+  ribbons are the wrong primitive for 3D curves (zero thickness along the normal
+  → paper-strip look + grazing collapse; camera-adaptive resampling popped during
+  orbit; strict-less z-fighting between quads and joint discs flickered — the same
+  "analytic walls are never watertight" class as D16). `curve3d.ts` now sweeps
+  WATER-TIGHT GOURAUD MESH TUBES (`pushTube`: N-gon rings ⟂ tangent, radial
+  per-vertex normals, end caps; static fixed-quality sampling → the mesh caches
+  once and orbiting never rebuilds). The board's curves/axes are mesh3d
+  (`getMesh()`; world composes extrude-walls + tube mesh); flat analytic chrome
+  stays on top. The depth-write pipeline variant + opaqueCount pass + quaternion
+  frame helpers REMAIN as infrastructure for locally-planar 3D content per the
+  user's choice. 10 curve3d tests + 27 world tests; 24/24 suites green; tsc clean
+  (only pre-existing font.ts); vite build ok. Visual verdict = user
+  (`#curve3d` → tilt). Awaiting CP6. STOPPED.
+- 2026-07-31 — **F3D-2 bind-group fix (user: "new demo is black in 3D").** The
+  depth-write pipeline's draw threw a WebGPU validation error — the auto-layout
+  `pipelineDepth` rejected the bind group created from the normal pipeline's
+  `getBindGroupLayout(0)`, invalidating the whole command buffer → black frame.
+  Fix: one bind group PER pipeline (`bindGroupDepth` from `pipelineDepth.getBindGroupLayout(0)`),
+  rebuilt together on buffer growth, selected on draw. Lesson logged in NOTES.md
+  (auto layouts are per-pipeline objects). tsc clean; 24/24 suites green; vite
+  build ok. Visual verdict = user (`#curve3d` → tilt). Awaiting CP6. STOPPED.
+- 2026-07-31 — **F3D-2 foundation: analytic 3D space curves + depth-write variant
+  (D26).** User green-lit Phase 5 work (CP6 still formally pending — the human is
+  the checkpoint authority; noted in checkpoints.md). New: (1) `gpu.ts` dual-
+  pipeline `createGlyphRenderer({depthWrite})` — the depth-WRITING analytic
+  variant (strict-less + depthWrite) over the same shader/bind group, selected
+  per draw via `{depthWrite, firstInstance}`; `engine.ts` builds it. (2)
+  `windgraph/space3d/curve3d.ts`: adaptive screen-space sampler (`sampleCurve3D`,
+  midpoint subdivision until the projected chord deviation is sub-pixel; world-
+  tolerance fallback behind camera; budget-capped) + `emitCurve3D` (per-segment
+  quaternion quads + joint/cap discs in the ⟂-tangent plane, closed-loop seam
+  dedup, per-face Lambert). (3) `frame.ts` opaque analytic pass — boards expose
+  `opaqueCount()` (their leading depth-writing instances); drawn FIRST through the
+  depth-write pipeline, GATED to the 3D orbit camera (strict-less would cull every
+  equal-depth overlap in the flat 2D ortho); the rest test-only after. (4)
+  `boards/windgraphCurve3d.ts` (helix + torus knot + doc axes, self-occluding,
+  orbit-resampled) + `#curve3d` standalone route + 9th world board (emitted FIRST
+  so its instances form the opaque prefix; world `opaqueCount()` = frame prefix +
+  masthead + board prefix). Dev-time fixes: the shader's `xa.z` is a WORLD z-
+  translation, so `pushXf` must carry the segment mid-height (else every curve sat
+  at z=0); `quatApply` must NOT apply an extra cross — the shader's outer
+  `cross(q, cross(q,v) + w·v)` expands to `q×(q×v) + w·(q×v)`. **11 new curve3d
+  tests + 2 world tests; 24/24 suites green; tsc clean (only pre-existing
+  font.ts); vite build ok.** Visual verdict = user (`bun run dev` → `#curve3d` or
+  the world's knot button → tilt). Awaiting CP6. STOPPED.
 - 2026-07-31 — **D25-fixup: 2D text + plots were broken (user: "grid moves now
   but all the text and plots are broken in 2D").** The D25 band.zw camera-relative
   shift skipped copying inst[14]/[15] for ALL instances while only re-setting

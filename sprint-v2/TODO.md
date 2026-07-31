@@ -52,7 +52,7 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `~~struck~~` = culled b
 - [ ] **CP6 passed** — gallery cull (culls recorded as strikes in Phases 5–6)
 
 ## Phase 5 — Depth (`phase-5-depth.md`) — lanes F3D ‖ L ‖ E ‖ J
-- [ ] F3D-1…9 3D catalog (parametric/implicit surfaces, solids of revolution, slicing, quadrics…)
+- [~] F3D-1…9 3D catalog (parametric/implicit surfaces, solids of revolution, slicing, quadrics…) — **F3D-2 DONE (2026-07-31): watertight Gouraud mesh tubes for space curves (mesh3d pivot, D26); depth-write analytic pipeline kept as infra for planar content. Next: grid-in-plane, quiver3D, F3D-1 surfaces.**
 - [ ] L1–L7 expression engine + lite CAS (parser→ConstraintGraph, regressions, symbolic diff, REPL calc mode)
 - [x] E1–E5 graph theory domain logic (named graphs, force layout, BFS/DFS/Dijkstra, MST, Eulerian — 30 tests)
 - [ ] J1–J6 animation extensions (scrub, stagger, reveal, physics handoff, camera crane, explain mode)

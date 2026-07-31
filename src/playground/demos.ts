@@ -15,6 +15,7 @@ import { bootAuthoring, bootExplainerV2, bootPages, bootLearning } from '../auth
 import { bootIDE } from '../ide/ide';
 import { bootWindgraphWorld } from './windgraphWorld';
 import { WindgraphExtrudeBoard } from './boards/windgraphExtrude';
+import { WindgraphCurve3DBoard } from './boards/windgraphCurve3d';
 import { ReferenceHudBoard } from './boards/referenceHud';
 import { IslandGallery } from '../authoring/islands/gallery';
 // Island registrations (side-effect import — ensures builtins register)
@@ -84,6 +85,25 @@ function bootExtrude(engine: Engine, onBack: () => void): () => void {
   ]);
 }
 
+// Analytic 3D space curves (Phase 5 · F3D-2 / D26): a self-occluding torus knot
+// and helix drawn as analytic fill segments through the depth-write pipeline
+// variant — the crossing segments resolve per-fragment, no painter sort.
+function bootCurve3d(engine: Engine, onBack: () => void): () => void {
+  const s = createBaseApp(engine, false);
+  const board = new WindgraphCurve3DBoard();
+  board.x0 = 0; board.y0 = 0;
+  board.app = s;
+  s.interactive = board;
+  const qualityPanel = makeQualityPanel(s, true);
+  s.panel = qualityPanel;
+  const z = Math.min((s.tCanvas.width / (board.width + 160)) * 0.9, (s.tCanvas.height / (board.height + 160)) * 0.9);
+  snapTo(s, board.x0 + board.width / 2, board.y0 + board.height / 2, z);
+  return finishApp(s, onBack, [
+    { id: 'cam3d', icon: 'cube', title: 'Toggle continuous 2D↔3D tilt (or double-tap the canvas)', active: () => board.tilted, onClick: () => board.toggleTilt() },
+    qualityToolbarButton(s, qualityPanel),
+  ]);
+}
+
 export const DEMOS: Demo[] = [
   {
     id: 'ide', name: 'IDE',
@@ -104,6 +124,11 @@ export const DEMOS: Demo[] = [
     id: 'extrude', name: 'Continuous 2D↔3D',
     blurb: 'The moat: a prism and cylinder extrude on a slider, glyphs rise off the page, contact shadows ground them — double-tap to glide into a tilted orbit. One space, no mode switch.',
     boot: bootExtrude,
+  },
+  {
+    id: 'curve3d', name: '3D space curves',
+    blurb: 'A torus knot and a helix as watertight Gouraud mesh tubes — the mesh3d depth buffer resolves every crossing, solid and smooth and stable at any orbit. Flat analytic labels stay razor-sharp on top.',
+    boot: bootCurve3d,
   },
   {
     id: 'pages', name: 'Pages / Layout',

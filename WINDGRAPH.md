@@ -262,7 +262,12 @@ unique assets (analytic AA, shared 3D, physics, glyph height).
 - [ ] **P0** Parametric surfaces `S(u,v)`: torus, Möbius band, helicoid, catenoid,
       Enneper, ellipsoid, sphere — with u/v range sliders that **morph the mesh live**
 - [ ] **P0** Space curves `C(t)`: helix, torus knots `(p,q)`, 3D Lissajous — as
-      analytic tubes (stroke engine extruded ⚡)
+      analytic tubes (stroke engine extruded ⚡). Foundation (D26): the
+      **depth-write pipeline variant** (opaque 3D analytic content self-occludes
+      inside the single draw call via per-vertex z) + **adaptive screen-space
+      subdivision** (perspective-projected Béziers are rational, not quadratic;
+      subdivide until the midpoint's projected chord deviation is sub-pixel).
+      Flat stroke-ribbon segments first; N-gon tubes follow.
 - [ ] **P1** **Implicit surfaces** `f(x,y,z)=0` via marching cubes (worker thread),
       smooth-shaded; gyroid showcase — **sampled content** (§5 carve-out):
       adaptive tessellation + silhouette refinement, labeled as such
@@ -427,6 +432,14 @@ windgraph objects so graphs have *weight*.
       3D formats) ⚡ · embeddable web component · headless node render for docs
 - [ ] **P1** Gallery: 50+ example boards, each a playground button (extend
       `src/playground/boards/`); tutorial pages rendered *as windfoil documents*
+- [ ] **P1** **The windgraph demo IS the API reference** ⚡: one catalog board
+      that renders EVERY IR kind (A–E + K plot kinds + F3D 3D primitives) as a
+      browsable grid, each entry with an inspect panel showing its SceneDoc
+      spec (JSON) + emitted TS + draggable/slider bindings. `plotGalleryDoc()`
+      (OQ-10) is its foundation; X2 unifies the per-lane boards under it.
+      "All possible plots in one demo" is a first-class deliverable, not an
+      afterthought — it doubles as the typed API's visual docs (M "Public
+      typed API").
 - [ ] **P1** Public typed API + typedocs (phase-8 item, keep)
 
 ### N. Performance & quality bar (cross-cutting)

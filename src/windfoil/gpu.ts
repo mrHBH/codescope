@@ -18,16 +18,27 @@ export interface GlyphRendererOptions {
   format: GPUTextureFormat;
   constants?: Record<string, number>;
   sampleCount?: number;
+  /**
+   * Also build the depth-WRITING pipeline variant (D26, analytic 3D). Opaque
+   * 3D content (space curves, tilted planes) drawn through it self-occludes via
+   * the shared depth buffer inside the single draw call — per-vertex z is
+   * already perspective-interpolated by the shader, so crossing curves resolve
+   * per-fragment with no painter sorting. Uses STRICT 'less' compare so the
+   * same-color overlaps at shared joints are discarded, not double-blended
+   * (a hairline-dark seam); coplanar-with-mesh overlays belong to the normal
+   * test-only pipeline, not this one.
+   */
+  depthWrite?: boolean;
 }
 
 export function createGlyphRenderer(
   device: GPUDevice,
   opts: GlyphRendererOptions,
 ) {
-  const { code, format, constants, sampleCount = 1 } = opts;
+  const { code, format, constants, sampleCount = 1, depthWrite = false } = opts;
   const module = device.createShaderModule({ code });
 
-  const pipeline = device.createRenderPipeline({
+  const makePipe = (write: boolean) => device.createRenderPipeline({
     layout: 'auto',
     vertex: { module, entryPoint: 'vs' },
     fragment: {
@@ -44,8 +55,15 @@ export function createGlyphRenderer(
     },
     primitive: { topology: 'triangle-strip' },
     multisample: { count: sampleCount },
-    depthStencil: { format: DEPTH_FORMAT, depthWriteEnabled: false, depthCompare: 'less-equal' },
+    depthStencil: { format: DEPTH_FORMAT, depthWriteEnabled: write, depthCompare: write ? 'less' : 'less-equal' },
   });
+
+  const pipeline = makePipe(false);
+  // Built only when requested. NOTE: a second `layout: 'auto'` pipeline must get
+  // its OWN bind group — WebGPU validation treats the two auto layouts as
+  // distinct objects ("layout not created by the pipeline"), so one bind group
+  // cannot serve both, even though the shader/entries are identical.
+  const pipelineDepth = depthWrite ? makePipe(true) : pipeline;
 
   // Uniforms: res(vec2) + style(vec2) + camScale(vec2) + camCenter(vec2) = 32B,
   // then viewProj(mat4) = 64B, then fxActive(f32) = 4B. Total 100B → padded to 112B.
@@ -64,18 +82,18 @@ export function createGlyphRenderer(
   let xformBuf = device.createBuffer({ size: xformCap, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
   let clipBuf = device.createBuffer({ size: clipCap, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
 
+  const bindEntries = () => [
+    { binding: 0, resource: { buffer: uniform } },
+    { binding: 1, resource: { buffer: instBuf } },
+    { binding: 2, resource: { buffer: curveBuf } },
+    { binding: 3, resource: { buffer: rowBuf } },
+    { binding: 4, resource: { buffer: xformBuf } },
+    { binding: 5, resource: { buffer: clipBuf } },
+  ];
   const layout = pipeline.getBindGroupLayout(0);
-  let bindGroup = device.createBindGroup({
-    layout,
-    entries: [
-      { binding: 0, resource: { buffer: uniform } },
-      { binding: 1, resource: { buffer: instBuf } },
-      { binding: 2, resource: { buffer: curveBuf } },
-      { binding: 3, resource: { buffer: rowBuf } },
-      { binding: 4, resource: { buffer: xformBuf } },
-      { binding: 5, resource: { buffer: clipBuf } },
-    ],
-  });
+  const layoutDepth = pipelineDepth.getBindGroupLayout(0);
+  let bindGroup = device.createBindGroup({ layout, entries: bindEntries() });
+  let bindGroupDepth = device.createBindGroup({ layout: layoutDepth, entries: bindEntries() });
 
   function ensureBuf(buf: GPUBuffer, size: number, cap: number): [GPUBuffer, number] {
     if (size <= cap) return [buf, cap];
@@ -102,7 +120,7 @@ export function createGlyphRenderer(
       uniformData[24] = fxActive;
       device.queue.writeBuffer(uniform, 0, uniformData);
     },
-    draw(pass: GPURenderPassEncoder, curves: Float32Array, rows: Uint32Array, instances: Float32Array, instanceCount: number, xforms?: Float32Array, clip?: Float32Array, dataVersion?: number) {
+    draw(pass: GPURenderPassEncoder, curves: Float32Array, rows: Uint32Array, instances: Float32Array, instanceCount: number, xforms?: Float32Array, clip?: Float32Array, dataVersion?: number, opts?: { depthWrite?: boolean; firstInstance?: number }) {
       if (!instanceCount) return;
       let newBindGroup = false;
       let c: GPUBuffer, cc: number;
@@ -140,21 +158,12 @@ export function createGlyphRenderer(
         device.queue.writeBuffer(instBuf, 0, instances);
       }
       if (newBindGroup) {
-        bindGroup = device.createBindGroup({
-          layout,
-          entries: [
-            { binding: 0, resource: { buffer: uniform } },
-            { binding: 1, resource: { buffer: instBuf } },
-            { binding: 2, resource: { buffer: curveBuf } },
-            { binding: 3, resource: { buffer: rowBuf } },
-            { binding: 4, resource: { buffer: xformBuf } },
-            { binding: 5, resource: { buffer: clipBuf } },
-          ],
-        });
+        bindGroup = device.createBindGroup({ layout, entries: bindEntries() });
+        bindGroupDepth = device.createBindGroup({ layout: layoutDepth, entries: bindEntries() });
       }
-      pass.setPipeline(pipeline);
-      pass.setBindGroup(0, bindGroup);
-      pass.draw(4, instanceCount);
+      pass.setPipeline(opts?.depthWrite ? pipelineDepth : pipeline);
+      pass.setBindGroup(0, opts?.depthWrite ? bindGroupDepth : bindGroup);
+      pass.draw(4, instanceCount, 0, opts?.firstInstance ?? 0);
     },
   };
 }

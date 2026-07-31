@@ -52,6 +52,9 @@ Export + perf follow; island migration cleanup last.
 - [ ] **X1** Migrate `gdCurve`, `lineFit`, `lossContour`, `network` islands to
       windgraph primitives (spec kinds + board adapter hosting).
 - [ ] **X2** Retire their island registrations; unify discovery UI (resolve OQ-5).
+      **The windgraph demo = the API reference** (resolve OQ-10): one catalog
+      board rendering every IR kind (A–E/K + F3D) with spec-inspect panels —
+      `plotGalleryDoc()` is its seed; the per-lane boards fold under it.
 - [ ] **X3** Settle the name (OQ-6) before any export/branding surface ships.
 
 ---

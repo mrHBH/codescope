@@ -1533,7 +1533,26 @@ export function runFrame(s: AppState): () => void {
       xf = _xfPad.subarray(0, xfNeed);
     }
     s.renderer.setUniforms({ width: renderW, height: renderH, camScale: [camScale, camScale], camCenter: [0, 0], viewProj, fxActive: xf ? 1 : 0 });
-    s.renderer.draw(pass, s.crvFA.subarray(0, lastCrvLen), s.rwsUA.subarray(0, lastRwsLen), s.instFA.subarray(0, lastInstLen), lastInstLen / 16, xf, undefined, s.frameDataVersion);
+    // Analytic opaque 3D pass (D26): a board may depth-write its leading
+    // instances — self-occluding space curves / tilted planes. Drawn BEFORE the
+    // normal analytic pass through the depth-write pipeline variant, so crossing
+    // curves resolve per-fragment in the shared depth buffer (per-vertex z is
+    // already perspective-interpolated by the shader) with no painter sorting.
+    // The normal pass then draws the remaining content test-only on top (labels,
+    // 2D strokes — depth-testing against the opaque curves' written depth).
+    // GATED to the 3D orbit camera: the depth-write variant uses STRICT 'less'
+    // (same-color joint overlaps are discarded, not double-blended), and in the
+    // flat 2D ortho everything sits at one clip z — strict-less would cull every
+    // overlapping instance. Top-down 2D needs no self-occlusion anyway; the
+    // curve projections render through the normal pipeline unchanged.
+    const opaqueN = (s.cam3d.active ? (s.interactive as any)?.opaqueCount?.() ?? 0 : 0);
+    const totalInst = lastInstLen / 16;
+    if (opaqueN > 0 && opaqueN < totalInst) {
+      s.renderer.draw(pass, s.crvFA.subarray(0, lastCrvLen), s.rwsUA.subarray(0, lastRwsLen), s.instFA.subarray(0, lastInstLen), opaqueN, xf, undefined, s.frameDataVersion, { depthWrite: true });
+      s.renderer.draw(pass, s.crvFA.subarray(0, lastCrvLen), s.rwsUA.subarray(0, lastRwsLen), s.instFA.subarray(0, lastInstLen), totalInst - opaqueN, xf, undefined, s.frameDataVersion, { firstInstance: opaqueN });
+    } else {
+      s.renderer.draw(pass, s.crvFA.subarray(0, lastCrvLen), s.rwsUA.subarray(0, lastRwsLen), s.instFA.subarray(0, lastInstLen), totalInst, xf, undefined, s.frameDataVersion);
+    }
     // Screen-space cinematic HUD overlay (letterbox + sleek timeline + controls +
     // caption), drawn through a dedicated renderer with a screen-ortho matrix, on
     // top of the 3D scene. This composites correctly in the same pass because the

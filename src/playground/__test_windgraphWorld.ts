@@ -4,6 +4,7 @@
 import { WindgraphWorld } from './windgraphWorld';
 import { WindgraphSceneBoard, demoDoc } from './boards/windgraphScene';
 import { WindgraphExtrudeBoard } from './boards/windgraphExtrude';
+import { WindgraphCurve3DBoard } from './boards/windgraphCurve3d';
 import { NumberPlane } from '../windgraph/coords/numberPlane';
 
 let passed = 0, failed = 0;
@@ -16,9 +17,9 @@ function approx(a: number, b: number, eps = 0.5) { if (Math.abs(a - b) > eps) th
 
 console.log('Windgraph world tests\n');
 
-test('builds eight boards (three authored scenes + extrude + B/C/D/E catalogs)', () => {
+test('builds nine boards (three authored scenes + extrude + B/C/D/E catalogs + curve3d)', () => {
   const w = new WindgraphWorld();
-  assert(w.boards.length === 8);
+  assert(w.boards.length === 9);
   for (let i = 0; i < 3; i++) {
     const b = w.boards[i] as WindgraphSceneBoard;
     b.ensure();
@@ -26,6 +27,7 @@ test('builds eight boards (three authored scenes + extrude + B/C/D/E catalogs)',
   }
   assert(w.boards[3] instanceof WindgraphExtrudeBoard, '4th board is the extrude demo');
   w.boards[3].ensure();
+  assert(w.curve3d instanceof WindgraphCurve3DBoard, 'curve3d board is the analytic-3D board');
   assert(w.overview.w > 2000 && w.overview.h > 2000);
 });
 
@@ -127,6 +129,36 @@ test('standalone emit: board owns an xf buffer aligned 1:1 with instances', () =
   for (let i = 0; i < n; i++) { const z = xf![i * 8 + 2]; if (Math.abs(z - 60) < 1e-6) sawTop = true; if (z === 0) sawFlat = true; }
   assert(sawTop, 'a top face instance sits at z=extrude');
   assert(sawFlat, 'chrome/shadow instances stay at z=0');
+});
+
+test('curve3d board: watertight mesh tubes via getMesh, chrome stays analytic flat', () => {
+  const cb = new WindgraphCurve3DBoard();
+  cb.x0 = 0; cb.y0 = 0;
+  const inst: number[] = [], crv: number[] = [], rws: number[] = [];
+  cb.emit(mockFont, mockAtlas, inst, crv, rws, 0, view);
+  const n = inst.length / 16;
+  assert(n > 0, 'emitted chrome instances (border/title/labels)');
+  const mesh = cb.getMesh();
+  assert(mesh !== null && mesh.length > 0, 'tube mesh non-empty');
+  const m = mesh!;
+  assert(m.length % 7 === 0, `mesh is 7 floats/vert (got ${m.length} % 7 = ${m.length % 7})`);
+  // Every vertex carries straight-alpha color + a valid Lambert shade (the r
+  // channel is color.r·shade, so its floor depends on the tube's color).
+  for (let v = 0; v < m.length / 7; v++) {
+    const a = m[v * 7 + 6];
+    assert(a === 1, `vertex ${v} alpha 1`);
+    const r = m[v * 7 + 3];
+    assert(r >= 0 && r <= 1, `vertex ${v} r channel in [0,1]`);
+  }
+  // No analytic 3D: no opaque prefix, no quaternion xf buffer.
+  assert((cb as any).opaqueCount === undefined, 'no opaqueCount (solid bodies go through mesh3d)');
+  assert((cb as any).xfBuffer === undefined, 'no xfBuffer (labels are flat ground chrome)');
+});
+
+test('world: getMesh() composes the extrude walls + the curve3d tubes', () => {
+  const w = new WindgraphWorld();
+  const mesh = w.getMesh();
+  assert(mesh === null || mesh.length % 7 === 0, 'world mesh is well-formed');
 });
 
 test('standalone emit: extrude=0 → flat, xfBuffer null (seamless 2D)', () => {

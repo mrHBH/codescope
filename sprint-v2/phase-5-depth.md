@@ -12,8 +12,15 @@ verdict before starting a lane; struck items are skipped.
 - [ ] **F3D-1** Parametric surfaces `S(u,v)`: torus, Möbius, helicoid, catenoid,
       Enneper, ellipsoid — u/v range sliders morph the mesh live (static buffer
       re-upload only on param change).
-- [ ] **F3D-2** Space curves as analytic tubes: helix, torus knots `(p,q)`,
-      3D Lissajous (stroke engine extruded along the curve).
+- [x] **F3D-2** Space curves as analytic tubes: helix, torus knots `(p,q)`,
+      3D Lissajous (stroke engine extruded along the curve). **DONE (2026-07-31,
+      D26).** PIVOT per user verdict: solid 3D curves = WATER-TIGHT GOURAUD MESH
+      TUBES (`pushTube` in `windgraph/space3d/curve3d.ts` — swept N-gon, radial
+      normals, static sampling, `#curve3d` board + world board). The depth-write
+      pipeline variant (`gpu.ts depthWrite` + `frame.ts` opaque `opaqueCount()`
+      pass) stays as infrastructure for locally-planar 3D content (planes,
+      regions, grids); the flat-ribbon analytic emission was removed as
+      user-rejected.
 - [ ] **F3D-3** Implicit surfaces `f(x,y,z)=0` via marching cubes in a worker
       thread; smooth-shaded; gyroid showcase. **Labeled "sampled" per D3** —
       adaptive tessellation + silhouette refinement; never claims analytic AA.

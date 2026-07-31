@@ -588,6 +588,55 @@ from the code lives here. Newest entries at the bottom of each section.
   2D. Fixed: copy all 14 fields verbatim, then override 14/15 only for grids.
   Regression test mirrors the 2D upload on a reused buffer (would have caught
   the stale values). 404 tests green.
+- **D26 — The 3D math renderer is the analytic pipeline + a depth-write variant
+  (2026-07-31, user green-lighted Phase 5 F3D work ahead of the CP6 cull).**
+  The "can windfoil do 3D" question is settled: a *specialized* windfoil-based
+  3D renderer for math (planes, curves, areas, vector diagrams) is correct and
+  already substantially built. The dividing line is **locally-planar vs genuinely
+  curved (2-manifold)** — NOT 2D vs 3D.
+  - **Locally-planar content is analytic today.** The `fxActive` quaternion
+    path (windfoil.wgsl:91-122) rigidly maps any flat glyph into 3D with real
+    perspective; `rc` is NOT flat-interpolated (windfoil.wgsl:78,122) so the
+    winding integral runs in the correct local plane coordinates even at
+    grazing angles (the anisotropic branch at windfoil.wgsl:476-494 exists for
+    exactly that), and `z = r.z + xa.z` is PER-VERTEX, not per-instance-flat.
+    Camera orbit = a `viewProj` change; coverage recomputes exactly per frame.
+    Planes, flat regions, vector shafts/heads, polyhedra, polytope (4D)
+    projections, wireframe quadrics, glyph labels — all analytic.
+  - **The one real enabler is a `depthWriteEnabled: true` pipeline variant.**
+    The current analytic pipeline is test-only (gpu.ts:47). Crossing 3D curves
+    and planes cannot self-occlude without it. With depth-write ON, per-vertex
+    z (already working) gives correct per-fragment occlusion INSIDE the single
+    draw call — opaque 3D analytic content drawn first, the depth-tested
+    normal content after. This is a small pipeline addition (a second pipeline
+    over the same shader + bind group), not a redesign.
+  - **Curved fills stay sampled** (mesh3d + MSAA, per D3) — filled parametric/
+    implicit surfaces, domain coloring on curved manifolds. The unique combo is
+    the ANALYTIC OVERLAY on the mesh: crisp gridlines/contours/curves riding a
+    shaded surface through the shared depth buffer.
+  - **Gouraud-mismatch concern is bounded for math 3D.** Planes/curves/regions
+    are flat-shaded per instance (windfoil-native); interpolation lives in
+    mesh3d where per-vertex color is already interpolated. The blend problem
+    only bites at the boundary (an analytic region edge sitting on a shaded
+    surface) — a corner case, deferred.
+  - **PIVOT (2026-07-31, user verdict on the #curve3d demo: "kinda unstable and
+    ugly — accept that for 3D we will need mesh3d").** Flat analytic ribbons are
+    the WRONG primitive for 3D curves: a ribbon has zero thickness along its own
+    normal (reads as a paper strip, collapses at grazing angles), the camera-
+    adaptive resampling popped during orbit, and strict-less z-fighting between
+    quads and joint discs flickered. SPACE CURVES NOW RENDER AS WATER-TIGHT
+    GOURAUD MESH TUBES (`pushTube` in curve3d.ts — swept N-gon, radial per-vertex
+    normals, static camera-independent sampling → no popping, depth-tested
+    crossings). The depth-write pipeline variant + opaqueCount pass + the
+    quaternion frame helpers REMAIN as infrastructure for the genuinely locally-
+    PLANAR content (slicing/tangent planes, flat regions, grids in arbitrary
+    planes) where exact coverage is the point — that is D26's actual home, and
+    it is kept per user choice ("mesh tubes + keep depth-write infra").
+  - Requirements that are NOT in the plan yet and follow from this: (1) adaptive
+    screen-space subdivision for space curves (perspective-projected Béziers are
+    rational, not quadratic — F3D-2); (2) quiver3D / 3D vector fields (F3D-8);
+    (3) grids in arbitrary planes (fillRule-3 is currently ground-plane-keyed);
+    (4) plane∩mesh + curve∩plane intersection primitives (F3D-5 slicing).
 
 ## 2. Technical tips (file:line anchored)
 
@@ -883,6 +932,14 @@ from the code lives here. Newest entries at the bottom of each section.
 - **Static before interactive.** Prove a feature with one static board, then
   add drag/animation. Most v1 pain came from building interactive demos on
   unproven statics.
+- **A second `layout:'auto'` pipeline needs its OWN bind group (D26, 2026-07-31).**
+  Two auto pipelines from the same shader are structurally identical, but WebGPU
+  validation rejects a bind group created from pipeline A's `getBindGroupLayout(0)`
+  when bound to pipeline B ("layout not created by the pipeline") — the whole
+  command buffer goes invalid and the frame renders black. Create one bind group
+  per pipeline (same entries) and select on draw. This is the D19 lesson ("editing
+  a fragment's resource use invalidates its auto-layout bind group") generalized:
+  auto layouts are per-pipeline objects, not shareable.
 - **Match the system's grain.** Reuse `s.interactive`, the `emit(...)` board
   signature, `EmitCache`, existing input routing. New patterns need justification.
 - **Never overwrite a file; targeted edits only; grep for duplicates after

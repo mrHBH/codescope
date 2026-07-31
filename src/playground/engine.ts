@@ -137,7 +137,10 @@ export async function createEngine(): Promise<Engine> {
   const mathFonts = await loadMathFonts();
   const atlas = buildGlyphAtlas(font, [...allChars].join(' '), shapes, mathExtraFonts(mathFonts));
 
-  const renderer = createGlyphRenderer(device, { code: shaderCode, format: 'rgba8unorm' });
+  // depthWrite variant: the analytic-3D opaque pass (D26) self-occludes space
+  // curves through the shared depth buffer; the IDE's renderer (its own call)
+  // has no 3D content so it skips the second pipeline.
+  const renderer = createGlyphRenderer(device, { code: shaderCode, format: 'rgba8unorm', depthWrite: true });
   const upscaler = createUpscaler(device, 'rgba8unorm');
   const meshRenderer = createMeshRenderer(device, 'rgba8unorm');
   // The 3D free-camera (camera-controls) is bound once to the interaction canvas

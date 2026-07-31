@@ -23,6 +23,7 @@ import { orbitFrameRect } from '../camera/orbit';
 import { createBaseApp, finishApp, snapTo, makeQualityPanel, qualityToolbarButton } from './app';
 import { WindgraphSceneBoard, demoDoc } from './boards/windgraphScene';
 import { WindgraphExtrudeBoard } from './boards/windgraphExtrude';
+import { WindgraphCurve3DBoard } from './boards/windgraphCurve3d';
 import { EmitCache } from '../windfoil/emitCache';
 import { strokeInto } from '../windgraph/stroke/stroke';
 import { layoutStr, tw } from '../layout/metrics';
@@ -143,15 +144,19 @@ export function graphTheoryDoc(): SceneDoc {
 
 const GAP = 500;
 
-// A board the world hosts: the authored-scene boards + the Phase-2 extrude board.
-// Both satisfy the s.interactive board contract (emit/sigFor/drag/hover/rev).
-type WgBoard = WindgraphSceneBoard | WindgraphExtrudeBoard;
+// A board the world hosts: the authored-scene boards + the Phase-2 extrude board
+// + the analytic-3D curve board. All satisfy the s.interactive board contract
+// (emit/sigFor/drag/hover/rev).
+type WgBoard = WindgraphSceneBoard | WindgraphExtrudeBoard | WindgraphCurve3DBoard;
 
 // Tilted 3/4 view for the continuous 2D↔3D toggle (radians from top-down).
 const WG_TILT_POLAR = 0.9;
 
 export class WindgraphWorld {
   readonly boards: WgBoard[];
+  /** The analytic-3D board (D26) — space curves as watertight mesh tubes; its
+   *  mesh is composed into `getMesh()` alongside the extrude board's walls. */
+  readonly curve3d: WindgraphCurve3DBoard;
   readonly overview: { x: number; y: number; w: number; h: number };
   /** Huge culling bounds centered on the content — the canvas feels infinite. */
   x0 = 0; y0 = 0; width = 0; height = 0;
@@ -191,11 +196,14 @@ export class WindgraphWorld {
     linalg.x0 = 0; linalg.y0 = catalogTop + geoCat.height + VGAP;
     const graphTh = new WindgraphSceneBoard(graphTheoryDoc());
     graphTh.x0 = linalg.width + HGAP; graphTh.y0 = linalg.y0;
+    const curve3d = new WindgraphCurve3DBoard();
+    curve3d.x0 = 0; curve3d.y0 = graphTh.y0 + graphTh.height + VGAP;
 
-    this.boards = [tri, geom, plots, extrude, geoCat, stats, linalg, graphTh];
+    this.boards = [tri, geom, plots, extrude, geoCat, stats, linalg, graphTh, curve3d];
+    this.curve3d = curve3d;
 
     const contentW = Math.max(tri.width * 2 + GAP, extrude.width, geoCat.width + HGAP + stats.width);
-    const contentH = graphTh.y0 + graphTh.height;
+    const contentH = curve3d.y0 + curve3d.height;
     this.overview = { x: -60, y: -230, w: contentW + 120, h: contentH + 230 + 60 };
     const cx = contentW / 2, cy = contentH / 2, HALF = 30000;
     this.x0 = cx - HALF; this.y0 = cy - HALF;
@@ -435,10 +443,20 @@ export class WindgraphWorld {
     return this.xfOn ? this.xfBuf.subarray(0, this.xfLen) : null;
   }
 
-  /** Depth-tested wall mesh of the extrude board (4th board), for frame.ts. */
+  /** Depth-tested mesh of the extrude + curve3d boards, for frame.ts's mesh3d
+   *  pass (drawn before the analytic pass so the solids are watertight at every
+   *  angle and the analytic chrome/tops stay razor-sharp on top). */
   getMesh(): Float32Array | null {
-    const b = this.boards[3] as WindgraphExtrudeBoard;
-    return b.getMesh ? b.getMesh() : null;
+    const extrude = this.boards[3] as WindgraphExtrudeBoard;
+    const a = extrude.getMesh ? extrude.getMesh() : null;
+    const b = this.curve3d.getMesh ? this.curve3d.getMesh() : null;
+    if (a && b) {
+      const out = new Float32Array(a.length + b.length);
+      out.set(a, 0);
+      out.set(b, a.length);
+      return out;
+    }
+    return a ?? b;
   }
 
   /** Ground quad + content bounds of the extrude board, for the shadow pass. */
@@ -497,6 +515,7 @@ export function bootWindgraphWorld(engine: Engine, onBack: () => void): () => vo
     { id: 'wg-geom', icon: 'ruler', title: 'Constraint geometry: intersection, perpendicular foot, reflection, parallel, glider — all live', onClick: () => { const b = world.boards[1]; frameRect(b.x0, b.y0, b.width, b.height); } },
     { id: 'wg-plots', icon: 'chart', title: 'Plot gallery: functions, rose (petals slider), Lissajous, lemniscate, vector field', onClick: () => { const b = world.boards[2]; frameRect(b.x0, b.y0, b.width, b.height); } },
     { id: 'wg-extrude', icon: 'morph', title: 'Continuous 2D↔3D: extrude the prism + cylinder on a slider, rising glyphs, contact shadows — double-tap to tilt', onClick: () => { const b = world.boards[3]; frameRect(b.x0, b.y0, b.width, b.height); } },
+    { id: 'wg-curve3d', icon: 'chart', title: '3D space curves: torus knot + helix as watertight Gouraud mesh tubes — solid and stable at any orbit, flat analytic labels on top', onClick: () => { const b = world.curve3d; frameRect(b.x0, b.y0, b.width, b.height); } },
   ]);
   return dispose;
 }
