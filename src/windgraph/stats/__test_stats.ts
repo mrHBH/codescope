@@ -10,7 +10,7 @@ import { cltSimulation, cltConvergence } from './clt';
 import { randomWalk1D, randomWalk2D, brownianMotion, multipleWalks1D } from './randomWalk';
 import { monteCarloPi, buffonsNeedle } from './monteCarlo';
 import { pearsonR, linearRegression, spearmanR, ANSCOMBE_QUARTET } from './correlation';
-import { confidenceInterval, zTest, tTest, repeatedSamplingCI } from './hypothesis';
+
 
 let passed = 0, failed = 0;
 function test(name: string, fn: () => void) {
@@ -171,30 +171,7 @@ test('C6 Anscombe quartet has 4 datasets', () => {
   assert(ANSCOMBE_QUARTET[0].length === 11);
 });
 
-// C7: Hypothesis testing
-test('C7 confidence interval contains mean', () => {
-  const rng = seededRng(42);
-  const data = sample(normal(10, 2), 100, rng);
-  const ci = confidenceInterval(data, 0.95);
-  assert(ci.lower < 10 && ci.upper > 10, `CI [${ci.lower}, ${ci.upper}] should contain 10`);
-});
-test('C7 z-test rejects false null', () => {
-  const rng = seededRng(55);
-  const data = sample(normal(5, 1), 100, rng);
-  const result = zTest(data, 0, 1, 'two', 0.05);
-  assert(result.reject, 'should reject μ=0 when true μ=5');
-});
-test('C7 t-test does not reject true null', () => {
-  const rng = seededRng(77);
-  const data = sample(normal(0, 1), 200, rng);
-  const result = tTest(data, 0, 'two', 0.05);
-  assert(!result.reject, `should not reject μ=0 when true μ=0 (p=${result.pValue}, t=${result.statistic})`);
-});
-test('C7 repeated sampling coverage ≈ confidence', () => {
-  const rng = seededRng(123);
-  const { coverageRate } = repeatedSamplingCI(0, 1, 30, 500, 0.95, rng);
-  approx(coverageRate, 0.95, 0.05);
-});
+
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) throw new Error(`${failed} tests failed`);

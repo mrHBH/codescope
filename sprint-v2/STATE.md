@@ -90,6 +90,100 @@ If this file and the code disagree, investigate before trusting either.
 
 ## Log
 
+- 2026-07-31 — **Grid final: HARD fade (user: "grid is still shit and could
+  still misbehave").** A shader-mirror sim proved the grid never saturates while
+  the fade is on — the "plane" was the PARTIAL-fade gray wash (e.g. ~50% gray at
+  20px spacing under the old 8→32px fade). Replaced with a HARD, narrow fade:
+  the grid is fully visible where the on-screen spacing ≥ ~18px and GONE below
+  ~14px (`clamp((min(gs/s.x, gs/s.y) − 14)/4, 0, 1)`). No gray band, no dense
+  mush, no plane — at the default 3/4 tilt the target spacing is 56px (fully
+  visible), and the grid fades cleanly toward the horizon / only vanishes at
+  very steep (>~80°) tilts. Combined with the precision reorder + the debounced
+  tube-mesh + the world-emits-all-boards-in-3D, the grid fragility class is
+  closed. tsc clean; 24/24 suites green; vite build ok. Visual verdict = user.
+- 2026-07-31 — **Grid "plane" + dolly tank + culling still too aggressive (user:
+  reliable repro — 2D zoom-out → 3D → tilt+zoom → grid becomes ultra-fine/plane,
+  fps tanks; things still disappear in view).** Three fixes. (1) **Grid fade much
+  more aggressive** (8→32px on-screen spacing, was 4→12px): the depth-compressed
+  band at a tilt — the "plane" — now vanishes cleanly instead of rendering as a
+  dense mass. (2) **Curve3d tube-mesh rebuild DEBOUNCED 150ms** (the plot-LOD
+  pattern): during a fast dolly the mesh stayed at the last settled detail and
+  rebuilt once when the zoom settles — a per-√2-band 16ms rebuild was the dolly
+  FPS tank. (3) **World emits ALL boards in 3D** (no ray-cast-rect board culling
+  — it false-culled on-screen boards at tilted angles; cached replays are cheap).
+  Plus the earlier behind-4 always-draw. tsc clean; 24/24 suites green; vite
+  build ok. Visual verdict = user.
+- 2026-07-31 — **3D black again: depth-only pipelines lacked their own bind
+  groups (user: "wtf" + the auto-layout bind-group validation error).** The new
+  `triPipeDepth`/`linePipeDepth` (writeMask 0) pipelines were created with
+  `layout:'auto'` but drew with the NORMAL pipelines' bind groups — WebGPU rejects
+  a bind group "not created by the pipeline" (the D26 lesson, re-hit). Fixed: each
+  depth-only pipeline gets its own bind group from its OWN `getBindGroupLayout(0)`
+  (`triDepthBind`/`lineDepthBind`). tsc clean; 24/24 suites green; vite build ok.
+  Visual verdict = user.
+- 2026-07-31 — **3D: no text/curves/grids (user report).** The mesh-only MSAA
+  relied on `depthResolveTarget` (base-spec for depth32float) to carry the 4×
+  mesh depth into the 1× analytic pass — but it made the analytic content vanish
+  in practice (the resolved depth was unusable). Replaced with a ROBUST scheme
+  that needs no browser depth-resolve: Pass A renders the mesh at 4× and resolves
+  only its COLOR to the target (depth discarded); Pass B (1×) loads the resolved
+  mesh color, CLEARS the depth, and re-draws the mesh DEPTH-ONLY (new `triPipeDepth`
+  / `linePipeDepth` pipelines with `writeMask: 0`, + `drawTrisDepth`/`drawLinesDepth`)
+  so the analytic content depth-tests against the mesh without overwriting the
+  MSAA'd color. Cost: the mesh fragment shader runs twice (4× color + 1× depth) —
+  acceptable (the mesh is a fraction of the screen; the analytic — the dominant
+  fill — stays 1×). tsc clean; 24/24 suites green; vite build ok. Visual verdict
+  = user.
+- 2026-07-31 — **Black 3D: "Destroyed texture used in a submit" (user report +
+  "add a test to guard against this").** The MSAA auto-on / canvas-resize path
+  recreated the depth32float + MSAA color targets via synchronous `.destroy()`
+  while the PREVIOUS frame's submitted command buffer still referenced them →
+  WebGPU threw and the frame rendered black. Fixed with a `Retirer`
+  (`src/windfoil/retire.ts`): resources are RETIRED (kept alive) and destroyed
+  only after `queue.onSubmittedWorkDone()` resolves. Applied to every
+  recreate-on-change path: the depth + MSAA color textures (frame.ts), the
+  storage buffers on growth (gpu.ts + mesh3d.ts), and the offscreen target
+  textures on resize (postfx.ts + upscale.ts). Guard test `__test_retire.ts`
+  (4 tests) locks the contract: retire() NEVER destroys synchronously, destroys
+  only after the queue drains, handles multiple retires, and dispose() drains
+  immediately on teardown. 24/24 suites green; tsc clean; vite build ok. Visual
+  verdict = user.
+- 2026-07-31 — **3D culling too aggressive + 3D still-frame perf (user: "things
+  disappear even when in view; 3D perf terrible even when nothing moving").**
+  TWO root causes. (1) **CULLING**: `rect3DVisible`'s all-corners-behind case
+  only drew when the camera's GROUND position was inside the rect — but the near
+  plane clips the ground when the camera is low/close, so a rect the camera LOOKS
+  AT can have all four corners behind it while filling the screen (board/panel/
+  graph3d vanished). Fix: any corner behind the near plane → NEVER cull (over-
+  draw only the near-camera boards, which are cheap cached replays; the GPU clips
+  the genuinely off-screen ones). (2) **3D PERF**: whole-pass MSAA 4× ran the
+  analytic coverage integral (the dominant GPU fill, exact at any sample count —
+  it never needed MSAA) at 4× the ROP/fill. The AA dial is now MESH-ONLY via two
+  passes + a depth resolve: Pass A renders the mesh into a 4× color+depth pair
+  (color resolved to the target, depth resolved to a 1× depth32float buffer —
+  DEPTH_FORMAT switched from depth24plus to the resolvable depth32float), then
+  Pass B draws the analytic + HUD at 1×, loading the resolved mesh color and
+  depth-testing against the resolved mesh depth. Only the MESH renderer swaps to
+  4× (analytic + HUD stay 1× — the msaaSwap is much simpler). Frustum test
+  updated (the camera-outside-behind case now draws). 24/24 suites green; tsc
+  clean (only pre-existing font.ts); vite build ok. Visual verdict = user.
+- 2026-07-31 — **Pan + interaction perf (user: "pan tanks a bit, interactive
+  plots tank a lot").** Headless profiling found the per-frame costs (all board
+  rebuilds themselves were fast — slice caching already bounded them). Three
+  fixes: (1) **curve3d board 2D emission was UNcached** — it re-banded ~72k
+  curve pieces (7–15ms) every pan frame (its sig doesn't change, but the world's
+  camSig does → the world re-emits). Wrapped it in the same EmitCache the other
+  boards use (keyed on rev|mode|zoom band) → 0.7ms replay. (2) **Tick labels were
+  uncached by design (D25)** — re-laid every frame for every board (thousands of
+  glyph layouts in the browser). The D25 label cap (≤48/axis) now bounds the
+  count even for a full-board tile, so the labels moved INTO the board cache
+  (built against the tile superset; world-fixed positions replay correctly at any
+  camera — the deep-zoom explosion D25 guarded against cannot recur). Title
+  moved in too; the interactive slider panel stays uncached. (3) **World bulk-
+  copy** (crv ~130k floats) was `.push()` per element every frame — now
+  direct-indexed into pre-grown arrays. World interaction emit: ~2.5–2.8ms →
+  ~1.6–2.4ms headless (the browser's glyph-layout saving is larger, not visible
+  to bun). tsc clean; 24/24 suites green; vite build ok. Visual verdict = user.
 - 2026-07-31 — **Grid still too fine when zooming at an angle (user: "the grid
   renders at an ultra high resolution, zooming in at an angle in 3D").** The grid
   GEOMETRY is correct (square world cells); the density complaint is the DEPTH-AXIS

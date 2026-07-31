@@ -10,6 +10,9 @@
 // at 1 the frame carries the full splash radial (which reads as a vignette —
 // edges fall off harder than the centre); it eases to 0 as the title clears.
 
+import { Retirer } from './retire';
+const retirer = new Retirer();
+
 const POSTFX_WGSL = /* wgsl */ `
 struct VsOut { @builtin(position) pos : vec4<f32>, @location(0) uv : vec2<f32> };
 
@@ -83,7 +86,10 @@ export function createPostFx(device: GPUDevice, format: GPUTextureFormat): PostF
 
   function target(w: number, h: number): GPUTextureView {
     if (!tex || tw !== w || th !== h) {
-      tex?.destroy();
+      // Retire, don't destroy (a resize while the previous submit is in flight
+      // throws "Destroyed texture used in a submit").
+      const old = tex;
+      if (old) retirer.retire(device, old, () => old.destroy());
       tex = device.createTexture({
         size: [w, h], format,
         usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,

@@ -3,7 +3,7 @@
 // Sample points adaptively by chord deflection, then fit quadratic Béziers via
 // tangent intersection so the boundary is a smooth curve at any zoom.
 
-import { strokeInto, strokeQuadPath, fillQuads, type Pt } from '../stroke/stroke';
+import { strokeQuadPath, fillQuads, type Pt } from '../stroke/stroke';
 import type { NumberPlane, PlaneView, PlaneCtx } from '../coords/numberPlane';
 
 export interface PlotStyle { color: number[]; widthPx?: number; tol?: number; }

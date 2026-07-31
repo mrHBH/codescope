@@ -4,8 +4,6 @@
 // engine for crisp rendering at any zoom.
 
 import { strokeInto, type Pt } from '../stroke/stroke';
-import { Vector } from '../mobject/primitives';
-import { Group, type RenderCtx } from '../mobject/mobject';
 import type { NumberPlane, PlaneView, PlaneCtx } from '../coords/numberPlane';
 
 export interface FieldStyle {

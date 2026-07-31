@@ -1,4 +1,5 @@
 import { DEPTH_FORMAT } from './mesh3d';
+import { Retirer } from './retire';
 
 const WGSL_URL = new URL('./windfoil.wgsl', import.meta.url);
 
@@ -95,11 +96,13 @@ export function createGlyphRenderer(
   let bindGroup = device.createBindGroup({ layout, entries: bindEntries() });
   let bindGroupDepth = device.createBindGroup({ layout: layoutDepth, entries: bindEntries() });
 
+  const retirer = new Retirer();
   function ensureBuf(buf: GPUBuffer, size: number, cap: number): [GPUBuffer, number] {
     if (size <= cap) return [buf, cap];
     const newCap = Math.max(cap * 2, size);
     const newBuf = device.createBuffer({ size: newCap, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
-    buf.destroy();
+    // Retire, don't destroy: the previous frame's submit may still reference it.
+    retirer.retire(device, buf, () => buf.destroy());
     return [newBuf, newCap];
   }
 

@@ -63,4 +63,5 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `~~struck~~` = culled b
 - [ ] M1–M6 export (SVG/PNG, LaTeX/URL, PDF/WebM, TikZ, CSV import, glTF)
 - [ ] N1–N4 perf gates (dirty-tracking, caching, GPU picking, benchmarks)
 - [ ] X1–X3 cleanup (math islands → primitives, gallery unification, naming)
+- [ ] X4 split `object-resolver.ts` (2176 lines) and `frame.ts` (1614 lines) using the D8 pattern (free functions + narrow host interface)
 - [ ] **CP8 passed** — final

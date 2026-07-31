@@ -11,6 +11,7 @@ import type { AppState } from '../../state';
 import type { PlaneView } from '../../windgraph/coords/numberPlane';
 import { sampleCurve3D, pushTube, polyToQuads, type Vec3 } from '../../windgraph/space3d/curve3d';
 import { strokeInto, strokeQuadPath, fillQuads } from '../../windgraph/stroke/stroke';
+import { EmitCache } from '../../windfoil/emitCache';
 import { layoutStr, tw } from '../../layout/metrics';
 import { isTilted, toggleTilt } from '../../camera/camera';
 
@@ -67,25 +68,35 @@ export class WindgraphCurve3DBoard {
   app: AppState | null = null;
   /** No slider panel (the SliderBoard contract's `panel` is null). */
   panel: null = null;
+  /** The 2D analytic emission is cached (like the other boards): the Bézier
+   *  bands band ~72k curve pieces — re-band every pan frame tanked the fps.
+   *  Rebuilt only when the sig (mode/tilt + zoom band + rev) changes. */
+  private cache = new EmitCache();
   private _mesh = new Float32Array(0);
   private _meshKey = '';
   private samples: { helix: Vec3[]; knot: Vec3[] } | null = null;
   private sampleKey = '';
+  private _meshTimer: ReturnType<typeof setTimeout> | undefined;
   private built = false;
   private emits = 0;
 
   ensure() {}
 
-  /** In the flat 2D view the tube mesh is NOT drawn (the 2D ortho collapses all
-   *  faces onto one depth layer → a jumbled blob); the analytic curve owns 2D.
-   *  In 3D the tube mesh is drawn (depth-tested, MSAA-able), built once per
-   *  zoom band — orbiting alone never rebuilds (no pop). */
+  /** Depth-tested Gouraud tube mesh for frame.ts's mesh3d pass. Rebuilt only on
+   *  a zoom-band change, DEBOUNCED (the plot-LOD pattern): during a fast dolly
+   *  the mesh stays at the last settled detail (sub-pixel facet difference) and
+   *  one rebuild happens after the zoom settles — a per-band 16ms rebuild every
+   *  √2-zoom crossing is what tanked the FPS while zooming. In the flat 2D view
+   *  no mesh (the analytic curve owns it). */
   getMesh(): Float32Array | null {
     if (!in3D(this.app)) return null;
     const detail = this.app ? lodDetail(this.app.viewZ) : 1;
     if (this._meshKey !== `d${detail}`) {
-      this._meshKey = `d${detail}`;
-      this.buildMesh(detail);
+      clearTimeout(this._meshTimer);
+      this._meshTimer = setTimeout(() => {
+        this._meshKey = `d${detail}`;
+        this.buildMesh(detail);
+      }, 150) as unknown as ReturnType<typeof setTimeout>;
     }
     return this._mesh.length ? this._mesh : null;
   }
@@ -123,7 +134,7 @@ export class WindgraphCurve3DBoard {
     this._mesh = new Float32Array(m);
   }
 
-  get cacheMisses(): number { return this.emits; }
+  get cacheMisses(): number { return this.cache.misses; }
   get directMisses(): number { return 0; }
 
   // ── s.interactive contract (nothing draggable — camera owns the canvas) ────
@@ -158,50 +169,52 @@ export class WindgraphCurve3DBoard {
 
   emit(font: FontFace, atlas: any, inst: number[], crv: number[], rws: number[], _now: number, view: PlaneView, _camX?: number, _camY?: number) {
     this.emits++;
-    const { x0, y0, width, height } = this;
-    const ax = [x0 + 200, y0 + 760] as const;
-    const axLen = 330;
+    this.cache.run(this.frameSig(view), inst, crv, rws, () => {
+      const { x0, y0, width, height } = this;
+      const ax = [x0 + 200, y0 + 760] as const;
+      const axLen = 330;
 
-    // 2D (ortho) = the ANALYTIC curve: a clean screen-constant stroked curve via
-    // the same smooth quadratic-Bézier ribbon the 2D plots use — zero aliasing
-    // by construction at any zoom. (A thick "tube silhouette" band was tried and
-    // looked jagged: a wide offset of a tight curve self-intersects, and the
-    // analytic renderer draws the cusps exactly.) 3D (orbit) = the tube mesh.
-    if (!in3D(this.app)) {
-      const detail = lodDetail(Math.max(view.zoom, 1e-6));
-      const { helix: hlx, knot } = this.polylines(detail);
-      // Screen-constant width, but CAP the world width: at high altitude (zoom <<
-      // 1) an uncapped 3.5/zoom stroke becomes hundreds of world px wide, and the
-      // band table duplicates every tall ribbon edge across all its bands → the
-      // curve output (and emit time) explodes. A capped width is sub-pixel on
-      // screen there, so it is invisible but keeps the banding bounded.
-      const w = Math.min(Math.max(3.5 / Math.max(view.zoom, 1e-6), 0.4), 80);
-      const hx = x0 + 330, hy = y0 + 420;
-      const hq: number[] = [];
-      strokeQuadPath(polyToQuads(hlx.map((p) => [p[0] + hx, p[1] + hy]), false), { width: w, cap: 'round', join: 'round' }, false, hq);
-      fillQuads(hq, VIOLET, inst, crv, rws);
-      const kx = x0 + 900, ky = y0 + 420;
-      const kq: number[] = [];
-      strokeQuadPath(polyToQuads(knot.map((p) => [p[0] + kx, p[1] + ky]), true), { width: w, cap: 'round', join: 'round' }, false, kq);
-      fillQuads(kq, GOLD, inst, crv, rws);
-      // Axes: the x/y axes show as strokes; the z axis is a point from above.
-      strokeInto([[ax[0], ax[1]], [ax[0] + axLen, ax[1]]], { width: w * 0.8, cap: 'butt', join: 'miter' }, RED, inst, crv, rws);
-      strokeInto([[ax[0], ax[1]], [ax[0], ax[1] - axLen * 0.7]], { width: w * 0.8, cap: 'butt', join: 'miter' }, GREEN, inst, crv, rws);
-    }
+      // 2D (ortho) = the ANALYTIC curve: a clean screen-constant stroked curve via
+      // the same smooth quadratic-Bézier ribbon the 2D plots use — zero aliasing
+      // by construction at any zoom. (A thick "tube silhouette" band was tried and
+      // looked jagged: a wide offset of a tight curve self-intersects, and the
+      // analytic renderer draws the cusps exactly.) 3D (orbit) = the tube mesh.
+      if (!in3D(this.app)) {
+        const detail = lodDetail(Math.max(view.zoom, 1e-6));
+        const { helix: hlx, knot } = this.polylines(detail);
+        // Screen-constant width, but CAP the world width: at high altitude (zoom <<
+        // 1) an uncapped 3.5/zoom stroke becomes hundreds of world px wide, and the
+        // band table duplicates every tall ribbon edge across all its bands → the
+        // curve output (and emit time) explodes. A capped width is sub-pixel on
+        // screen there, so it is invisible but keeps the banding bounded.
+        const w = Math.min(Math.max(3.5 / Math.max(view.zoom, 1e-6), 0.4), 80);
+        const hx = x0 + 330, hy = y0 + 420;
+        const hq: number[] = [];
+        strokeQuadPath(polyToQuads(hlx.map((p) => [p[0] + hx, p[1] + hy]), false), { width: w, cap: 'round', join: 'round' }, false, hq);
+        fillQuads(hq, VIOLET, inst, crv, rws);
+        const kx = x0 + 900, ky = y0 + 420;
+        const kq: number[] = [];
+        strokeQuadPath(polyToQuads(knot.map((p) => [p[0] + kx, p[1] + ky]), true), { width: w, cap: 'round', join: 'round' }, false, kq);
+        fillQuads(kq, GOLD, inst, crv, rws);
+        // Axes: the x/y axes show as strokes; the z axis is a point from above.
+        strokeInto([[ax[0], ax[1]], [ax[0] + axLen, ax[1]]], { width: w * 0.8, cap: 'butt', join: 'miter' }, RED, inst, crv, rws);
+        strokeInto([[ax[0], ax[1]], [ax[0], ax[1] - axLen * 0.7]], { width: w * 0.8, cap: 'butt', join: 'miter' }, GREEN, inst, crv, rws);
+      }
 
-    // Flat analytic chrome (always readable, drawn over the mesh).
-    strokeInto([[x0, y0], [x0 + width, y0], [x0 + width, y0 + height], [x0, y0 + height], [x0, y0]], { width: 1.5 }, AXIS, inst, crv, rws);
-    const tTitle = '3D space curves — analytic in 2D, solid tubes in 3D';
-    const tSize = 40;
-    layoutStr(inst, tTitle, TITLE, atlas.table, font, { x: x0 + width / 2 - tw(tTitle, font, tSize) / 2, y: y0 + tSize * 0.4, size: tSize });
-    const sub = '2D is the analytic curve (exact coverage, no aliasing by construction) · double-tap into 3D for the depth-tested Gouraud tube';
-    const sSize = 19;
-    layoutStr(inst, sub, SUB, atlas.table, font, { x: x0 + width / 2 - tw(sub, font, sSize) / 2, y: y0 + 74, size: sSize });
-    const cap = 'double-tap (or the cube) to switch 2D analytic ↔ 3D tube · AA = MSAA 4× on the mesh';
-    const cSize = 19;
-    layoutStr(inst, cap, SUB, atlas.table, font, { x: x0 + width / 2 - tw(cap, font, cSize) / 2, y: y0 + height - 44, size: cSize });
-    layoutStr(inst, 'x', RED, atlas.table, font, { x: ax[0] + axLen + 10, y: ax[1] - 12, size: 26 });
-    layoutStr(inst, 'y', GREEN, atlas.table, font, { x: ax[0] + 6, y: ax[1] - axLen * 0.7 - 26, size: 26 });
-    layoutStr(inst, 'z', BLUE, atlas.table, font, { x: ax[0] + 10, y: ax[1] - 6, size: 26 });
+      // Flat analytic chrome (always readable, drawn over the mesh).
+      strokeInto([[x0, y0], [x0 + width, y0], [x0 + width, y0 + height], [x0, y0 + height], [x0, y0]], { width: 1.5 }, AXIS, inst, crv, rws);
+      const tTitle = '3D space curves — analytic in 2D, solid tubes in 3D';
+      const tSize = 40;
+      layoutStr(inst, tTitle, TITLE, atlas.table, font, { x: x0 + width / 2 - tw(tTitle, font, tSize) / 2, y: y0 + tSize * 0.4, size: tSize });
+      const sub = '2D is the analytic curve (exact coverage, no aliasing by construction) · double-tap into 3D for the depth-tested Gouraud tube';
+      const sSize = 19;
+      layoutStr(inst, sub, SUB, atlas.table, font, { x: x0 + width / 2 - tw(sub, font, sSize) / 2, y: y0 + 74, size: sSize });
+      const cap = 'double-tap (or the cube) to switch 2D analytic ↔ 3D tube · AA = MSAA 4× on the mesh';
+      const cSize = 19;
+      layoutStr(inst, cap, SUB, atlas.table, font, { x: x0 + width / 2 - tw(cap, font, cSize) / 2, y: y0 + height - 44, size: cSize });
+      layoutStr(inst, 'x', RED, atlas.table, font, { x: ax[0] + axLen + 10, y: ax[1] - 12, size: 26 });
+      layoutStr(inst, 'y', GREEN, atlas.table, font, { x: ax[0] + 6, y: ax[1] - axLen * 0.7 - 26, size: 26 });
+      layoutStr(inst, 'z', BLUE, atlas.table, font, { x: ax[0] + 10, y: ax[1] - 6, size: 26 });
+    });
   }
 }

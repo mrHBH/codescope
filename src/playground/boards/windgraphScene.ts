@@ -277,6 +277,19 @@ export class WindgraphSceneBoard {
       strokeInto([[x0, y0], [x0 + width, y0], [x0 + width, y0 + height], [x0, y0 + height], [x0, y0]], { width: 1.5 }, BORDER, inst, crv, rws);
       const vq = this.tileView(view);
       this.plane.renderGrid({ font, atlas, inst, crv, rws }, vq);
+      // Tick labels are CACHED against the tile (a strict superset of the
+      // viewport), so panning within a tile replays them — no per-frame glyph
+      // layout. The D25 label cap (≤48/axis via labelStep multiples) bounds the
+      // count even for a full-board tile, so the deep-zoom explosion that
+      // originally forced them uncached cannot recur. Labels are world-fixed
+      // (absolute positions) → they replay correctly at any camera position.
+      this.plane.renderLabels({ font, atlas, inst, crv, rws }, vq);
+      // Fixed world-size title (k = 1, like the panel — D21/D22), cached too.
+      const title = this.doc.meta.title;
+      const tSize = 40;
+      const tBase = y0 + tSize * 0.4;
+      const tx = x0 + width / 2 - tw(title, font, tSize) / 2;
+      layoutStr(inst, title, TITLE, atlas.table, font, { x: tx, y: tBase, size: tSize });
       this.scene.emit({ font, atlas, inst, crv, rws }, vq);
       const h = this.scene.drag.hover;
       if (h) {
@@ -290,21 +303,7 @@ export class WindgraphSceneBoard {
         strokeInto(ring, { width: 2 / Math.max(view.zoom, 0.05) }, GOLD, inst, crv, rws);
       }
     });
-    // Tick labels are UNCACHED and clipped to the LIVE viewport: building them
-    // against the tile superset made deep zoom emit thousands of glyph instances
-    // (FPS tank); uncached + viewport-clipped keeps them current while panning
-    // and bounded at any zoom (the board cache covers grid/axes/scene only).
-    this.plane.renderLabels({ font, atlas, inst, crv, rws }, view);
-    // Uncached chrome: title + slider panel. The title is a FIXED world-size
-    // object (k = 1, like the panel — D21/D22; screen-constant compensation made
-    // it visibly wobble during tilt, so everything is simply fixed), centered
-    // over the top edge so the corner panel never covers it. No underline
-    // (2026-07-31). The panel lives at the board corner (fixed world size, D21).
-    const title = this.doc.meta.title;
-    const tSize = 40;
-    const tBase = this.y0 + tSize * 0.4;
-    const tx = this.x0 + this.width / 2 - tw(title, font, tSize) / 2;
-    layoutStr(inst, title, TITLE, atlas.table, font, { x: tx, y: tBase, size: tSize });
+    // Uncached chrome: the slider panel (its values update on interaction).
     positionBoardPanel(this, this.app);
     renderBoardPanel(this, inst, crv, rws, font, atlas);
   }

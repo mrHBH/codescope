@@ -10,7 +10,7 @@ import type { AppState } from '../../state';
 import type { PlaneView } from '../../windgraph/coords/numberPlane';
 import { Polygon, Circle, Label, Tex } from '../../windgraph/mobject/primitives';
 import type { RenderCtx } from '../../windgraph/mobject/mobject';
-import { pushWalls, pushCap, insetLoop } from '../../windgraph/space3d/extrude';
+import { pushWalls, pushCap } from '../../windgraph/space3d/extrude';
 import { strokeInto } from '../../windgraph/stroke/stroke';
 import { layoutStr, tw } from '../../layout/metrics';
 import { AnalyticPanel } from '../../ui/analyticPanel';

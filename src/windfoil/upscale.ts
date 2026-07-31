@@ -8,6 +8,9 @@
 // the shading cost. One fullscreen triangle, ~5 taps; no ringing (CAS clamps the
 // sharpening lobe by local contrast so it never overshoots to black/white).
 
+import { Retirer } from './retire';
+const retirer = new Retirer();
+
 const UPSCALE_WGSL = /* wgsl */`
 struct VsOut { @builtin(position) pos : vec4<f32>, @location(0) uv : vec2<f32> };
 
@@ -80,7 +83,10 @@ export function createUpscaler(device: GPUDevice, format: GPUTextureFormat): Ups
 
   function target(w: number, h: number): GPUTextureView {
     if (!tex || tw !== w || th !== h) {
-      tex?.destroy();
+      // Retire, don't destroy (resize while the previous submit is in flight
+      // throws "Destroyed texture used in a submit").
+      const old = tex;
+      if (old) retirer.retire(device, old, () => old.destroy());
       tex = device.createTexture({
         size: [w, h], format,
         usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,

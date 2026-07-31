@@ -375,12 +375,15 @@ export class WindgraphWorld {
     const tGrid = performance.now() - tg0;
 
     // Boards compose into the same comp buffers (their caches see number[] and
-    // behave identically; the pre-allocated backing means no reallocs).
+    // behave identically; the pre-allocated backing means no reallocs). In 3D
+    // every board is emitted (cached replays are cheap) — the ray-cast visible
+    // rect can false-cull boards that are still on screen at tilted angles.
+    const cull2D = !this.app?.cam3d.active;
     const tB: number[] = [];
     for (const b of this.boards) b.app = this.app;
     for (const b of this.boards) {
       const tb0 = performance.now();
-      if (b.x0 <= vR && b.x0 + b.width >= vL && b.y0 <= vB && b.y0 + b.height >= vT) {
+      if (!cull2D || (b.x0 <= vR && b.x0 + b.width >= vL && b.y0 <= vB && b.y0 + b.height >= vT)) {
         setLen(cILen, cCLen, cRLen);
         (b as any).xfTarget = cXf;
         b.emit(font, atlas, cInst, cCrv, cRws, now, view);
@@ -394,18 +397,15 @@ export class WindgraphWorld {
     // buffer. The comp buffer's prefix is a verbatim copy of the frame buffer's
     // prefix, so the world's content lands at the same indices in both arrays —
     // row/quad references need NO adjustment (the earlier +rwsOff/+crvOff was
-    // the "just gray" bug: it shifted every reference 5×/6× off).
-    for (let i = pCrvLen; i < cCLen; i++) crv.push(cCrv[i]);
-    for (let i = pRwsLen; i < cRLen; i += 5) {
-      rws.push(cRws[i], cRws[i + 1], cRws[i + 2], cRws[i + 3], cRws[i + 4]);
-    }
-    for (let i = 0; i < cILen; i += 16) {
-      inst.push(
-        cInst[i], cInst[i + 1], cInst[i + 2], cInst[i + 3], cInst[i + 4], cInst[i + 5],
-        cInst[i + 6], cInst[i + 7], cInst[i + 8], cInst[i + 9], cInst[i + 10], cInst[i + 11],
-        cInst[i + 12], cInst[i + 13], cInst[i + 14], cInst[i + 15],
-      );
-    }
+    // the "just gray" bug: it shifted every reference 5×/6× off). Direct-indexed
+    // into pre-grown arrays (no .push) — the crv copy is ~130k elements and the
+    // per-frame .push loop was a measurable slice of the pan/interaction cost.
+    crv.length = cCLen;
+    for (let i = pCrvLen; i < cCLen; i++) crv[i] = cCrv[i];
+    rws.length = cRLen;
+    for (let i = pRwsLen; i < cRLen; i++) rws[i] = cRws[i];
+    inst.length = inst0 + cILen;
+    for (let i = 0; i < cILen; i++) inst[inst0 + i] = cInst[i];
 
     // Compose the per-instance 3D buffer (D10): it must cover EVERY instance the
     // frame draws, so prefix instances (editor/static, before the world) get zeros

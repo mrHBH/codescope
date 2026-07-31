@@ -24,6 +24,7 @@ import { ANALYTIC_MENU_THEME } from './ui/analyticMenu';
 import { poseXform } from './camera/screenWorld';
 import { rect3DVisible } from './camera/frustum';
 import { setMeshAA } from './windfoil/msaaSwap';
+import { Retirer } from './windfoil/retire';
 
 const _hoveredSet = new Set<StyledEl>();
 const _tmpColor: number[] = [0, 0, 0, 0];
@@ -843,13 +844,18 @@ function renderClickFx(el: StyledEl, s: AppState, crv: number[], rws: number[], 
 
 // Shared depth texture for the 3D mesh pass, recreated when the canvas resizes
 // or the MSAA sample count changes. The main-pass depth MUST match the color
-// attachment's sample count (WebGPU validates this per pass).
+// attachment's sample count (WebGPU validates this per pass). Old textures are
+// RETIRED (kept alive until the queue drains) — a synchronous destroy() while the
+// previous frame's submit is still executing throws "Destroyed texture used in a
+// submit" and black-screens (the MSAA auto-on / canvas-resize recreate path).
 let _depthTex: GPUTexture | null = null;
 let _depthView: GPUTextureView | null = null;
 let _depthW = 0, _depthH = 0, _depthS = 1;
+const _depthRetirer = new Retirer();
 function ensureDepthView(device: GPUDevice, w: number, h: number, samples: number): GPUTextureView {
   if (!_depthTex || _depthW !== w || _depthH !== h || _depthS !== samples) {
-    _depthTex?.destroy();
+    const old = _depthTex;
+    if (old) _depthRetirer.retire(device, old, () => old.destroy());
     _depthTex = device.createTexture({ size: [w, h], format: DEPTH_FORMAT, usage: GPUTextureUsage.RENDER_ATTACHMENT, sampleCount: samples });
     _depthView = _depthTex.createView();
     _depthW = w; _depthH = h; _depthS = samples;
@@ -858,13 +864,15 @@ function ensureDepthView(device: GPUDevice, w: number, h: number, samples: numbe
 }
 
 // Multisampled color texture for the MSAA pass (resolved to the swapchain /
-// offscreen target). Recreated on resize.
+// offscreen target). Recreated on resize — retired, never destroyed in-flight.
 let _msaaTex: GPUTexture | null = null;
 let _msaaView: GPUTextureView | null = null;
 let _msaaW = 0, _msaaH = 0;
+const _msaaRetirer = new Retirer();
 function ensureMsaaColor(device: GPUDevice, w: number, h: number): GPUTextureView {
   if (!_msaaTex || _msaaW !== w || _msaaH !== h) {
-    _msaaTex?.destroy();
+    const old = _msaaTex;
+    if (old) _msaaRetirer.retire(device, old, () => old.destroy());
     _msaaTex = device.createTexture({ size: [w, h], format: 'rgba8unorm', usage: GPUTextureUsage.RENDER_ATTACHMENT, sampleCount: 4 });
     _msaaView = _msaaTex.createView();
     _msaaW = w; _msaaH = h;
@@ -1459,35 +1467,47 @@ export function runFrame(s: AppState): () => void {
     const iScale = sharpen ? Math.min(Math.max(s.integralScale, 0.25), 1) : 1;
     const renderW = sharpen ? Math.max(1, Math.round(Cw * iScale)) : Cw;
     const renderH = sharpen ? Math.max(1, Math.round(Ch * iScale)) : Ch;
-    // MSAA (the AA dial): the whole main pass renders into a 4× multisampled
-    // color + depth pair and resolves to the swapchain/offscreen target. The
-    // mesh silhouette's hard triangle edges get real edge smoothing; the
-    // analytic content's exact coverage is untouched (and slightly better-
-    // sampled). All pipelines (analytic, mesh, HUD) are recreated at 4× by the
-    // toggle (app.ts setAA). NOTE: the CLEAR lives on the multisampled `view`,
-    // never the resolveTarget — putting it on the resolve target leaves the MSAA
-    // buffer uncleared (the old black-screen bug).
-    const samples = s.meshAA ? 4 : 1;
-    const depthView = ensureDepthView(s.device, renderW, renderH, samples);
+    // MSAA (the AA dial) is MESH-ONLY: the mesh renders into a 4× color+depth
+    // pair in its OWN pass (color resolved to the target, depth resolved to a
+    // 1× texture), then the analytic + HUD content draws at 1× in a second pass,
+    // depth-testing against the resolved mesh depth. The analytic coverage
+    // integral is exact at any sample count and is the dominant GPU fill —
+    // whole-pass MSAA quadrupled its ROP and made 3D "terrible even when nothing
+    // moves". NOTE: the CLEAR lives on the multisampled `view`, never the
+    // resolveTarget (that was the old black-screen bug).
+    const ib: any = s.interactive;
+    const imesh: Float32Array | null = ib?.getMesh?.() ?? null;
+    const hasGraph3d = !!(s.graph3d && s.meshRenderer);
+    const hasInteractiveMesh = !!(s.meshRenderer && imesh && imesh.length);
+    const msaa = s.meshAA && (hasGraph3d || hasInteractiveMesh) ? 4 : 1;
+    const depthView = ensureDepthView(s.device, renderW, renderH, 1);
+    const msaaDepthView = msaa > 1 ? ensureDepthView(s.device, renderW, renderH, 4) : null;
     const swapView = s.gpuCtx.getCurrentTexture().createView();
     const colorView = usePostfx ? s.postfx!.target(Cw, Ch) : sharpen ? s.upscaler!.target(renderW, renderH) : swapView;
-    const msaaView = samples > 1 ? ensureMsaaColor(s.device, renderW, renderH) : null;
+    const msaaView = msaa > 1 ? ensureMsaaColor(s.device, renderW, renderH) : null;
     // Clear to the theme backdrop: the canvas is OPAQUE (see main.ts), so the
     // backdrop is painted here instead of showing a CSS background through a
     // transparent canvas (which cost a full-screen compositor blend per frame).
     const bd = s.themeCol.backdrop;
-    const ib: any = s.interactive;
-    const imesh: Float32Array | null = ib?.getMesh?.() ?? null;
-    const pass = enc.beginRenderPass({
-      colorAttachments: [{
-        view: msaaView ?? colorView,
-        resolveTarget: msaaView ? colorView : undefined,
-        clearValue: { r: bd[0], g: bd[1], b: bd[2], a: 1 },
-        loadOp: 'clear',
-        storeOp: msaaView ? 'discard' : 'store',
-      }],
-      depthStencilAttachment: { view: depthView, depthClearValue: 1, depthLoadOp: 'clear', depthStoreOp: 'store' },
-    });
+    const bdColor = { r: bd[0], g: bd[1], b: bd[2], a: 1 };
+    // Pass A (mesh-only, 4×) resolves color into colorView + depth into depthView.
+    // Pass B (analytic + HUD, 1×) loads colorView and the resolved mesh depth.
+    let pass: GPURenderPassEncoder;
+    if (msaa > 1) {
+      // Pass A: the MESH at 4×, color resolved to the target. Depth is NOT
+      // resolved (depthResolveTarget was base-spec but made the analytic content
+      // vanish in practice) — Pass B re-establishes the 1× mesh depth with a
+      // depth-only draw.
+      pass = enc.beginRenderPass({
+        colorAttachments: [{ view: msaaView!, resolveTarget: colorView, clearValue: bdColor, loadOp: 'clear', storeOp: 'discard' }],
+        depthStencilAttachment: { view: msaaDepthView!, depthClearValue: 1, depthLoadOp: 'clear', depthStoreOp: 'discard' },
+      });
+    } else {
+      pass = enc.beginRenderPass({
+        colorAttachments: [{ view: colorView, clearValue: bdColor, loadOp: 'clear', storeOp: 'store' }],
+        depthStencilAttachment: { view: depthView, depthClearValue: 1, depthLoadOp: 'clear', depthStoreOp: 'store' },
+      });
+    }
     // View-projection: orthographic (2D) or perspective (3D free camera). camScale
     // feeds the AA-skirt pad; camCenter moves camera translation out of the matrix
     // (into the vertex shader) so the matrix terms stay small at extreme zoom.
@@ -1498,41 +1518,43 @@ export function runFrame(s: AppState): () => void {
     // graph is seamless: a flat top-down colour map in 2D, rising off the ground
     // in the 3D free-camera. In 2D it uses a full ortho (camera pan/zoom baked in,
     // z ignored → flat); in 3D it shares the orbit view-projection (height rises).
-    if (s.graph3d && s.meshRenderer) {
-      const g = s.graph3d;
-      const inView3D = s.cam3d.active && rect3DVisible(viewProj, g.cx - g.halfSpan, g.cy - g.halfSpan, g.cx + g.halfSpan, g.cy + g.halfSpan, _camLocal);
-      const inView2D = !s.cam3d.active && (g.cx - g.halfSpan <= vR && g.cx + g.halfSpan >= vL && g.cy - g.halfSpan <= vB && g.cy + g.halfSpan >= vT);
-      if (inView3D || inView2D) {
-        let meshVP: ArrayLike<number> = viewProj;
-        if (!s.cam3d.active) {
-          const sx = (2 * s.viewZ) / Cw, sy = (2 * s.viewZ) / Ch;
-          // column-major: maps doc (x,y) → clip (x-viewX)*sx, -(y-viewY)*sy, z→0.5
-          meshVP = [sx, 0, 0, 0, 0, -sy, 0, 0, 0, 0, 0, 0, -sx * s.viewX, sy * s.viewY, 0.5, 1];
-        }
-        const m = g.buildMesh();
-        s.meshRenderer.setViewProj(meshVP);
-        s.meshRenderer.drawTris(pass, m.tris);
-        s.meshRenderer.drawLines(pass, m.lines);
+    const drawMesh = (mpass: GPURenderPassEncoder, depthOnly = false) => {
+      if (!s.meshRenderer) return;
+      let meshVP: ArrayLike<number> = viewProj;
+      if (!s.cam3d.active) {
+        const sx = (2 * s.viewZ) / Cw, sy = (2 * s.viewZ) / Ch;
+        // column-major: maps doc (x,y) → clip (x-viewX)*sx, -(y-viewY)*sy, z→0.5
+        meshVP = [sx, 0, 0, 0, 0, -sy, 0, 0, 0, 0, 0, 0, -sx * s.viewX, sy * s.viewY, 0.5, 1];
       }
-    }
-    // Depth-tested extrusion walls (Phase 2 moat): an interactive board (the
-    // extrude demo, standalone or inside the windgraph world) may expose getMesh()
-    // — real triangles for the prism/cylinder/glyph side walls. Drawn here, BEFORE
-    // the analytic pass, into the shared depth buffer, so the solids are watertight
-    // at every camera angle and the analytic top faces (drawn next, depth-tested)
-    // keep their razor-sharp silhouettes. In 2D the flat ortho VP collapses the
-    // vertical walls to zero area → nothing draws → seamless flat read (OQ-9).
-    if (s.meshRenderer) {
-      const imesh: Float32Array | null = (s.interactive as any)?.getMesh?.() ?? null;
+      const tri = depthOnly ? s.meshRenderer.drawTrisDepth.bind(s.meshRenderer) : s.meshRenderer.drawTris.bind(s.meshRenderer);
+      const line = depthOnly ? s.meshRenderer.drawLinesDepth.bind(s.meshRenderer) : s.meshRenderer.drawLines.bind(s.meshRenderer);
+      if (s.graph3d) {
+        const g = s.graph3d;
+        const inView3D = s.cam3d.active && rect3DVisible(viewProj, g.cx - g.halfSpan, g.cy - g.halfSpan, g.cx + g.halfSpan, g.cy + g.halfSpan, _camLocal);
+        const inView2D = !s.cam3d.active && (g.cx - g.halfSpan <= vR && g.cx + g.halfSpan >= vL && g.cy - g.halfSpan <= vB && g.cy + g.halfSpan >= vT);
+        if (inView3D || inView2D) {
+          const m = g.buildMesh();
+          s.meshRenderer.setViewProj(meshVP);
+          tri(mpass, m.tris);
+          line(mpass, m.lines);
+        }
+      }
       if (imesh && imesh.length) {
-        let meshVP: ArrayLike<number> = viewProj;
-        if (!s.cam3d.active) {
-          const sx = (2 * s.viewZ) / Cw, sy = (2 * s.viewZ) / Ch;
-          meshVP = [sx, 0, 0, 0, 0, -sy, 0, 0, 0, 0, 0, 0, -sx * s.viewX, sy * s.viewY, 0.5, 1];
-        }
         s.meshRenderer.setViewProj(meshVP);
-        s.meshRenderer.drawTris(pass, imesh);
+        tri(mpass, imesh);
       }
+    };
+    drawMesh(pass);
+    if (msaa > 1) {
+      // End the 4× mesh pass. Pass B (1×) loads the resolved mesh color and
+      // re-draws the mesh DEPTH-ONLY (color writes off) so the analytic content
+      // depth-tests against the mesh without overwriting the MSAA'd color.
+      pass.end();
+      pass = enc.beginRenderPass({
+        colorAttachments: [{ view: colorView, loadOp: 'load', storeOp: 'store' }],
+        depthStencilAttachment: { view: depthView, depthClearValue: 1, depthLoadOp: 'clear', depthStoreOp: 'store' },
+      });
+      drawMesh(pass, true);
     }
     // Per-instance 3D (D10): an interactive board may expose xfBuffer() — the
     // shader's fxXforms layout for the instances IT emitted. The frame buffer can

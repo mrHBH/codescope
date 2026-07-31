@@ -442,13 +442,14 @@ fn fs(in : VsOut) -> @location(0) vec4f {
     let covV = clamp(0.5 + 0.5 * gW - dx / s.x, 0.0, 1.0);
     let covH = clamp(0.5 + 0.5 * gW - dy / s.y, 0.0, 1.0);
     // Moiré guard: at a tilt the ground plane is foreshortened — grid lines
-    // running toward the horizon compress to sub-pixel long before the "moiré"
-    // point, reading as an ultra-high-resolution mush. Fade the grid out once
-    // the on-screen spacing (gs/s ≈ pixels between lines) drops below ~12px, so
-    // the compression gradient fades smoothly and never renders as a dense
-    // mass. The grid geometry stays correct (square world cells); only the
-    // compressed region vanishes.
-    let fade = min(clamp((gs / s.x - 4.0) / 8.0, 0.0, 1.0), clamp((gs / s.y - 4.0) / 8.0, 0.0, 1.0));
+    // running toward the horizon compress, and a PARTIAL fade leaves a gray
+    // wash (the "plane"). Fade HARD: the grid is fully visible where the
+    // on-screen spacing (gs/s ≈ px between lines) is ≥ ~18px and GONE below
+    // ~14px — a narrow band, so there is never a gray plane and never a dense
+    // mush. The grid geometry stays correct (square world cells); only the
+    // compressed region disappears.
+    let sp = min(gs / s.x, gs / s.y);
+    let fade = clamp((sp - 14.0) / 4.0, 0.0, 1.0);
     return shade(I.color, max(covV, covH) * fade);
   }
 

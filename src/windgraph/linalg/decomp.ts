@@ -1,6 +1,6 @@
 import type { Mat2, Vec2 } from './matrix';
 import { applyMat2, det2, mulMat2, transpose2, mat2 } from './matrix';
-import { dot2, norm2, normalize2, sub2, scaleVec2 } from './products';
+import { dot2, normalize2, sub2, scaleVec2 } from './products';
 
 export function gramSchmidt2(vectors: Vec2[]): Vec2[] {
   const out: Vec2[] = [];

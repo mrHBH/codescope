@@ -3,7 +3,7 @@
 // Riemann rectangles — all rendered through the stroke/fill engine so they
 // stay crisp at any zoom.
 
-import { strokeInto, fillQuads, circleQuads, strokeQuadPath, type Pt } from '../stroke/stroke';
+import { strokeInto, fillQuads, circleQuads, type Pt } from '../stroke/stroke';
 import type { NumberPlane, PlaneView, PlaneCtx } from '../coords/numberPlane';
 import type { PlotStyle } from './functions';
 
