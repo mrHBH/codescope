@@ -200,6 +200,18 @@ export function orbitTargetLocal(): { x: number; y: number } {
   return { x: lx, y: ly };
 }
 
+// The CAMERA's ground-plane position in doc-local (2D) coordinates (NOT the
+// target — the camera hangs above the ground and its vertical projection differs
+// from the target whenever the orbit is tilted). Feeds the 3D frustum culling
+// guard: a ground rect that CONTAINS the camera is always visible (the camera
+// sits inside it), even when all four of its corners project behind the near
+// plane — the false-cull that made deep-zoom boards/lines vanish.
+export function orbitCameraLocal(): { x: number; y: number } {
+  const pos = camera.getWorldPosition(new THREE.Vector3());
+  const [lx, ly] = transformPoint(GROUND_INV, pos.x, pos.y, pos.z);
+  return { x: lx, y: ly };
+}
+
 export function disableOrbit() { if (ready) controls.enabled = false; }
 
 export function setOrbitWheelDolly(enabled: boolean) {

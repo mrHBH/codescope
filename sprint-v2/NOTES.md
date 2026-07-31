@@ -478,6 +478,117 @@ from the code lives here. Newest entries at the bottom of each section.
   overlay or a plain fixed-world object, never a hybrid.** OQ-11's
   same-visible-size panel inherits the same verdict.
 
+- **D23 — World grid: procedural per-pixel (shader fillRule 3) + camera-inside
+  rect culling (user: "the grid shrinks / doesn't behave correctly as I zoom
+  in"; "the line disappears halfway while zooming", 2026-07-31).** Two root
+  causes found by headless simulation. (1) GRID PULSE: `niceStep(140/z)` with the
+  1-2-5 ladder made on-screen spacing jump 140→280→140px during a zoom (2.5×
+  sweep). Fixed with a 10-step/decade ladder `[1,1.25,1.6,2,2.5,3.2,4,5,6.3,8]`
+  (`fineStep`) — sweeps ≤ ~1.29×, reads as smooth subdivision. (2) FALSE CULL:
+  the old world grid emitted full-length per-line strokes cached against RAW
+  view bounds — rebuilt every pan/dolly frame, with world-constant widths that
+  fatten near the camera and vanish at the horizon under tilt. Replaced by a
+  PROCEDURAL grid: two full-rect instances (minor at `step`, major at `5·step`),
+  a new shader `fillRule 3` branch that evaluates coverage per-pixel from the
+  world coord (`place.xy + rc`) with width in SCREEN px derived from the pixel
+  footprint — lines are uniformly crisp at every depth under the tilted camera
+  (no fat-near/thin-far) and fade past the moiré horizon (`gs/(3·s)`). Cache sig
+  now quantizes a 2400px tile, so pan/dolly replays the cache until a tile
+  boundary (a few times/sec, not per frame). ALSO: the camera-inside-rect guard
+  in `rect3DVisible` (frame.ts culling) must run BEFORE the side-plane tests —
+  with all corners behind the near plane (w≤0) the inequalities reverse and a
+  behind corner with |cx|<|w| increments BOTH left and right, so the side tests
+  can spuriously cull a rect the camera is standing inside. Test
+  `__test_frustum.ts` caught the ordering; the guard only culls all-behind rects
+  that do NOT contain the camera's ground position. **tsc clean (only pre-existing
+  font.ts error); 397 tests green across 22 suites.** Visual verdict = user
+  (WebGPU headless unavailable). Awaiting CP6. STOPPED.
+
+- **D24 — Culling made conservative + world grid REMOVED + per-plot grids
+  reworked from scratch (user: "culling still too aggressive"; "the main grid I
+  can toggle needs to be removed, useless"; "the per-plot grids need reworking
+  from scratch to be sharp, nice, performant", 2026-07-31).** (1) CULLING:
+  `rect3DVisible` now NEVER culls a rect with any corner behind the near plane
+  (0 < behind < 4) — the clip-space side tests are only EXACT when every corner
+  has w > 0. With a mix of front/behind corners the rect's image can bleed onto
+  screen even when all FRONT corners sit off one side: a behind corner far to the
+  other side pulls the near-plane crossing of an edge back across the viewport
+  (the spurious all-front-left cull). Mixed → always draw; all-behind → the
+  camera-inside guard (D23); all-front → exact plane tests (a rect wholly
+  beyond one plane is genuinely off-screen). (2) WORLD GRID: the toggleable
+  backdrop grid is GONE — `showGrid`, the `grid` toolbar button, `GRID_MINOR/MAJOR`,
+  `addGrid`/`fineStep` and the backdrop grid instances all deleted; the backdrop
+  is now just the static masthead (tile-cached). (3) PER-PLOT GRIDS reworked
+  from scratch: `NumberPlane` emits TWO procedural `fillRule 3` instances (minor
+  at step/5 ~1px, major at step ~1.8px, screen-px width) instead of dozens of
+  stroked lines — per-pixel AA, uniformly crisp at any zoom AND under the tilted
+  3D camera (no fat-near/thin-far), moiré-faded horizon. The grid is PHASE-LOCKED
+  to the data origin: the shader branch reads `band.zw` as a world point a line
+  passes through (= worldX0/worldY0), so grid lines land exactly under the tick
+  labels at any zoom. One shared 1.26× `step` for both axes (labels use the same
+  step — identical to the old per-axis steps on the windgraph boards where
+  unitX == unitY; non-square planes just show cells mirroring their scaling).
+  Minor is always on now (free). (4) `EmitCache` bug found: the capture
+  heuristic rebases any instance with `inst[12] >= rowBase0`, but fillRule ≥ 1.5
+  instances (solid rects + grids) carry a band in inst[12..15], NOT a row
+  reference — a grid's `stepWorld` can exceed rowBase0 and get corrupted by the
+  rebase at replay. Fixed: the rebase only applies to fillRule < 1.5 instances.
+  **tsc clean (only pre-existing font.ts error); 400 tests green across 22
+  suites; vite build ok.** Visual verdict = user. Awaiting CP6. STOPPED.
+
+- **D24-followup — 2D panning froze the per-plot grids (user: "in 3D it is
+  perfect; in 2D panning does not update the grid it appears", 2026-07-31).**
+  Root cause: the board's `sigFor` tile-quantizes the cache KEY (1200px tiles)
+  but `emit` BUILT the cached slice against the RAW viewport. A replayed slice
+  therefore covered only the build-time viewport, so panning within a tile
+  revealed gridless (and label/scene-less) areas until the camera crossed a
+  tile boundary. In 3D this was masked because the ray-cast ground rect spans
+  most of the board and the grid rect ≈ the whole domain; in 2D a small
+  viewport panning smoothly shows the hard "grid stops here" edge. Fix:
+  `windgraphScene` gained `tileView(view)` (the view∩board clip snapped OUTWARD
+  to 1200px tiles), used BOTH as the sigFor cache key AND as the view passed to
+  `plane.render`/`scene.emit` inside the cache build — the cached slice now
+  covers the full tile (the frame.ts "strict SUPERSET of the viewport, nothing
+  pops in mid-tile" intent, which had only been applied to the key, not the
+  build). Regression test: two viewports in the same tile emit IDENTICAL grid
+  instances whose rect spans both viewports (the old build would stop at the
+  first viewport's edge). **tsc clean; 401 tests green; vite build ok.**
+  Visual verdict = user. Awaiting CP6. STOPPED.
+
+- **D25 — 2D grid moved WITH the camera + 3D deep-zoom FPS tank (user: "in 2D
+  panning the grid does not move with the camera; in 3D it does. In 3D zooming
+  in, in some situations the grid becomes too small/fine/high-resolution →
+  FPS tank; in 2D I can zoom as much as I want", 2026-07-31).** TWO root causes.
+  (1) 2D GRID SLIDE: frame.ts's 2D upload makes every instance's `place.xy`
+  camera-relative (`inst − cx/cy`) for deep-zoom precision, but the procedural
+  grid's PHASE (`band.zw` = a world point a grid line passes through) was left
+  absolute. The shader computes lines as `place + rc − phase`, so mixing the
+  camera-relative place with the absolute phase gave `wx = worldX − cx − worldX0`
+  → every line sits at `worldX0 + cx + k·gs` and slides WITH the camera (grid
+  reads screen-anchored) instead of staying world-anchored. 3D uploads absolute
+  coords, so it was unaffected ("3D moves fine"). Fix: the 2D upload now shifts
+  `band.zw` by −cx/−cy for fillRule-3 instances too. (2) 3D ZOOM FPS TANK: the
+  tick LABELS were built inside the board's cached slice against the
+  tile/domain superset — at deep zoom the step is tiny, so a large range yielded
+  THOUSANDS of glyph instances per rebuild (measured 36k instances / 28.5ms at
+  cameraScale 300 with a horizon ray-cast view). 2D survived because the raw
+  viewport is small; the 3D ray-cast rect can be huge → "in some situations".
+  Fix: labels are now UNCACHED and emitted AFTER the board cache against the
+  LIVE viewport (`NumberPlane.renderLabels`), and additionally capped to ≤48 per
+  axis via a nice-integer labelStep multiple (labels still land ON grid lines at
+  round values). The cached slice keeps grid + axes + scene (tile superset);
+  labels re-layout each world emit (2D pan re-emits every frame → always current;
+  3D at camSig bands).   Deep-zoom rebuild dropped to ~0.8ms / ~260 instances.
+  **tsc clean; 403 tests green; vite build ok.** Visual verdict = user. Awaiting
+  CP6. STOPPED.
+  **D25-fixup (same day):** the band.zw shift was implemented with a copy loop
+  that skipped inst[14]/[15] for EVERY instance while only re-setting them for
+  fillRule-3 — so every text glyph and plot stroke carried a STALE band.z/w
+  (glyph bandH/invH) from the previous frame → "all text and plots broken" in
+  2D. Fixed: copy all 14 fields verbatim, then override 14/15 only for grids.
+  Regression test mirrors the 2D upload on a reused buffer (would have caught
+  the stale values). 404 tests green.
+
 ## 2. Technical tips (file:line anchored)
 
 **The 3D substrate already exists — extend, don't rebuild:**
@@ -760,6 +871,15 @@ from the code lives here. Newest entries at the bottom of each section.
 
 ## 4. Lessons (digest of oldsprintplan/POSTMORTEM.md + v1 sprint)
 
+- **Mirror tests must replicate the REAL shared path, not the intended one.**
+  D25-fixup (2026-07-31): the first guard test for the 2D instance-upload change
+  mirrored an *idealized* copy loop (assumed correct field handling), so it
+  passed while the real loop in `frame.ts` silently skipped `band.zw` for every
+  instance — shipping "all text and plots broken" in 2D. Rule: when guarding a
+  shared low-level path (instance upload, cache rebase, shader encoding), copy
+  the ACTUAL code into the test (field-by-field, including the reused-buffer /
+  stale-value trap) and make the test fail on the old version before trusting
+  it. An idealized mirror only guards the ideal.
 - **Static before interactive.** Prove a feature with one static board, then
   add drag/animation. Most v1 pain came from building interactive demos on
   unproven statics.

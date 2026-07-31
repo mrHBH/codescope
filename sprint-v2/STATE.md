@@ -85,6 +85,88 @@ If this file and the code disagree, investigate before trusting either.
 
 ## Log
 
+- 2026-07-31 — **D25-fixup: 2D text + plots were broken (user: "grid moves now
+  but all the text and plots are broken in 2D").** The D25 band.zw camera-relative
+  shift skipped copying inst[14]/[15] for ALL instances while only re-setting
+  them for fillRule-3 grids — every non-grid instance (glyph text, plot strokes)
+  kept a STALE band.z/w (glyph bandH/invH) from the previous frame → broken
+  glyph/plot rendering. Fix in frame.ts: copy all 14 fields verbatim, then
+  override 14/15 only for grids. Regression test mirrors the 2D upload on a
+  reused buffer (stale-value trap). **tsc clean; 404 tests green; vite build
+  ok.** Visual verdict = user. Awaiting CP6. STOPPED.
+- 2026-07-31 — **2D grid slid with the camera + 3D deep-zoom FPS tank (user:
+  "in 2D panning the grid does not move with the camera, in 3D it does; in 3D
+  zooming in the grid becomes too fine/high-res → FPS tank, 2D is fine").** (1)
+  The 2D instance upload makes `place.xy` camera-relative but left the grid's
+  phase (`band.zw`) absolute → the fillRule-3 shader's `place + rc − phase` gave
+  `worldX − cx − worldX0`, so lines slid with the camera (screen-anchored) in
+  2D. Fix: the 2D upload now shifts `band.zw` by −cx/−cy for fillRule-3 too.
+  (2) The tick LABELS were built inside the cached slice against the tile
+  superset — deep zoom × huge 3D ray-cast rect = thousands of glyph instances
+  (measured 36k / 28.5ms at z300); 2D survived because its viewport is small.
+  Fix: labels moved OUT of the cache — `NumberPlane.renderLabels` emits them
+  uncached against the LIVE viewport, capped to ≤48/axis via a nice labelStep
+  multiple (labels stay on grid lines). Grid/axes/scene stay cached (tile).
+  Rebuild at deep 3D zoom dropped to ~0.8ms / ~260 instances. D25. **tsc clean;
+  403 tests green across 22 suites; vite build ok.** Visual verdict = user
+  (`bun run dev` → `#windgraph`: pan in 2D — grid stays world-anchored; tilt to
+  3D + dolly deep — FPS holds). Awaiting CP6. STOPPED.
+- 2026-07-31 — **2D pan froze the per-plot grids (user: "in 3D it is perfect;
+  in 2D panning does not update the grid it appears").** The board's `sigFor`
+  tile-quantized the cache key (1200px) but `emit` built the cached slice with
+  the RAW viewport — a replayed slice covered only the build-time viewport, so
+  panning within a tile revealed content-less gaps until the next tile boundary.
+  Fix: new `tileView(view)` in `windgraphScene` (view∩board snapped OUTWARD to
+  1200px tiles) is now BOTH the cache key AND the geometry-build view
+  (`plane.render`/`scene.emit`), so the cached slice covers the whole tile —
+  the frame.ts "strict superset" intent finally applied to the build, not just
+  the key. Regression test (two same-tile viewports → identical grid covering
+  both). D24-followup. **tsc clean; 401 tests green across 22 suites; vite
+  build ok.** Visual verdict = user (`bun run dev` → `#windgraph` → pan in 2D).
+  Awaiting CP6. STOPPED.
+- 2026-07-31 — **Culling conservative + world grid removed + per-plot grids
+  reworked (user: "culling still too aggressive"; "the main grid I can toggle
+  needs to be removed, useless"; "per-plot grids need reworking from scratch to
+  be sharp, nice, performant").** (1) `rect3DVisible` never culls a rect with
+  any corner behind the near plane (mixed front/behind → always draw): the side
+  tests are only exact for all-front corners, and a behind corner can pull a
+  near-plane crossing back across the viewport even when every front corner is
+  off one side. All-behind keeps the camera-inside guard (D23); all-front keeps
+  exact plane culls. (2) World backdrop grid REMOVED (`showGrid`, `grid` toolbar
+  button, `GRID_*`, `addGrid`, `fineStep`, grid instances) — the backdrop is the
+  static masthead only. (3) NumberPlane grids reworked from scratch: TWO
+  procedural `fillRule 3` instances (minor step/5 ~1px, major step ~1.8px,
+  screen-px width) instead of dozens of strokes; phase-locked to the data origin
+  via new `band.zw` (worldX0/worldY0) so lines sit under the labels; one shared
+  1.26× step both axes; minor always on; crisp at any zoom + under tilt, moiré
+  horizon. (4) `EmitCache` capture now never rebases fillRule ≥ 1.5 instances
+  (their inst[12] is a band, not a rowBase — a grid step ≥ rowBase0 was being
+  corrupted at replay). D24. **tsc clean (only pre-existing font.ts error); 400
+  tests green across 22 suites; vite build ok.** Visual verdict = user
+  (`bun run dev` → `#windgraph`: zoom deep into a plot + tilt; no more world
+  dot-grid). Awaiting CP6. STOPPED.
+- 2026-07-31 — **Grid rework + 3D culling fix (user: "the grid shrinks /
+  doesn't behave correctly as I zoom in"; "the line disappears halfway while
+  zooming").** Root causes (headless sim): `niceStep(140/z)`'s 1-2-5 ladder
+  pulsed on-screen spacing 140→280→140px (2.5×) mid-zoom; and the world grid
+  emitted full-length per-line strokes cached against raw view bounds (rebuild
+  every pan/dolly frame; world-constant widths fatten near / vanish at the
+  horizon under tilt). Fix: **procedural per-pixel grid** — new shader
+  `fillRule 3` (windfoil.wgsl), TWO full-rect instances (minor at `step`, major
+  at `5·step`), coverage box-filtered per-pixel from world coords with SCREEN-px
+  width (uniformly crisp at every depth under tilt) + moiré fade
+  (`gs/(3·s)`); fine 10-step/decade ladder `[1,1.25,…,8]` (`fineStep`, sweeps
+  ≤1.29×); backdrop cache sig quantized to a 2400px tile (pan/dolly replays the
+  cache until a tile boundary). Culling: `rect3DVisible` (extracted to
+  `src/camera/frustum.ts`) now resolves the all-corners-behind case BEFORE the
+  side-plane tests — w≤0 reverses them and they can spuriously cull a rect the
+  camera is standing inside (dolly into a line); the guard keeps a rect visible
+  iff the camera's ground position is inside it, else culls (real off-screen).
+  `__test_frustum.ts` + 7 world-grid tests (shader-coverage mirror, step-ladder
+  pulse bound, tile-quantized sig, 2-instance emit). D23. **tsc clean (only
+  pre-existing font.ts error); 397 tests green across 22 suites; vite build ok.**
+  Visual verdict = user (`bun run dev` → `#windgraph` → zoom toward off-origin
+  lines + tilt). Awaiting CP6. STOPPED.
 - 2026-07-31 — **Slider panels: back to WORLD space in 3D (user: "they became
   2D billboards — they need to be 3D in world space; fixed sizing for now").**
   `temp1` had pinned each board's `AnalyticPanel` into the screen HUD in 3D

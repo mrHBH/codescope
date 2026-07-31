@@ -14,6 +14,7 @@ import { hitTest, HOVER_FX_MOVES_TEXT } from './layout/walk';
 import { fillQuads, polygonQuads, type Pt } from './windgraph/stroke/stroke';
 import { stepCamera } from './camera/camera';
 import { cameraViewProj, cameraScale, scrToDoc, uiScale } from './camera/camera';
+import { orbitCameraLocal } from './camera/orbit';
 import type { EditorTheme } from './editor/editor';
 import type { TerminalTheme } from './editor/terminal';
 import type { FileTreeTheme } from './editor/fileTree';
@@ -21,6 +22,7 @@ import { DEPTH_FORMAT, lightViewProj } from './windfoil/mesh3d';
 import { EmitCache } from './windfoil/emitCache';
 import { ANALYTIC_MENU_THEME } from './ui/analyticMenu';
 import { poseXform } from './camera/screenWorld';
+import { rect3DVisible } from './camera/frustum';
 
 const _hoveredSet = new Set<StyledEl>();
 const _tmpColor: number[] = [0, 0, 0, 0];
@@ -852,30 +854,10 @@ function ensureDepthView(device: GPUDevice, w: number, h: number): GPUTextureVie
   return _depthView!;
 }
 
-// Conservative clip-space frustum test for a doc-plane rect (z = 0). Returns
-// false only when the whole rect is provably outside a single frustum plane — so
-// in the 3D free camera we skip emitting boards/pages that aren't on screen
-// (otherwise EVERY board + page emits every frame, tanking FPS in 3D).
-function rect3DVisible(vp: ArrayLike<number>, x0: number, y0: number, x1: number, y1: number): boolean {
-  let left = 0, right = 0, top = 0, bot = 0, behind = 0;
-  let cx = vp[0] * x0 + vp[4] * y0 + vp[12];
-  let cy = vp[1] * x0 + vp[5] * y0 + vp[13];
-  let cw = vp[3] * x0 + vp[7] * y0 + vp[15];
-  if (cx < -cw) left++; if (cx > cw) right++; if (cy < -cw) top++; if (cy > cw) bot++; if (cw <= 1e-6) behind++;
-  cx = vp[0] * x1 + vp[4] * y0 + vp[12];
-  cy = vp[1] * x1 + vp[5] * y0 + vp[13];
-  cw = vp[3] * x1 + vp[7] * y0 + vp[15];
-  if (cx < -cw) left++; if (cx > cw) right++; if (cy < -cw) top++; if (cy > cw) bot++; if (cw <= 1e-6) behind++;
-  cx = vp[0] * x1 + vp[4] * y1 + vp[12];
-  cy = vp[1] * x1 + vp[5] * y1 + vp[13];
-  cw = vp[3] * x1 + vp[7] * y1 + vp[15];
-  if (cx < -cw) left++; if (cx > cw) right++; if (cy < -cw) top++; if (cy > cw) bot++; if (cw <= 1e-6) behind++;
-  cx = vp[0] * x0 + vp[4] * y1 + vp[12];
-  cy = vp[1] * x0 + vp[5] * y1 + vp[13];
-  cw = vp[3] * x0 + vp[7] * y1 + vp[15];
-  if (cx < -cw) left++; if (cx > cw) right++; if (cy < -cw) top++; if (cy > cw) bot++; if (cw <= 1e-6) behind++;
-  return !(left === 4 || right === 4 || top === 4 || bot === 4 || behind === 4);
-}
+// Visible page/board test in the 3D free camera carries the camera's ground-plane
+// position (a rect containing the camera is always visible — the guard that stops
+// deep-zoom boards vanishing when all their corners go behind the near plane).
+let _camLocal: { x: number; y: number } | null = null;
 
 const TERMINAL_THEME: TerminalTheme = {
   bg: [0.086, 0.086, 0.098, 1],
@@ -1020,17 +1002,18 @@ export function runFrame(s: AppState): () => void {
     const vT = (0 - Ch / 2) / s.viewZ + s.viewY - marginY;
     const vB = (Ch - Ch / 2) / s.viewZ + s.viewY + marginY;
     const visible = s.pageVisible;
+    _camLocal = s.cam3d.active ? orbitCameraLocal() : null;
     for (let p = 0; p < s.pageRoots.length; p++) {
       const pg = s.pageRoots[p];
       visible[p] = s.cam3d.active
-        ? rect3DVisible(viewProj, pg.x, pg.y, pg.x + pg.w, pg.y + pg.h)
+        ? rect3DVisible(viewProj, pg.x, pg.y, pg.x + pg.w, pg.y + pg.h, _camLocal)
         : (pg.x <= vR && pg.x + pg.w >= vL && pg.y <= vB && pg.y + pg.h >= vT);
     }
 
     // Visibility test for a world-space board/panel rect (3D frustum cull in the
     // free camera, 2D viewport-overlap otherwise) so off-screen boards never emit.
     const boardVis = (x0: number, y0: number, x1: number, y1: number): boolean =>
-      s.cam3d.active ? rect3DVisible(viewProj, x0, y0, x1, y1) : (x0 <= vR && x1 >= vL && y0 <= vB && y1 >= vT);
+      s.cam3d.active ? rect3DVisible(viewProj, x0, y0, x1, y1, _camLocal) : (x0 <= vR && x1 >= vL && y0 <= vB && y1 >= vT);
 
     // Skip expensive hit-test + resolveStyle during wheel zoom (200ms cooldown),
     // or entirely when pointer input is toggled off.
@@ -1422,6 +1405,17 @@ export function runFrame(s: AppState): () => void {
           s.instFA[i] = inst[i] - cx;       // place.x relative to camera (f64→f32)
           s.instFA[i + 1] = inst[i + 1] - cy;
           for (let j = 2; j < 16; j++) s.instFA[i + j] = inst[i + j];
+          // Procedural grid (fillRule 3): band.zw is a world point a grid line
+          // passes through (phase). The shader computes lines from
+          // (place + rc − phase), and place is camera-relative here — the phase
+          // must be shifted the SAME way or the grid slides WITH the camera in
+          // 2D (screen-anchored) instead of staying world-anchored. For every
+          // other instance band.zw (glyph bandH/invH, rect params) is copied
+          // verbatim above and MUST NOT be touched.
+          if (inst[i + 3] >= 2.5) {
+            s.instFA[i + 14] = inst[i + 14] - cx;
+            s.instFA[i + 15] = inst[i + 15] - cy;
+          }
         }
       }
       s.frameDataVersion++;
@@ -1485,7 +1479,7 @@ export function runFrame(s: AppState): () => void {
     // z ignored → flat); in 3D it shares the orbit view-projection (height rises).
     if (s.graph3d && s.meshRenderer) {
       const g = s.graph3d;
-      const inView3D = s.cam3d.active && rect3DVisible(viewProj, g.cx - g.halfSpan, g.cy - g.halfSpan, g.cx + g.halfSpan, g.cy + g.halfSpan);
+      const inView3D = s.cam3d.active && rect3DVisible(viewProj, g.cx - g.halfSpan, g.cy - g.halfSpan, g.cx + g.halfSpan, g.cy + g.halfSpan, _camLocal);
       const inView2D = !s.cam3d.active && (g.cx - g.halfSpan <= vR && g.cx + g.halfSpan >= vL && g.cy - g.halfSpan <= vB && g.cy + g.halfSpan >= vT);
       if (inView3D || inView2D) {
         let meshVP: ArrayLike<number> = viewProj;

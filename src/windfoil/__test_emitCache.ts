@@ -38,8 +38,9 @@ function boardBuild(inst: number[], crv: number[], rws: number[]) {
   crv.push(5, 5, 5, 5, 5, 5, 6, 6, 6, 6, 6, 6);
   const r0 = rws.length / 5;
   rws.push(q0 + 0, 1, 1, 1, 1, q0 + 1, 2, 2, 2, 2);
-  const rel = new Array(16).fill(3); rel[12] = r0;     // board-relative rowBase
-  const atl = new Array(16).fill(4); atl[12] = 0;      // atlas rowBase (kept)
+  // fillRule 0 (a real shape instance): inst[12] is a rowBase and is rebased.
+  const rel = new Array(16).fill(0); rel[12] = r0;     // board-relative rowBase
+  const atl = new Array(16).fill(0); atl[12] = 0;      // atlas rowBase (kept)
   inst.push(...rel, ...atl);
 }
 
@@ -84,6 +85,25 @@ test('signature change rebuilds', () => {
   cache.run('a', f1.inst, f1.crv, f1.rws, () => { builds++; });
   cache.run('b', f1.inst, f1.crv, f1.rws, () => { builds++; boardBuild(f1.inst, f1.crv, f1.rws); });
   assert(builds === 2, `expected 2 builds, got ${builds}`);
+});
+
+test('fillRule>=1.5 (rect/grid) instances never get a rowBase rebase', () => {
+  const cache = new EmitCache();
+  const f1 = atlasPrefix();
+  // Board build: a procedural grid instance — inst[12] = band.x (stepWorld), NOT
+  // a rowBase. If the capture heuristic misclassified it as a row ref it would
+  // add rowOfs at replay and corrupt the spacing.
+  const build = (inst: number[], crv: number[], rws: number[]) => {
+    inst.push(100, 200, 1, 3, 0, 0, 500, 400, 1, 1, 1, 1, 20, 1.0, 137, 250);
+  };
+  cache.run('s', f1.inst, f1.crv, f1.rws, () => build(f1.inst, f1.crv, f1.rws));
+  // Frame 2 with a longer atlas prefix → replay would rebase a false rowBase.
+  const crv = [1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 8, 8, 8, 8, 8, 8, 9, 9, 9, 9, 9, 9];
+  const rws = [0, 9, 9, 9, 9, 1, 9, 9, 9, 9, 2, 9, 9, 9, 9, 3, 9, 9, 9, 9];
+  const inst = new Array(16).fill(7); inst[12] = 3;
+  cache.run('s', inst, crv, rws, () => { throw new Error('must not rebuild'); });
+  eq(inst.slice(16, 32), [100, 200, 1, 3, 0, 0, 500, 400, 1, 1, 1, 1, 20, 1.0, 137, 250],
+    'grid instance replays verbatim (band.x=20, phase=137,250 untouched)');
 });
 
 test('invalidate forces rebuild', () => {

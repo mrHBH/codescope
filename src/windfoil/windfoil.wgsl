@@ -415,6 +415,31 @@ fn fs(in : VsOut) -> @location(0) vec4f {
   // Axis-aligned bounding box of that footprint (== fwidth) — the isotropic path.
   let s = max(abs(jx) + abs(jy), vec2f(1e-9));
 
+  // PROCEDURAL GRID (fillRule 3): a full-rect instance covers a ground rect and
+  // the lines are evaluated PER-PIXEL from the world coordinate
+  // (place.xy + rc, unitsToPx = 1). band = (stepWorld, widthPx, originX, originY);
+  // color = line color. originX/Y is a world point a grid line passes through
+  // (phase), so per-plot grids lock onto their data origin's world position and
+  // stay aligned with the tick labels at any zoom. Coverage is screen-constant
+  // at every depth: the line's world width is derived from the pixel footprint
+  // (s) per-pixel, so near-camera lines never fatten and horizon lines never
+  // vanish under the tilted 3D camera; a moiré guard fades the grid once the
+  // line spacing approaches the footprint. No line instances, no row bands.
+  if (I.place.w >= 2.5) {
+    let gs = max(I.band.x, 1e-9);        // world units between lines
+    let gW = max(I.band.y, 0.0);         // desired screen px line width
+    let wx = I.place.x + rc.x - I.band.z;
+    let wy = I.place.y + rc.y - I.band.w;
+    let dx = abs(wx - gs * round(wx / gs));   // dist to nearest vertical line
+    let dy = abs(wy - gs * round(wy / gs));   // dist to nearest horizontal line
+    // Box-filtered coverage: 0.5·gW px solid core + 0.5 px AA skirt each side.
+    let covV = clamp(0.5 + 0.5 * gW - dx / s.x, 0.0, 1.0);
+    let covH = clamp(0.5 + 0.5 * gW - dy / s.y, 0.0, 1.0);
+    // Moiré guard: once the spacing is under ~3 px the pattern beats — fade out.
+    let fade = min(clamp(gs / (3.0 * s.x), 0.0, 1.0), clamp(gs / (3.0 * s.y), 0.0, 1.0));
+    return shade(I.color, max(covV, covH) * fade);
+  }
+
   // FAST PATH: solid axis-aligned rectangle (fillRule 2). Coverage is just the
   // box overlap of the pixel footprint with the ink bbox, per axis — no band
   // gather, no winding integral. UI backgrounds/borders/hover/shadows use this,

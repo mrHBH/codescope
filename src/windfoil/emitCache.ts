@@ -116,10 +116,14 @@ export class EmitCache {
     this.cRelIdxs.length = 0;
     // Instances: rowBase >= rowBase0 means the board created the rows itself
     // (store relative + remember the offset to patch); smaller values reference
-    // the immutable atlas prefix and replay untouched.
+    // the immutable atlas prefix and replay untouched. This rowBase test applies
+    // ONLY to shape instances (fillRule < 1.5): solid-rect (2) and procedural
+    // grid (3) instances carry a band in inst[12..15], NOT a row reference —
+    // they are always stored verbatim (a grid step in inst[12] can exceed
+    // rowBase0 and would otherwise be misclassified and corrupt the spacing).
     for (let i = 0; i < nInst; i += 16) {
       const src = inst0 + i;
-      if (inst[src + 12] >= rowBase0) {
+      if (inst[src + 3] < 1.5 && inst[src + 12] >= rowBase0) {
         this.cRelIdxs.push(i + 12);
         for (let j = 0; j < 16; j++) this.cInstF[i + j] = j === 12 ? inst[src + 12] - rowBase0 : inst[src + j];
       } else {

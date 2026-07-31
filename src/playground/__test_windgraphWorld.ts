@@ -2,7 +2,7 @@
 // Run with: bun src/playground/__test_windgraphWorld.ts
 
 import { WindgraphWorld } from './windgraphWorld';
-import { WindgraphSceneBoard } from './boards/windgraphScene';
+import { WindgraphSceneBoard, demoDoc } from './boards/windgraphScene';
 import { WindgraphExtrudeBoard } from './boards/windgraphExtrude';
 import { NumberPlane } from '../windgraph/coords/numberPlane';
 
@@ -195,13 +195,253 @@ test('stats walk + graph traversal are param-bound (formerly dead objects move)'
   assert(dotsAfter !== dotsBefore, `traversal resampled on n change (${dotsBefore}→${dotsAfter})`);
 });
 
-test('grid: overview zoom skips minor lines (fewer instances than at 1×)', () => {
+test('NumberPlane grid: exactly 2 procedural instances (minor + major), correctly encoded', () => {
   const plane = new NumberPlane();
-  const mkCtx = () => ({ font: mockFont, atlas: mockAtlas, inst: [] as number[], crv: [] as number[], rws: [] as number[] });
-  const inView = { left: -800, right: 800, top: -600, bottom: 600 };
-  const c1 = mkCtx(); plane.render(c1, { zoom: 1, ...inView });
-  const cLow = mkCtx(); plane.render(cLow, { zoom: 0.2, ...inView });
-  assert(cLow.inst.length < c1.inst.length, `overview grid ${cLow.inst.length} should be sparser than 1× ${c1.inst.length}`);
+  const c: any = { font: mockFont, atlas: mockAtlas, inst: [], crv: [], rws: [] };
+  plane.render(c, { zoom: 1, left: -800, right: 800, top: -600, bottom: 600 });
+  const grids: number[][] = [];
+  for (let i = 0; i < c.inst.length; i += 16) if (c.inst[i + 3] >= 2.5) grids.push(c.inst.slice(i, i + 16));
+  assert(grids.length === 2, `expected exactly 2 grid instances, got ${grids.length}`);
+  const [minor, major] = grids;
+  assert(minor[0] === -600 && minor[1] === -400, 'place.xy = visible rect origin (wXlo, wYtop)');
+  assert(minor[2] === 1 && minor[3] === 3, 'unitsToPx = 1, fillRule = 3');
+  assert(minor[4] === 0 && minor[5] === 0 && minor[6] === 1200 && minor[7] === 800,
+    'bbox = local (0,0,w,h) so rc reads world coords');
+  assert(minor[12] === 20 && minor[13] === 1.0, 'minor: band = (step/5·unitX = 20, 1px)');
+  assert(major[12] === 100 && major[13] === 1.8, 'major: band = (step·unitX = 100, 1.8px)');
+  assert(minor[14] === 0 && minor[15] === 0, 'phase = worldX0/worldY0 (default plane at origin)');
+  // Axes + labels still emit (strokes + glyphs, not grid instances).
+  assert(c.inst.length / 16 > 2, 'axes/labels add non-grid instances');
+});
+
+test('NumberPlane grid: phase-locks onto the data origin (labels sit on lines)', () => {
+  const plane = new NumberPlane();
+  plane.worldX0 = 137; plane.worldY0 = 250; plane.unitX = 100; plane.unitY = 100;
+  const c: any = { font: mockFont, atlas: mockAtlas, inst: [], crv: [], rws: [] };
+  plane.render(c, { zoom: 1, left: -800, right: 800, top: -600, bottom: 600 });
+  const major = c.inst.slice(16, 32); // grid instances come first (minor@0, major@1)
+  assert(major[12] === 100, 'major stepWorld = step·unitX');
+  assert(major[14] === 137 && major[15] === 250, 'band.zw = data-origin world pos (phase)');
+  // The shader line condition is (worldX − phase) ≡ 0 mod stepWorld: a label at
+  // data multiple k·step sits at worldX = worldX0 + k·stepWorld → on a line.
+  const k = 3;
+  const labelWorldX = plane.dToWx(k * (major[12] / plane.unitX));
+  assert(Math.abs((labelWorldX - major[14]) % major[12]) < 1e-9, 'label world-x lands on a grid line');
+});
+
+test('NumberPlane grid: step ladder never pulses on-screen spacing (old 1-2-5 pulsed 2.5×)', () => {
+  const plane = new NumberPlane();
+  plane.unitX = 100; plane.unitY = 100;
+  const target = plane.style.targetPx; // 90
+  const majorStep = (z: number) => {
+    const c: any = { font: mockFont, atlas: mockAtlas, inst: [], crv: [], rws: [] };
+    plane.render(c, { zoom: z, left: -800, right: 800, top: -600, bottom: 600 });
+    for (let i = 0; i < c.inst.length; i += 16) if (c.inst[i + 3] >= 2.5 && c.inst[i + 13] === 1.8) return c.inst[i + 12];
+    throw new Error('no major grid instance');
+  };
+  // Dense zoom sweep: on-screen major spacing = stepWorld·zoom ∈ [target, target·1.29].
+  for (let z = 0.1; z <= 12; z += 0.02) {
+    const sp = majorStep(z) * z;
+    if (sp < target - 1e-9 || sp > target * 1.29) throw new Error(`spacing ${sp.toFixed(1)}px at zoom ${z.toFixed(2)} — still pulsing`);
+  }
+  // Contrast with the old 1-2-5 ladder — it jumped step up to 2.5× mid-zoom.
+  const OLD = [1, 2, 5];
+  const oldStep = (r: number) => { const p = Math.pow(10, Math.floor(Math.log10(r))); const f = r / p; for (const n of OLD) if (f <= n) return n * p; return 10 * p; };
+  let maxRatio = 0;
+  for (let z = 0.1; z <= 12; z += 0.02) maxRatio = Math.max(maxRatio, oldStep(target / (100 * z)) * 100 * z / target);
+  assert(maxRatio > 2.4, `old ladder pulsed ${maxRatio.toFixed(2)}× — the regression this ladder fixes`);
+});
+
+// ── procedural grid shader mirror (fillRule 3) ─────────────────────────────
+
+// Mirror of the windfoil.wgsl fillRule-3 branch (see src/windfoil/windfoil.wgsl
+// ~L426): per-pixel coverage from the world coord + pixel footprint, with the
+// moiré fade. px/py is the phase (band.zw) — a world point a line passes through.
+// `round` differs only at exact half-offsets (measure-zero).
+function clamp(a: number, lo: number, hi: number) { return Math.min(hi, Math.max(lo, a)); }
+function gridCov(wx: number, wy: number, gs: number, gW: number, sx: number, sy: number, px = 0, py = 0): number {
+  const g = Math.max(gs, 1e-9), w = Math.max(gW, 0);
+  const dx = Math.abs((wx - px) - g * Math.round((wx - px) / g));
+  const dy = Math.abs((wy - py) - g * Math.round((wy - py) / g));
+  const covV = clamp(0.5 + 0.5 * w - dx / sx, 0, 1);
+  const covH = clamp(0.5 + 0.5 * w - dy / sy, 0, 1);
+  const fade = Math.min(clamp(g / (3 * sx), 0, 1), clamp(g / (3 * sy), 0, 1));
+  return Math.max(covV, covH) * fade;
+}
+
+test('grid shader mirror: coverage is a screen-px box filter around each line', () => {
+  const gs = 100, gW = 1;
+  assert(gridCov(5 * gs, 0, gs, gW, 1, 1) === 1, 'on a line center → full ink');
+  assert(gridCov(gs / 2, gs / 2, gs, gW, 1, 1) === 0, 'mid-cell (both axes) → no ink');
+  assert(gridCov(0, 5 * gs, gs, gW, 1, 1) === 1, 'horizontal line likewise');
+  // AA ramp: cov falls linearly across the [core, core+skirt] band (y sits off
+  // any horizontal line so the vertical line alone decides the coverage).
+  assert(Math.abs(gridCov(5 * gs + 0.5, gs / 2, gs, gW, 1, 1) - 0.5) < 1e-9, '0.5px into the skirt → half ink');
+  assert(Math.abs(gridCov(5 * gs + 1.0, gs / 2, gs, gW, 1, 1) - 0) < 1e-9, '1px off (outside core+skirt) → zero');
+});
+
+test('grid shader mirror: phase shifts the lines onto the data-origin grid', () => {
+  const gs = 100, px = 137, py = 250;
+  assert(gridCov(px, py, gs, 1, 1, 1, px, py) === 1, 'a line passes through the phase point');
+  assert(gridCov(px + gs, py, gs, 1, 1, 1, px, py) === 1, '…and through every phase + k·step');
+  assert(gridCov(px + gs / 2, py + gs / 2, gs, 1, 1, 1, px, py) === 0, 'mid-cell between phase lines → no ink');
+  assert(gridCov(0, 0, gs, 1, 1, 1, px, py) === 0, 'an off-grid world point gets no line');
+});
+
+test('grid shader mirror: width is screen-constant at every depth (no fat-near/thin-far)', () => {
+  const gs = 100, gW = 1.5;
+  // The same SCREEN-relative offset must give identical coverage regardless of
+  // the pixel footprint s (depth under the tilted camera). dx/s is the only
+  // thing the formula reads — a line 0.75px-core-offset at s=8 behaves exactly
+  // like the same offset at s=1.
+  const atDepth = gridCov(5 * gs + 0.75 * 8, gs / 2, gs, gW, 8, 8);
+  const atUnit = gridCov(5 * gs + 0.75, gs / 2, gs, gW, 1, 1);
+  assert(Math.abs(atDepth - atUnit) < 1e-9, `depth coverage ${atDepth} must equal unit ${atUnit}`);
+  assert(Math.abs(atDepth - 0.5) < 1e-9, 'and both sit at the half-ink ramp point');
+});
+
+test('grid shader mirror: moiré fade engages only when spacing approaches the footprint', () => {
+  const gs = 100, gW = 1;
+  assert(gridCov(5 * gs, 0, gs, gW, 10, 10) === 1, 'spacing ≫ footprint → full strength');
+  assert(Math.abs(gridCov(5 * gs, 0, gs, gW, gs / 3, gs / 3) - 1) < 1e-9, 'spacing = 3× footprint → fade still 1');
+  assert(Math.abs(gridCov(5 * gs, 0, gs, gW, 2 * gs / 3, 2 * gs / 3) - 0.5) < 1e-9, 'spacing = 1.5× footprint → fade 0.5');
+  assert(gridCov(5 * gs, 0, gs, gW, gs * 1000, gs * 1000) < 1e-3, 'spacing ≪ footprint → essentially faded out (moiré guard)');
+});
+
+test('grid shader mirror: major tier covers only every 5th line', () => {
+  const minor = 100, major = 500;
+  assert(gridCov(0, 0, minor, 1, 1, 1) === 1, 'a multiple-of-5 line is on the major tier');
+  assert(gridCov(major, 0, minor, 1, 1, 1) === 1, '…so a major line is ALSO a minor line');
+  assert(gridCov(minor, major / 2, major, 1.8, 1, 1) === 0, 'a minor-only line is NOT on the major tier');
+});
+
+test('2D pan: cached grid covers the whole tile (no content-less gaps mid-tile)', () => {
+  const tri = new WindgraphSceneBoard(demoDoc());
+  tri.x0 = 0; tri.y0 = 0; tri.ensure();
+  const viewA = { zoom: 1, left: 100, right: 600, top: 100, bottom: 500 };
+  const viewB = { zoom: 1, left: 300, right: 800, top: 250, bottom: 700 }; // same 1200px tile
+  const a: any = { font: mockFont, atlas: mockAtlas, inst: [], crv: [], rws: [] };
+  const b: any = { font: mockFont, atlas: mockAtlas, inst: [], crv: [], rws: [] };
+  tri.emit(mockFont, mockAtlas, a.inst, a.crv, a.rws, 0, viewA);
+  tri.emit(mockFont, mockAtlas, b.inst, b.crv, b.rws, 0, viewB);
+  assert(tri.sigFor(viewA) === tri.sigFor(viewB), 'both viewports land in the same cache tile');
+  const grids = (inst: number[]) => { const g: number[][] = []; for (let i = 0; i < inst.length; i += 16) if (inst[i + 3] >= 2.5) g.push(inst.slice(i, i + 16)); return g; };
+  const ga = grids(a.inst), gb = grids(b.inst);
+  assert(ga.length === 2 && gb.length === 2, 'both emits carry minor+major grid instances');
+  // Second pan replays the SAME grid (cache hit) — identical up to the f32
+  // rounding the EmitCache applies on capture/replay (visually exact).
+  for (let j = 0; j < 16; j++) if (Math.abs(ga[1][j] - gb[1][j]) > 1e-3) throw new Error(`grid differ at ${j}: ${ga[1][j]} vs ${gb[1][j]}`);
+  // The grid rect must span the WHOLE tile (built against the tile-expanded
+  // view), not just the build-time viewport — so it covers both viewports.
+  const g = ga[1];
+  const gx0 = g[0], gy0 = g[1], gx1 = g[0] + g[6], gy1 = g[1] + g[7];
+  assert(gx0 <= Math.min(viewA.left, viewB.left) && gy0 <= Math.min(viewA.top, viewB.top),
+    `grid origin ${gx0},${gy0} covers the pan start`);
+  assert(gx1 >= Math.max(viewA.right, viewB.right) && gy1 >= Math.max(viewA.bottom, viewB.bottom),
+    `grid extends ${gx1},${gy1} to cover the pan end — the raw-viewport build would stop at ${viewA.right}`);
+});
+
+test('NumberPlane labels: viewport-clipped + capped (deep-zoom / huge 3D views stay bounded)', () => {
+  const plane = new NumberPlane();
+  plane.worldX0 = 700; plane.worldY0 = 450; plane.unitX = 70; plane.unitY = 70;
+  plane.xMin = -10; plane.xMax = 10; plane.yMin = -6.5; plane.yMax = 6.5;
+  // A counting atlas so layoutStr actually emits glyph instances.
+  const atlas: any = { table: {} };
+  for (const ch of '0123456789.-') atlas.table[ch] = { bbox: [0, 0, 500, 1000], rowBase: 0, bandCount: 1, bandH: 1000, invH: 0.001, advance: 500 };
+  const glyphs = (view: any) => {
+    const c: any = { font: mockFont, atlas, inst: [], crv: [], rws: [] };
+    plane.renderLabels(c, view);
+    let n = 0;
+    for (let i = 0; i < c.inst.length; i += 16) if (c.inst[i + 3] < 0.5) n++;
+    return n;
+  };
+  // A small viewport at deep zoom → bounded by the viewport, dense on screen.
+  const deep2d = glyphs({ zoom: 200, left: 690, right: 710, top: 440, bottom: 460 });
+  assert(deep2d > 0 && deep2d < 600, `2D deep-zoom labels ${deep2d} — viewport-clipped`);
+  // A HUGE view (3D horizon ray-cast) at deep zoom → the CAP bounds it (the old
+  // code emitted ~36k glyphs here → FPS tank).
+  const huge3d = glyphs({ zoom: 300, left: -50000, right: 50000, top: -50000, bottom: 50000 });
+  assert(huge3d < 600, `3D huge-view labels ${huge3d} — must be capped, not thousands`);
+  // Labels sit on grid lines even when capped: labelStep is a nice integer
+  // multiple of the grid step, so every label lands on a major grid line.
+  const c: any = { font: mockFont, atlas, inst: [], crv: [], rws: [] };
+  plane.renderLabels(c, { zoom: 300, left: -50000, right: 50000, top: -50000, bottom: 50000 });
+  assert(c.inst.length % 16 === 0, 'labels emit full instances');
+});
+
+test('2D upload: grid phase is camera-relative too (grid stays world-anchored)', () => {
+  const plane = new NumberPlane();
+  plane.worldX0 = 700; plane.worldY0 = 450; plane.unitX = 70; plane.unitY = 70;
+  const c: any = { font: mockFont, atlas: mockAtlas, inst: [], crv: [], rws: [] };
+  plane.renderGrid(c, { zoom: 1, left: 100, right: 600, top: 100, bottom: 500 });
+  const g = c.inst.slice(0, 16); // major grid instance (first is minor)
+  const major = c.inst.slice(16, 32);
+  const cx = 1234.5, cy = 567.8;
+  // Mirror frame.ts's 2D upload: place.xy AND (fixed) band.zw are shifted −cx/−cy.
+  // The shader condition is wx = place.x + rc.x − band.z ≡ 0 (mod gs), with
+  // rc.x = worldX − place.x (local coord).
+  const shaderWx = (worldX: number, cx0: number) =>
+    (major[0] - cx0) + (worldX - major[0]) - (major[14] - cx0);
+  // World-anchored: a line sits at worldX ≡ worldX0 regardless of the camera pan.
+  assert(Math.abs(shaderWx(major[14], cx)) < 1e-6, 'a line passes through worldX0 at any pan');
+  assert(Math.abs(shaderWx(major[14] + major[12], cx) - major[12]) < 1e-6, '…and through worldX0 + k·step');
+  assert(Math.abs(shaderWx(major[14], 0) - shaderWx(major[14], cx)) < 1e-6, 'panning does not move the lines');
+  // The OLD bug: phase un-shifted while place is camera-relative → the line
+  // slides with the camera (worldX0 + cx instead of worldX0).
+  const buggyWx = (worldX: number, cx0: number) => (major[0] - cx0) + (worldX - major[0]) - major[14];
+  assert(Math.abs(buggyWx(major[14], cx)) > 1e-6, 'un-shifted phase slides with the camera (the bug)');
+  void g;
+});
+
+test('2D upload: non-grid instances keep band.zw verbatim (text/plots not corrupted)', () => {
+  // Mirror frame.ts's 2D camera-relative upload loop EXACTLY, including the
+  // reuse of the same instFA buffer across frames. A previous bug skipped
+  // copying band.zw (inst[14]/[15]) for ALL instances while only re-setting it
+  // for grids → glyph bandH/invH carried stale values from the prior frame and
+  // every text glyph + plot stroke rendered broken.
+  const upload = (inst: number[], cx: number, cy: number, buf: Float32Array) => {
+    for (let i = 0; i < inst.length; i += 16) {
+      buf[i] = inst[i] - cx;
+      buf[i + 1] = inst[i + 1] - cy;
+      for (let j = 2; j < 16; j++) buf[i + j] = inst[i + j];
+      if (inst[i + 3] >= 2.5) {
+        buf[i + 14] = inst[i + 14] - cx;
+        buf[i + 15] = inst[i + 15] - cy;
+      }
+    }
+  };
+  const cx = 100, cy = 200;
+  // A glyph/text instance (fillRule 0): band = rowBase, bandCount, bandH, invH.
+  const glyph = new Array(16).fill(0); glyph[0] = 50; glyph[1] = 60; glyph[2] = 1; glyph[3] = 0;
+  glyph[12] = 7; glyph[13] = 2; glyph[14] = 1000; glyph[15] = 0.001;
+  // A grid instance (fillRule 3): band = stepWorld, widthPx, phaseX, phaseY.
+  const grid = new Array(16).fill(0); grid[0] = 0; grid[1] = 0; grid[2] = 1; grid[3] = 3;
+  grid[12] = 112; grid[13] = 1.8; grid[14] = 700; grid[15] = 450;
+  const buf = new Float32Array(32).fill(-9999); // "stale" previous content
+  upload([...glyph, ...grid], cx, cy, buf);
+  // Glyph: place shifted, EVERYTHING else verbatim (band.zw = bandH/invH intact).
+  assert(buf[0] === 50 - cx && buf[1] === 60 - cy, 'glyph place is camera-relative');
+  assert(buf[12] === 7 && buf[13] === 2 && Math.abs(buf[14] - 1000) < 1e-3 && Math.abs(buf[15] - 0.001) < 1e-6,
+    `glyph band verbatim — got 14=${buf[14]} 15=${buf[15]} (stale = text broken)`);
+  // Grid: place AND phase shifted by the same camera amount.
+  assert(buf[16] === 0 - cx && buf[17] === 0 - cy, 'grid place camera-relative');
+  assert(buf[28] === 112 && Math.abs(buf[29] - 1.8) < 1e-6, 'grid step/width verbatim');
+  assert(buf[30] === 700 - cx && buf[31] === 450 - cy, 'grid phase camera-relative');
+});
+
+test('world backdrop: grid removed — sig is masthead-only and tile-quantized', () => {
+  const w = new WindgraphWorld();
+  const bp = (v: any) => (w as any).backdropParts(v).sig;
+  const a = bp({ zoom: 1.5, left: -800, right: 800, top: -600, bottom: 600 });
+  assert(a.startsWith('m|'), 'sig is the masthead cache key, no grid/step fields');
+  assert(!a.includes('g|'), 'no grid in the sig (world grid removed)');
+  const b = bp({ zoom: 1.5, left: -600, right: 1000, top: -400, bottom: 800 });
+  assert(a === b, 'pan within a tile keeps the sig → zero rebuilds during a pan');
+  const c = bp({ zoom: 1.5, left: -2600, right: -1000, top: -600, bottom: 600 });
+  assert(a !== c, 'crossing a tile boundary changes the sig');
+  const d = bp({ zoom: 3, left: -800, right: 800, top: -600, bottom: 600 });
+  assert(a === d, 'zoom is irrelevant to the static masthead (no step in the sig)');
+  assert((w as any).showGrid === undefined, 'showGrid field removed');
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

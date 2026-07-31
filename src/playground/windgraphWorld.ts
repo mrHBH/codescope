@@ -11,7 +11,8 @@
 //
 // The world itself implements the s.interactive board contract: pointer events
 // route to whichever board sits under the pointer; everything else is canvas
-// (pan/zoom). Backdrop = LOD dot grid + masthead, tile-cached.
+// (pan/zoom). Backdrop = static masthead, tile-cached (per-plot grids live in
+// each board's NumberPlane).
 
 import type { Engine } from './engine';
 import type { SceneDoc, Color } from '../authoring/ir/types';
@@ -35,8 +36,6 @@ const GOLD: Color = [0.92, 0.74, 0.42, 1];
 const TEAL: Color = [0.30, 0.85, 0.75, 1];
 const PINK: Color = [0.94, 0.55, 0.75, 1];
 const VIOLET: Color = [0.75, 0.62, 0.95, 1];
-const GRID_MINOR: Color = [1, 1, 1, 0.05];
-const GRID_MAJOR: Color = [1, 1, 1, 0.11];
 
 // ── scene docs ───────────────────────────────────────────────────────────────
 
@@ -151,20 +150,11 @@ type WgBoard = WindgraphSceneBoard | WindgraphExtrudeBoard;
 // Tilted 3/4 view for the continuous 2D↔3D toggle (radians from top-down).
 const WG_TILT_POLAR = 0.9;
 
-function niceStep(rough: number): number {
-  if (!(rough > 0)) return 1;
-  const p = Math.pow(10, Math.floor(Math.log10(rough)));
-  const f = rough / p;
-  return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 5 ? 5 : 10) * p;
-}
-
 export class WindgraphWorld {
   readonly boards: WgBoard[];
   readonly overview: { x: number; y: number; w: number; h: number };
   /** Huge culling bounds centered on the content — the canvas feels infinite. */
   x0 = 0; y0 = 0; width = 0; height = 0;
-  /** Dot-grid backdrop on/off (toolbar toggle; masthead always stays). */
-  showGrid = true;
   /** Live perf readout (fed to the fps chip's 3rd mode via onDebug): section
    *  ms, instance delta, cumulative cache misses — climbing while idle = thrash. */
   debug = '';
@@ -281,12 +271,15 @@ export class WindgraphWorld {
 
   // ── emit ────────────────────────────────────────────────────────────────
 
-  /** Backdrop cache key + quantized clip for a view (shared by frameSig/emit). */
+  /** Backdrop cache key + quantized clip for a view (shared by frameSig/emit).
+   *  The backdrop is just the static masthead now (the old toggleable grid was
+   *  removed — the per-plot planes carry the grids). Its cache key quantizes the
+   *  visible rect to a coarse TILE, so a pan/dolly replays the masthead until a
+   *  tile boundary (a few times/sec, not per frame). */
   private backdropParts(view: PlaneView) {
-    const z = Math.max(view.zoom, 1e-4);
     const sentinel = view.left < -1e11;
     // In 3D the visible ground rect can extend past the horizon (behind-camera
-    // rays). Clamp to the content area so the grid and board culling stay
+    // rays). Clamp to the content area so the masthead + board culling stay
     // bounded. In 2D the viewport is always finite; the sentinel fallback uses
     // the overview + margin.
     const oL = this.overview.x - 2000, oT = this.overview.y - 2000;
@@ -296,14 +289,13 @@ export class WindgraphWorld {
     const vT = sentinel ? oT : is3d ? Math.max(view.top, oT) : view.top;
     const vR = sentinel ? oR : is3d ? Math.min(view.right, oR) : view.right;
     const vB = sentinel ? oB : is3d ? Math.min(view.bottom, oB) : view.bottom;
-    // Line grid: screen spacing ~140-280px, cached over the view + a 3-step
-    // margin quantized to the step itself — bounded line count at every zoom,
-    // and the key never contains raw zoom (niceStep is a step-function of it).
-    const step = niceStep(140 / z);
-    const mgn = step * 3;
-    const eL = Math.floor((vL - mgn) / step) * step, eT = Math.floor((vT - mgn) / step) * step;
-    const eR = Math.ceil((vR + mgn) / step) * step, eB = Math.ceil((vB + mgn) / step) * step;
-    return { sig: `g|${this.showGrid ? 1 : 0}|${step}|${eL},${eT},${eR},${eB}`, step, eL, eT, eR, eB, vL, vT, vR, vB };
+    const TILE = 2400;
+    const eL = Math.floor(vL / TILE) * TILE, eT = Math.floor(vT / TILE) * TILE;
+    const eR = Math.ceil(vR / TILE) * TILE, eB = Math.ceil(vB / TILE) * TILE;
+    return {
+      sig: `m|${eL / TILE},${eT / TILE},${eR / TILE},${eB / TILE}`,
+      eL, eT, eR, eB, vL, vT, vR, vB,
+    };
   }
 
   /** Frame-skip signature: the frame loop compares this to decide whether the
@@ -347,7 +339,7 @@ export class WindgraphWorld {
     const t0 = performance.now();
     const inst0 = inst.length;
     const bp = this.backdropParts(view);
-    const { step, eL, eT, eR, eB, vL, vT, vR, vB } = bp;
+    const { eL, eT, eR, eB, vL, vT, vR, vB } = bp;
 
     // Seed comp crv/rws with the frame buffer's current prefix (atlas + static
     // + editor + …). The world's content composes after it. Comp inst starts
@@ -368,24 +360,6 @@ export class WindgraphWorld {
     const tg0 = performance.now();
     setLen(cILen, cCLen, cRLen);
     this.backdropCache.run(bp.sig, cInst, cCrv, cRws, () => {
-      if (this.showGrid) {
-        // True line grid — and cheaper than dots: a full-length line is ONE
-        // stroke instance, vs one instance per dot. Widths derive from `step`
-        // so they stay constant within a cache band (~1 / ~1.8 screen px).
-        const wMinor = step / 140, wMajor = step / 80;
-        let i = 0;
-        for (let x = eL; x <= eR; x += step, i++) {
-          const major = ((i % 5) + 5) % 5 === 0;
-          strokeInto([[x, eT], [x, eB]], { width: major ? wMajor : wMinor },
-            major ? GRID_MAJOR : GRID_MINOR, cInst, cCrv, cRws);
-        }
-        let j = 0;
-        for (let y = eT; y <= eB; y += step, j++) {
-          const major = ((j % 5) + 5) % 5 === 0;
-          strokeInto([[eL, y], [eR, y]], { width: major ? wMajor : wMinor },
-            major ? GRID_MAJOR : GRID_MINOR, cInst, cCrv, cRws);
-        }
-      }
       this.drawMasthead(font, atlas, cInst, cCrv, cRws, eL, eT, eR, eB);
     });
     readLen();
@@ -518,7 +492,6 @@ export function bootWindgraphWorld(engine: Engine, onBack: () => void): () => vo
   const dispose = finishApp(s, onBack, [
     { id: 'cam3d', icon: 'cube', title: 'Toggle continuous 2D↔3D tilt (or double-tap the canvas)', active: () => world.tilted, onClick: () => world.toggleTilt() },
     qualityToolbarButton(s, qualityPanel),
-    { id: 'grid', icon: 'grid', title: 'Toggle dot grid', active: () => world.showGrid, onClick: () => { world.showGrid = !world.showGrid; } },
     { id: 'overview', icon: 'compass', title: 'Frame all boards', onClick: () => frameRect(ov.x, ov.y, ov.w, ov.h) },
     { id: 'wg-tri', icon: 'triangle', title: 'Interactive triangle: centroid, circumcircle, glider, measures — plus a slider-bound wave', onClick: () => { const b = world.boards[0]; frameRect(b.x0, b.y0, b.width, b.height); } },
     { id: 'wg-geom', icon: 'ruler', title: 'Constraint geometry: intersection, perpendicular foot, reflection, parallel, glider — all live', onClick: () => { const b = world.boards[1]; frameRect(b.x0, b.y0, b.width, b.height); } },

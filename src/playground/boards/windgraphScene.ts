@@ -226,6 +226,21 @@ export class WindgraphSceneBoard {
    *  sentinel), so the same tile-quantized clip + zq works for both modes —
    *  3D zoom rebuilds at the same band boundaries as 2D (no debounce, no
    *  delayed quality change), and frame-skip handles the per-frame cost. */
+  /** The view∩board clip snapped OUTWARD to a 1200px tile. This is the cache key
+   *  (sigFor) AND the geometry superset (emit): building the cached slice against
+   *  the RAW viewport made a replayed slice cover only the build-time viewport,
+   *  so panning within a tile revealed content-less gaps (the grid "didn't
+   *  update"). Expanding outward keeps the cached clip a strict SUPERSET of the
+   *  viewport — nothing pops in mid-tile, and panning replays the full tile. */
+  private tileView(view: PlaneView): PlaneView {
+    const TILE = 1200;
+    const eL = Math.floor(Math.max(view.left, this.x0) / TILE) * TILE;
+    const eT = Math.floor(Math.max(view.top, this.y0) / TILE) * TILE;
+    const eR = Math.ceil(Math.min(view.right, this.x0 + this.width) / TILE) * TILE;
+    const eB = Math.ceil(Math.min(view.bottom, this.y0 + this.height) / TILE) * TILE;
+    return { zoom: view.zoom, left: eL, right: eR, top: eT, bottom: eB };
+  }
+
   sigFor(view: PlaneView): string {
     this.ensure();
     const z = Math.max(view.zoom, 1e-6);
@@ -235,12 +250,8 @@ export class WindgraphSceneBoard {
       // computes actual 3D bounds; kept as a safe fallback.
       return `${this.rev}|${this.scene.hoveredId ?? ''}|${zq}`;
     }
-    const TILE = 1200;
-    const eL = Math.floor(Math.max(view.left, this.x0) / TILE) * TILE;
-    const eT = Math.floor(Math.max(view.top, this.y0) / TILE) * TILE;
-    const eR = Math.ceil(Math.min(view.right, this.x0 + this.width) / TILE) * TILE;
-    const eB = Math.ceil(Math.min(view.bottom, this.y0 + this.height) / TILE) * TILE;
-    return `${this.rev}|${this.scene.hoveredId ?? ''}|${zq}|${eL},${eT},${eR},${eB}`;
+    const vq = this.tileView(view);
+    return `${this.rev}|${this.scene.hoveredId ?? ''}|${zq}|${vq.left},${vq.top},${vq.right},${vq.bottom}`;
   }
 
   emit(font: FontFace, atlas: any, inst: number[], crv: number[], rws: number[], now: number, view: PlaneView) {
@@ -257,11 +268,16 @@ export class WindgraphSceneBoard {
     }
     // Cached geometry: border, grid, scene, hover ring — keyed on quantized
     // zoom so panning replays within a tile and zoom only rebuilds at bands.
+    // The build uses the TILE-EXPANDED view (matching sigFor's key), so the
+    // cached slice covers the whole tile — panning within a tile never reveals
+    // content-less gaps (the raw-viewport build froze the grid at the last
+    // rebuild position).
     this.cache.run(this.sigFor(view), inst, crv, rws, () => {
       const { x0, y0, width, height } = this;
       strokeInto([[x0, y0], [x0 + width, y0], [x0 + width, y0 + height], [x0, y0 + height], [x0, y0]], { width: 1.5 }, BORDER, inst, crv, rws);
-      this.plane.render({ font, atlas, inst, crv, rws }, view);
-      this.scene.emit({ font, atlas, inst, crv, rws }, view);
+      const vq = this.tileView(view);
+      this.plane.renderGrid({ font, atlas, inst, crv, rws }, vq);
+      this.scene.emit({ font, atlas, inst, crv, rws }, vq);
       const h = this.scene.drag.hover;
       if (h) {
         const rr = 16 / Math.max(view.zoom, 0.05);
@@ -274,6 +290,11 @@ export class WindgraphSceneBoard {
         strokeInto(ring, { width: 2 / Math.max(view.zoom, 0.05) }, GOLD, inst, crv, rws);
       }
     });
+    // Tick labels are UNCACHED and clipped to the LIVE viewport: building them
+    // against the tile superset made deep zoom emit thousands of glyph instances
+    // (FPS tank); uncached + viewport-clipped keeps them current while panning
+    // and bounded at any zoom (the board cache covers grid/axes/scene only).
+    this.plane.renderLabels({ font, atlas, inst, crv, rws }, view);
     // Uncached chrome: title + slider panel. The title is a FIXED world-size
     // object (k = 1, like the panel — D21/D22; screen-constant compensation made
     // it visibly wobble during tilt, so everything is simply fixed), centered
