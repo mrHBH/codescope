@@ -19,8 +19,7 @@ import { ANALYTIC_MENU_THEME } from '../ui/analyticMenu';
 import { ANALYTIC_PANEL_THEME, AnalyticPanel } from '../ui/analyticPanel';
 import { FpsChip } from '../ui/fpsChip';
 import { uiScale } from '../camera/camera';
-import { createGlyphRenderer } from '../windfoil/gpu';
-import { createMeshRenderer } from '../windfoil/mesh3d';
+import { setMeshAA } from '../windfoil/msaaSwap';
 
 // An AppState (optionally with the shared reference document), dark theme, baked
 // static buffers, sized canvas. `useDoc=false` yields an empty document — the
@@ -126,28 +125,15 @@ export function makeQualityPanel(s: AppState, include3D = false): AnalyticPanel 
     s.renderScale = v; s.camZ *= f; s.viewZ *= f; s.tgtZ *= f;
     setSize(s);
   };
-  // The "anti-aliasing" toggle is REAL MSAA on the whole pass (sampleCount 4):
-  // a multisampled color attachment resolved to the swapchain, all pipelines
-  // (analytic + mesh + HUD) recreated at 4×. This smooths the MESH silhouette
-  // (triangle edges) without touching the analytic content's exact coverage —
-  // supersampling via renderScale was dropped because it cannot fix geometric
-  // facets and relied on the browser's CSS downscale. Recreated lazily + cached.
-  const setAA = (v: boolean) => {
-    s.meshAA = v;
-    if (v) {
-      s.renderer = s.rendererMsaa ?? (s.rendererMsaa = createGlyphRenderer(s.device, { code: s.shaderCode, format: 'rgba8unorm', sampleCount: 4, depthWrite: true }));
-      s.meshRenderer = s.meshRendererMsaa ?? (s.meshRendererMsaa = createMeshRenderer(s.device, 'rgba8unorm', { sampleCount: 4 }));
-      s.screenHud?.setSampleCount(s.device, s.shaderCode, 4);
-    } else {
-      s.renderer = s.rendererBase;
-      s.meshRenderer = s.meshRendererBase;
-      s.screenHud?.setSampleCount(s.device, s.shaderCode, 1);
-    }
-  };
+  // The "anti-aliasing" toggle is REAL MSAA (sampleCount 4) via setMeshAA —
+  // independent of the render-resolution dial (both can be on at once), and the
+  // pass defaults ON whenever the 3D camera is entered (frame.ts hooks the
+  // cam3d transition; 2D is analytic-only and never pays the MSAA cost).
+  const setAA = (v: boolean) => setMeshAA(s, v);
   const items: import('../ui/analyticPanel').PanelItem[] = [
     { kind: 'header', id: 'q', label: 'Quality' },
     { kind: 'slider', id: 'res', label: 'Display resolution', min: 0.25, max: 2, step: 0.05,
-      get: () => s.renderScale || 1, set: applyRenderScale, fmt: (v) => v.toFixed(2) + '×', enabled: () => !s.meshAA },
+      get: () => s.renderScale || 1, set: applyRenderScale, fmt: (v) => v.toFixed(2) + '×' },
     { kind: 'toggle', id: 'sharpenOn', label: 'Low-res render + sharpen',
       get: () => s.lowResSharpen, set: (v) => { s.lowResSharpen = v; } },
     { kind: 'slider', id: 'integral', label: 'Integral resolution', min: 0.25, max: 1, step: 0.05,
@@ -161,7 +147,7 @@ export function makeQualityPanel(s: AppState, include3D = false): AnalyticPanel 
       { kind: 'toggle', id: 'smooth', label: 'Smooth shaded walls',
         get: () => s.meshSmooth, set: (v) => { s.meshSmooth = v; } },
       { kind: 'toggle', id: 'aa', label: 'Anti-aliasing (MSAA 4×)',
-        get: () => s.meshAA, set: setAA },
+        get: () => s.meshAA, set: setAA, enabled: () => !!s.cam3d.active },
       { kind: 'toggle', id: 'shadows', label: 'Real cast shadows',
         get: () => s.realShadows, set: (v) => { s.realShadows = v; } },
     );

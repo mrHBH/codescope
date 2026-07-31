@@ -13,7 +13,6 @@ import { sampleCurve3D, pushTube, polyToQuads, type Vec3 } from '../../windgraph
 import { strokeInto, strokeQuadPath, fillQuads } from '../../windgraph/stroke/stroke';
 import { layoutStr, tw } from '../../layout/metrics';
 import { isTilted, toggleTilt } from '../../camera/camera';
-import { orbitPolar, isEnabled } from '../../camera/orbit';
 
 const RED: number[] = [0.92, 0.45, 0.40, 1];
 const GREEN: number[] = [0.38, 0.82, 0.55, 1];
@@ -50,13 +49,12 @@ function lodDetail(viewZ: number): number {
   return Math.min(Math.pow(zq, 0.75), 3);
 }
 
-// Polar angle gate: below this the camera is "2D" (top-down) — the board shows
-// the analytic silhouette bands, not the 3D tube mesh (which would flatten into
-// a jumbled blob with all faces on one depth layer). Mirrors the extrude board's
-// shadow gate.
-const TILT_GATE = 0.06;
-function po(): number {
-  return isEnabled() ? orbitPolar() : 0;
+/** 2D = analytic curve, 3D = mesh tube — the switch happens at the EXPLICIT
+ *  mode toggle (double-tap / cube), not at a polar gate mid-tilt. In 2D the
+ *  ortho camera collapses the tube's faces onto one depth layer (a jumbled
+ *  blob), so the mesh stays out and the analytic curve owns the view. */
+function in3D(app: AppState | null): boolean {
+  return !!app && app.cam3d.active;
 }
 
 export class WindgraphCurve3DBoard {
@@ -77,14 +75,12 @@ export class WindgraphCurve3DBoard {
 
   ensure() {}
 
-  /** In the flat 2D view the tube mesh is NOT drawn: the 2D ortho collapses all
-   *  faces onto one depth layer, so back/side faces overlap the front into a
-   *  jumbled blob (3D top-down looks different only because depth occludes the
-   *  far side). Instead the board emits the tube's TOP-DOWN SILHOUETTE — a clean
-   *  analytic band of the tube's diameter along the curve's xy-projection, razor
-   *  sharp at any zoom (the extrude board's seamless 2D↔3D pattern, OQ-9). */
+  /** In the flat 2D view the tube mesh is NOT drawn (the 2D ortho collapses all
+   *  faces onto one depth layer → a jumbled blob); the analytic curve owns 2D.
+   *  In 3D the tube mesh is drawn (depth-tested, MSAA-able), built once per
+   *  zoom band — orbiting alone never rebuilds (no pop). */
   getMesh(): Float32Array | null {
-    if (po() <= TILT_GATE) return null;
+    if (!in3D(this.app)) return null;
     const detail = this.app ? lodDetail(this.app.viewZ) : 1;
     if (this._meshKey !== `d${detail}`) {
       this._meshKey = `d${detail}`;
@@ -149,8 +145,8 @@ export class WindgraphCurve3DBoard {
   frameSig(view: PlaneView): string {
     const z = Math.max(view.zoom, 1e-6);
     const zq = Math.pow(2, Math.round(Math.log2(z) * 2) / 2);
-    const tilted = po() > TILT_GATE ? 1 : 0;
-    return `c3d|${this.rev}|${tilted}|${zq}`;
+    const mode = in3D(this.app) ? 1 : 0;
+    return `c3d|${this.rev}|${mode}|${zq}`;
   }
 
   /** World boards call sigFor (frame.ts calls frameSig on the standalone route);
@@ -165,37 +161,37 @@ export class WindgraphCurve3DBoard {
     const ax = [x0 + 200, y0 + 760] as const;
     const axLen = 330;
 
-    // The curve content itself: 3D = the tube mesh (getMesh, depth-tested); 2D =
-    // the tube's top-down silhouette as a smooth analytic BÉZIER band (the flat
-    // ortho would collapse the tube's faces into a jumbled blob on one depth
-    // layer; a raw polyline band would facet — the B-spline fit + strokeQuadPath
-    // keeps the boundary a smooth curve at any zoom, exactly like the 2D plots).
-    const tilted = po() > TILT_GATE;
-    if (!tilted) {
+    // 2D (ortho) = the ANALYTIC curve: a clean screen-constant stroked curve via
+    // the same smooth quadratic-Bézier ribbon the 2D plots use — zero aliasing
+    // by construction at any zoom. (A thick "tube silhouette" band was tried and
+    // looked jagged: a wide offset of a tight curve self-intersects, and the
+    // analytic renderer draws the cusps exactly.) 3D (orbit) = the tube mesh.
+    if (!in3D(this.app)) {
       const detail = lodDetail(Math.max(view.zoom, 1e-6));
       const { helix: hlx, knot } = this.polylines(detail);
+      const w = Math.max(3.5 / Math.max(view.zoom, 1e-6), 0.4); // screen-constant
       const hx = x0 + 330, hy = y0 + 420;
       const hq: number[] = [];
-      strokeQuadPath(polyToQuads(hlx.map((p) => [p[0] + hx, p[1] + hy]), false), { width: 16, cap: 'round', join: 'round' }, false, hq);
+      strokeQuadPath(polyToQuads(hlx.map((p) => [p[0] + hx, p[1] + hy]), false), { width: w, cap: 'round', join: 'round' }, false, hq);
       fillQuads(hq, VIOLET, inst, crv, rws);
       const kx = x0 + 900, ky = y0 + 420;
       const kq: number[] = [];
-      strokeQuadPath(polyToQuads(knot.map((p) => [p[0] + kx, p[1] + ky]), true), { width: 14, cap: 'round', join: 'round' }, false, kq);
+      strokeQuadPath(polyToQuads(knot.map((p) => [p[0] + kx, p[1] + ky]), true), { width: w, cap: 'round', join: 'round' }, false, kq);
       fillQuads(kq, GOLD, inst, crv, rws);
-      // Axes: the x/y axes show as thin bands; the z axis is a point from above.
-      strokeInto([[ax[0], ax[1]], [ax[0] + axLen, ax[1]]], { width: 5, cap: 'butt', join: 'miter' }, RED, inst, crv, rws);
-      strokeInto([[ax[0], ax[1]], [ax[0], ax[1] - axLen * 0.7]], { width: 5, cap: 'butt', join: 'miter' }, GREEN, inst, crv, rws);
+      // Axes: the x/y axes show as strokes; the z axis is a point from above.
+      strokeInto([[ax[0], ax[1]], [ax[0] + axLen, ax[1]]], { width: w * 0.8, cap: 'butt', join: 'miter' }, RED, inst, crv, rws);
+      strokeInto([[ax[0], ax[1]], [ax[0], ax[1] - axLen * 0.7]], { width: w * 0.8, cap: 'butt', join: 'miter' }, GREEN, inst, crv, rws);
     }
 
-    // Flat analytic chrome (2D — always readable, drawn over the mesh).
+    // Flat analytic chrome (always readable, drawn over the mesh).
     strokeInto([[x0, y0], [x0 + width, y0], [x0 + width, y0 + height], [x0, y0 + height], [x0, y0]], { width: 1.5 }, AXIS, inst, crv, rws);
-    const tTitle = '3D space curves — watertight Gouraud tubes';
+    const tTitle = '3D space curves — analytic in 2D, solid tubes in 3D';
     const tSize = 40;
     layoutStr(inst, tTitle, TITLE, atlas.table, font, { x: x0 + width / 2 - tw(tTitle, font, tSize) / 2, y: y0 + tSize * 0.4, size: tSize });
-    const sub = 'torus knot + helix · 2D shows the top-down silhouette, tilt reveals the depth-tested solid tubes';
+    const sub = '2D is the analytic curve (exact coverage, no aliasing by construction) · double-tap into 3D for the depth-tested Gouraud tube';
     const sSize = 19;
     layoutStr(inst, sub, SUB, atlas.table, font, { x: x0 + width / 2 - tw(sub, font, sSize) / 2, y: y0 + 74, size: sSize });
-    const cap = 'double-tap (or the cube) to tilt into a tilted orbit · every tube edge is a depth-tested triangle';
+    const cap = 'double-tap (or the cube) to switch 2D analytic ↔ 3D tube · AA = MSAA 4× on the mesh';
     const cSize = 19;
     layoutStr(inst, cap, SUB, atlas.table, font, { x: x0 + width / 2 - tw(cap, font, cSize) / 2, y: y0 + height - 44, size: cSize });
     layoutStr(inst, 'x', RED, atlas.table, font, { x: ax[0] + axLen + 10, y: ax[1] - 12, size: 26 });

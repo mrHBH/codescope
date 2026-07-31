@@ -48,6 +48,9 @@ export interface AppState {
   // benchmark drops this for its low-resolution comparison phases; setSize reads
   // it when sizing the canvas backing store.
   renderScale: number;
+  /** Last frame's `cam3d.active` — frame.ts hooks the 2D↔3D transition to
+   *  auto-enable MSAA on entering 3D (default on) and disable it in 2D. */
+  lastCam3d: boolean;
   // Low-res-render + sharpen-upscale pipeline (see windfoil/upscale.ts). When
   // `lowResSharpen` is on, the analytic coverage pass renders into an offscreen
   // texture at `integralScale` × the swapchain size, then a contrast-adaptive
@@ -256,7 +259,7 @@ export function createAppState(partial: Partial<AppState>): AppState {
     device: null as any, renderer: null, rendererBase: null as any, meshRendererBase: null as any,
     rendererMsaa: null, meshRendererMsaa: null, shaderCode: '',
     font: null as any, atlas: null,
-    renderScale: 1,
+    renderScale: 1, lastCam3d: false,
     upscaler: null, lowResSharpen: false, integralScale: 0.6, sharpenAmount: 0.6,
     postfx: null, hudRenderer: null, screenHud: null, toolbar: null, panel: null, hudDebugText: '',
     meshAA: false, realShadows: false, meshSmooth: true,

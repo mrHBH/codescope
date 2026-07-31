@@ -235,7 +235,10 @@ export function polyToQuads(pts: [number, number][], closed: boolean): number[] 
 }
 
 function shadeV(nx: number, ny: number, nz: number): number {
-  return 0.45 + 0.55 * Math.max(0, nx * LIGHT_DIR[0] + ny * LIGHT_DIR[1] + nz * LIGHT_DIR[2]);
+  // HIGH ambient (0.75) so the tube reads close to its flat base color at every
+  // orbit — a fixed light at the old 0.45 darkened the tube so the 2D analytic
+  // view (flat color) and the 3D tube visibly changed color when tilting.
+  return 0.75 + 0.25 * Math.max(0, nx * LIGHT_DIR[0] + ny * LIGHT_DIR[1] + nz * LIGHT_DIR[2]);
 }
 
 function pushV(mesh: number[], p: Vec3, s: number, c: number[]) {

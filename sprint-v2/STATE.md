@@ -90,6 +90,39 @@ If this file and the code disagree, investigate before trusting either.
 
 ## Log
 
+- 2026-07-31 — **AA defaults ON in 3D, OFF in 2D, and no longer fights the
+  resolution slider (user: "let AA default on in 3D; apply it only to the 3D
+  meshes; keep the resolution slider when AA is toggled").** Centralized the
+  MSAA renderer swap into `src/windfoil/msaaSwap.ts` (`setMeshAA`: swaps
+  `renderer`/`meshRenderer` to lazily-cached 4× variants + matches the screen-HUD
+  sample count; guarded against non-createBaseApp apps). frame.ts hooks the
+  `cam3d` transition (`s.lastCam3d`): MSAA auto-ON entering 3D, auto-OFF in 2D —
+  analytic-only views never pay the 4× cost, and manual toggles in 3D are
+  respected (transition-only trigger). The render-resolution slider is now
+  independent of AA (MSAA doesn't touch renderScale); the AA panel toggle is
+  gated to 3D. Honest caveat: WebGPU requires every pipeline in a pass to match
+  the attachment sample count, so the analytic renderer runs at 4× too — but the
+  coverage integral is exact at any sample count, so the analytic output is
+  pixel-identical; only the mesh's triangle edges visibly benefit. tsc clean;
+  24/24 suites green; vite build ok. Visual verdict = user.
+- 2026-07-31 — **curve3d: 2D = clean analytic curve, no mid-tilt snap, brighter
+  tubes (user: "2D still jagged even with AA; don't like the automatic analytic
+  → mesh change; color changes — maybe light follows camera").** Three fixes.
+  (1) **2D jaggedness root cause**: the 2D view was drawing the TUBE'S top-down
+  SILHOUETTE as a 14-16px band — a wide offset of a tight curve self-intersects
+  (offset cusps), and the analytic renderer draws the cusps EXACTLY. 2D now
+  draws the curve as a clean screen-constant (~3.5px) analytic stroke via the
+  same smooth Bézier ribbon the 2D plots use — zero aliasing by construction.
+  (2) **No mid-tilt gate**: the polar gate (0.06) snapped bands↔tubes mid-tilt.
+  Removed — the rule is now simply "2D (ortho) = analytic curve, 3D (orbit) =
+  tube mesh," with ONE transition at the explicit 2D↔3D toggle (double-tap/cube).
+  The tube mesh only draws in the 3D camera (where depth occludes faces — the
+  jumbled-blob problem was 2D-ortho-only). (3) **Color consistency**: tube
+  shading ambient raised 0.45→0.75 so the tube reads close to its flat base
+  color (the 2D analytic color) at any orbit; a true camera-following light
+  would need normals in the mesh format (deferred). 12 curve tests; 27 world
+  tests; 24/24 suites green; tsc clean (only pre-existing font.ts); vite build
+  ok. Visual verdict = user.
 - 2026-07-31 — **curve3d analytic-2D + REAL MSAA (user: "curves still aliased in
   3D and 2D, AA does nothing; in 2D I expected the analytic pipeline").** Two
   fixes. (1) **2D is now properly analytic + smooth**: the curves already went

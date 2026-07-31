@@ -23,6 +23,7 @@ import { EmitCache } from './windfoil/emitCache';
 import { ANALYTIC_MENU_THEME } from './ui/analyticMenu';
 import { poseXform } from './camera/screenWorld';
 import { rect3DVisible } from './camera/frustum';
+import { setMeshAA } from './windfoil/msaaSwap';
 
 const _hoveredSet = new Set<StyledEl>();
 const _tmpColor: number[] = [0, 0, 0, 0];
@@ -1003,6 +1004,11 @@ export function runFrame(s: AppState): () => void {
     };
 
     const Cw = s.tCanvas.width, Ch = s.tCanvas.height;
+    // MSAA defaults ON in 3D (the mesh needs it) and OFF in 2D (analytic-only
+    // content is exact — no cost): hook the cam3d transition. A manual toggle in
+    // 3D is respected because this only fires on an actual mode change.
+    if (s.cam3d.active !== s.lastCam3d) setMeshAA(s, s.cam3d.active);
+    s.lastCam3d = s.cam3d.active;
     s.mwx = (s.mx - Cw / 2) / s.viewZ + s.viewX;
     s.mwy = (s.my - Ch / 2) / s.viewZ + s.viewY;
     // In 3D the world-mouse comes from ray-casting the pointer onto the ground.

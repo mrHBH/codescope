@@ -127,7 +127,7 @@ export const DEMOS: Demo[] = [
   },
   {
     id: 'curve3d', name: '3D space curves',
-    blurb: 'A torus knot and a helix as watertight Gouraud mesh tubes — the mesh3d depth buffer resolves every crossing, solid and smooth and stable at any orbit. Flat analytic labels stay razor-sharp on top.',
+    blurb: '2D is the analytic curve — exact coverage, no aliasing by construction. Double-tap into 3D and the same knot becomes a watertight Gouraud tube, depth-tested and MSAA-able. One demo, two honest representations.',
     boot: bootCurve3d,
   },
   {
