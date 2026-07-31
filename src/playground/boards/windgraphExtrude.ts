@@ -38,7 +38,8 @@ export class WindgraphExtrudeBoard {
   /** Quality dials, read from the app's settings panel when hosted (fallbacks for
    *  headless/standalone-without-panel). smooth = Gouraud the round walls (cylinder
    *  + glyph sides); realShadows = depth-mapped cast shadows (skips the analytic
-   *  contact blobs). meshAA (MSAA) lives on AppState (it changes the render pass). */
+   *  contact blobs). `meshAA` = 2× SUPERSAMPLING (drives renderScale; MSAA was
+   *  replaced in D19 — the resolve target black-screened), a whole-frame dial. */
   get smooth(): boolean { return this.app?.meshSmooth ?? true; }
   get realShadows(): boolean { return this.app?.realShadows ?? false; }
   /** AppState ref (set when hosted standalone) for the continuous tilt toggle. */

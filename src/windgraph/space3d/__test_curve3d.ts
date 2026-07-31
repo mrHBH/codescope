@@ -6,7 +6,7 @@
 // sweeps a watertight smooth tube (Gouraud radial shading, end caps) whose every
 // vertex sits at radius distance from the centerline.
 
-import { sampleCurve3D, pushTube, quatFromFrame, quatApply, frameOf, type Vec3 } from './curve3d';
+import { sampleCurve3D, pushTube, quatFromFrame, quatApply, frameOf, polyToQuads, type Vec3 } from './curve3d';
 
 let passed = 0, failed = 0;
 function test(name: string, fn: () => void) {
@@ -120,6 +120,25 @@ test('pushTube: degenerate (zero radius / single point) emits nothing', () => {
   pushTube(m, [[0, 0, 0], [10, 0, 0]], { radius: 0, color: [1, 0, 0, 1] });
   pushTube(m, [[0, 0, 0]], { radius: 5, color: [1, 0, 0, 1] });
   assert(m.length === 0, 'no verts for degenerate tubes');
+});
+
+test('polyToQuads: open polyline keeps the endpoints and stays C1 (straight line stays straight)', () => {
+  const q = polyToQuads([[0, 0], [100, 0], [200, 0]], false);
+  assert(q.length === 2 * 6, `2 quads for 3 pts, got ${q.length / 6}`);
+  // Every coordinate must stay on y=0 (the line).
+  for (let i = 0; i < q.length; i += 2) assert(q[i + 1] === 0, `control/end ${i} stays on the line`);
+  assert(q[0] === 0 && q[1] === 0, 'starts at the first point');
+  assert(q[q.length - 2] === 200 && q[q.length - 1] === 0, 'ends at the last point');
+  // C1 at the shared joint: (50,0) — control(100,0) + control(0,0) = 2·(50,0).
+  near(q[8], 100, 1e-9, 'joint control x = 100');
+});
+
+test('polyToQuads: closed loop drops the seam duplicate and wraps around', () => {
+  const q = polyToQuads([[0, 0], [100, 0], [100, 100], [0, 0]], true);
+  assert(q.length === 3 * 6, `3 quads for a triangle (seam dropped), got ${q.length / 6}`);
+  // The first quad starts at the midpoint of the last sample pair (wrap).
+  near(q[0], 50, 1e-9, 'wrap midpoint x');
+  near(q[1], 50, 1e-9, 'wrap midpoint y');
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

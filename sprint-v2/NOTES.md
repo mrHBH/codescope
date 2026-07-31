@@ -644,6 +644,16 @@ from the code lives here. Newest entries at the bottom of each section.
 - `src/windfoil/windfoil.wgsl:69` — `fxXforms` storage buffer, `vec4f` pair per
   instance (`rotX, rotY, z, scale`), applied when `fxActive`. Task 2.1 promotes
   this from FX-only to a Mobject-emitted property.
+- `src/windfoil/mesh3d.ts:195` — `drawTris` gates the buffer upload on the
+  `Float32Array` reference (`verts !== lastTris`), so a board returning the SAME
+  cached mesh costs ZERO per-frame upload; only a rebuild (new array) re-uploads.
+  That makes a cached mesh + zoom-band LOD free in steady state (D26 tube pivot).
+- Mesh-LOD gotcha (D26, 2026-07-31): scaling BOTH the centerline tolerance AND
+  the radial segment count with zoom makes vertices grow QUADRATICALLY
+  (`segs·radial`); an uncapped detail blew up to 1.4M verts / 150ms rebuild
+  hitches. Keep the cap modest (detail ≤ 3 → ~470k verts here) and accept the
+  D3 "sampled content" deep-zoom facets rather than chasing sub-pixel facets at
+  extreme zoom.
 - `SPRINT.md` decision D6 (IDE FX sprint): **depth write stays OFF** on the
   windfoil pass; flying glyphs append last (painter order, z≥0). Extruded
   side-walls routed through `mesh3d` are depth-tested in a *separate* pipeline

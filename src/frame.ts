@@ -840,18 +840,35 @@ function renderClickFx(el: StyledEl, s: AppState, crv: number[], rws: number[], 
   }
 }
 
-// Shared depth texture for the 3D mesh pass, recreated when the canvas resizes.
+// Shared depth texture for the 3D mesh pass, recreated when the canvas resizes
+// or the MSAA sample count changes. The main-pass depth MUST match the color
+// attachment's sample count (WebGPU validates this per pass).
 let _depthTex: GPUTexture | null = null;
 let _depthView: GPUTextureView | null = null;
-let _depthW = 0, _depthH = 0;
-function ensureDepthView(device: GPUDevice, w: number, h: number): GPUTextureView {
-  if (!_depthTex || _depthW !== w || _depthH !== h) {
+let _depthW = 0, _depthH = 0, _depthS = 1;
+function ensureDepthView(device: GPUDevice, w: number, h: number, samples: number): GPUTextureView {
+  if (!_depthTex || _depthW !== w || _depthH !== h || _depthS !== samples) {
     _depthTex?.destroy();
-    _depthTex = device.createTexture({ size: [w, h], format: DEPTH_FORMAT, usage: GPUTextureUsage.RENDER_ATTACHMENT });
+    _depthTex = device.createTexture({ size: [w, h], format: DEPTH_FORMAT, usage: GPUTextureUsage.RENDER_ATTACHMENT, sampleCount: samples });
     _depthView = _depthTex.createView();
-    _depthW = w; _depthH = h;
+    _depthW = w; _depthH = h; _depthS = samples;
   }
   return _depthView!;
+}
+
+// Multisampled color texture for the MSAA pass (resolved to the swapchain /
+// offscreen target). Recreated on resize.
+let _msaaTex: GPUTexture | null = null;
+let _msaaView: GPUTextureView | null = null;
+let _msaaW = 0, _msaaH = 0;
+function ensureMsaaColor(device: GPUDevice, w: number, h: number): GPUTextureView {
+  if (!_msaaTex || _msaaW !== w || _msaaH !== h) {
+    _msaaTex?.destroy();
+    _msaaTex = device.createTexture({ size: [w, h], format: 'rgba8unorm', usage: GPUTextureUsage.RENDER_ATTACHMENT, sampleCount: 4 });
+    _msaaView = _msaaTex.createView();
+    _msaaW = w; _msaaH = h;
+  }
+  return _msaaView!;
 }
 
 // Visible page/board test in the 3D free camera carries the camera's ground-plane
@@ -1436,9 +1453,19 @@ export function runFrame(s: AppState): () => void {
     const iScale = sharpen ? Math.min(Math.max(s.integralScale, 0.25), 1) : 1;
     const renderW = sharpen ? Math.max(1, Math.round(Cw * iScale)) : Cw;
     const renderH = sharpen ? Math.max(1, Math.round(Ch * iScale)) : Ch;
-    const depthView = ensureDepthView(s.device, renderW, renderH);
+    // MSAA (the AA dial): the whole main pass renders into a 4× multisampled
+    // color + depth pair and resolves to the swapchain/offscreen target. The
+    // mesh silhouette's hard triangle edges get real edge smoothing; the
+    // analytic content's exact coverage is untouched (and slightly better-
+    // sampled). All pipelines (analytic, mesh, HUD) are recreated at 4× by the
+    // toggle (app.ts setAA). NOTE: the CLEAR lives on the multisampled `view`,
+    // never the resolveTarget — putting it on the resolve target leaves the MSAA
+    // buffer uncleared (the old black-screen bug).
+    const samples = s.meshAA ? 4 : 1;
+    const depthView = ensureDepthView(s.device, renderW, renderH, samples);
     const swapView = s.gpuCtx.getCurrentTexture().createView();
     const colorView = usePostfx ? s.postfx!.target(Cw, Ch) : sharpen ? s.upscaler!.target(renderW, renderH) : swapView;
+    const msaaView = samples > 1 ? ensureMsaaColor(s.device, renderW, renderH) : null;
     // Clear to the theme backdrop: the canvas is OPAQUE (see main.ts), so the
     // backdrop is painted here instead of showing a CSS background through a
     // transparent canvas (which cost a full-screen compositor blend per frame).
@@ -1449,10 +1476,6 @@ export function runFrame(s: AppState): () => void {
     // Only the GROUND samples the map (the grounded shadow is the payoff); the solids
     // do NOT self-sample — that produced shadow acne + flicker on lit faces. Gated to
     // tilted 3D with an extrude board present; top-down stays the flat 2D read (OQ-9).
-    // NOTE: the "anti-aliasing" dial is 2× SUPERSAMPLING (it drives renderScale in the
-    // quality panel), not a multisample resolve — a resolve target left the MSAA color
-    // buffer uncleared (WebGPU applies the clear to the resolve target, not the MSAA
-    // view) which rendered black. Supersampling is the proven, robust AA path.
     const ib: any = s.interactive;
     const imesh: Float32Array | null = ib?.getMesh?.() ?? null;
     const ground: Float32Array | null = ib?.getGround?.() ?? null;
@@ -1464,7 +1487,13 @@ export function runFrame(s: AppState): () => void {
       if (sp) { s.meshRenderer.castVerts(sp, imesh!); s.meshRenderer.castVerts(sp, ground!); sp.end(); }
     }
     const pass = enc.beginRenderPass({
-      colorAttachments: [{ view: colorView, clearValue: { r: bd[0], g: bd[1], b: bd[2], a: 1 }, loadOp: 'clear', storeOp: 'store' }],
+      colorAttachments: [{
+        view: msaaView ?? colorView,
+        resolveTarget: msaaView ? colorView : undefined,
+        clearValue: { r: bd[0], g: bd[1], b: bd[2], a: 1 },
+        loadOp: 'clear',
+        storeOp: msaaView ? 'discard' : 'store',
+      }],
       depthStencilAttachment: { view: depthView, depthClearValue: 1, depthLoadOp: 'clear', depthStoreOp: 'store' },
     });
     // View-projection: orthographic (2D) or perspective (3D free camera). camScale

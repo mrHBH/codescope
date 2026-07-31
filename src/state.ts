@@ -35,6 +35,13 @@ export interface AppState {
   gpuCtx: GPUCanvasContext;
   device: GPUDevice;
   renderer: GlyphRenderer;
+  /** 1× renderers (engine originals) — the AA toggle swaps `renderer`/
+   *  `meshRenderer` to the lazily-created MSAA variants and back. */
+  rendererBase: GlyphRenderer;
+  meshRendererBase: any;
+  rendererMsaa: GlyphRenderer | null;
+  meshRendererMsaa: any;
+  shaderCode: string;
   font: FontFace;
   atlas: GlyphAtlas;
   // Internal render-resolution multiplier on top of dpr (default 1). The perf
@@ -246,7 +253,9 @@ export function createAppState(partial: Partial<AppState>): AppState {
   return {
     dpr: 1, PAGE_W: 1040,
     rCanvas: null as any, tCanvas: null as any, rCtx: null as any, gpuCtx: null as any,
-    device: null as any, renderer: null, font: null as any, atlas: null,
+    device: null as any, renderer: null, rendererBase: null as any, meshRendererBase: null as any,
+    rendererMsaa: null, meshRendererMsaa: null, shaderCode: '',
+    font: null as any, atlas: null,
     renderScale: 1,
     upscaler: null, lowResSharpen: false, integralScale: 0.6, sharpenAmount: 0.6,
     postfx: null, hudRenderer: null, screenHud: null, toolbar: null, panel: null, hudDebugText: '',

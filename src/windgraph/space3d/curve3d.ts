@@ -201,6 +201,39 @@ export interface TubeOpts {
   closed?: boolean;
 }
 
+/** Convert a sampled 2D polyline into smooth quadratic-Bézier pieces via the
+ *  B-spline→Bézier construction (segment i runs midpoint(i−1)→midpoint(i) with
+ *  control point Q_i — C1-continuous, passes near the samples). Feed the result
+ *  to `strokeQuadPath` so a stroked polyline boundary stays a smooth curve (not
+ *  a faceted polygon) at any zoom — the same fit the 2D plot engine uses. */
+export function polyToQuads(pts: [number, number][], closed: boolean): number[] {
+  const n = pts.length;
+  if (n < 2) return [];
+  const m = closed ? n - 1 : n; // drop the seam duplicate on a closed loop
+  const M = (i: number): [number, number] => {
+    const j = ((i % m) + m) % m;
+    const a = pts[j], b = pts[(j + 1) % m];
+    return [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+  };
+  const out: number[] = [];
+  if (closed) {
+    for (let i = 0; i < m; i++) {
+      const [ax, ay] = M(i - 1);
+      const [cx, cy] = pts[i];
+      const [bx, by] = M(i);
+      out.push(ax, ay, cx, cy, bx, by);
+    }
+  } else {
+    for (let i = 0; i < m - 1; i++) {
+      const p0 = i === 0 ? pts[0] : M(i - 1);
+      const c = pts[i];
+      const p2 = i === m - 2 ? pts[m - 1] : M(i);
+      out.push(p0[0], p0[1], c[0], c[1], p2[0], p2[1]);
+    }
+  }
+  return out;
+}
+
 function shadeV(nx: number, ny: number, nz: number): number {
   return 0.45 + 0.55 * Math.max(0, nx * LIGHT_DIR[0] + ny * LIGHT_DIR[1] + nz * LIGHT_DIR[2]);
 }

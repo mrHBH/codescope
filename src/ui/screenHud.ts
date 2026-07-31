@@ -13,7 +13,9 @@
 import { createGlyphRenderer, type GlyphRenderer } from '../windfoil/gpu';
 
 export class ScreenHud {
-  readonly renderer: GlyphRenderer;
+  /** Not readonly — the AA toggle (MSAA) recreates it at sampleCount 4 so it can
+   *  draw into the multisampled main pass. */
+  renderer: GlyphRenderer;
   inst: number[] = [];
   crv: number[] = [];
   rws: number[] = [];
@@ -35,6 +37,12 @@ export class ScreenHud {
 
   constructor(device: GPUDevice, shaderCode: string) {
     this.renderer = createGlyphRenderer(device, { code: shaderCode, format: 'rgba8unorm' });
+  }
+
+  /** Recreate the internal renderer at a given sample count (the AA toggle). */
+  setSampleCount(device: GPUDevice, shaderCode: string, n: number) {
+    this.renderer = createGlyphRenderer(device, { code: shaderCode, format: 'rgba8unorm', sampleCount: n });
+    this.lastSig = undefined; // force a rebuild on the next frame
   }
 
   /** Clear the overlay and seed crv/rws with the atlas base band tables so glyph

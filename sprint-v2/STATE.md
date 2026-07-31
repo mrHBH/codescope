@@ -90,6 +90,74 @@ If this file and the code disagree, investigate before trusting either.
 
 ## Log
 
+- 2026-07-31 — **curve3d analytic-2D + REAL MSAA (user: "curves still aliased in
+  3D and 2D, AA does nothing; in 2D I expected the analytic pipeline").** Two
+  fixes. (1) **2D is now properly analytic + smooth**: the curves already went
+  through the winding-integral pipeline but as a RAW POLYLINE contour — which the
+  analytic renderer draws exactly, so every chord facet showed. Switched to the
+  smooth quadratic-Bézier ribbon path (`polyToQuads` B-spline fit +
+  `strokeQuadPath` → `fillQuads` — the exact mechanism the 2D plots use), so the
+  band boundary is a smooth curve at any zoom. (2) **The AA dial is now REAL MSAA
+  (4×)** instead of 2× supersampling: a multisampled color+depth pair resolved to
+  the swapchain (`view` holds the clear — the old D19 black-screen was the clear
+  on the resolve target), all main-pass pipelines (analytic + mesh + HUD) swapped
+  to lazily-cached sampleCount-4 variants via the toggle (app.ts setAA; castPipe
+  stays 1× for the single-sample shadow pass). MSAA smooths the MESH silhouette's
+  hard triangle edges — the real "aliased in 3D" cause — without touching the
+  analytic content. The supersample path could not fix GEOMETRIC facets (why AA
+  "did nothing"); MSAA + the Bézier 2D both address the geometry. 12 curve tests;
+  27 world tests; 24/24 suites green; tsc clean (only pre-existing font.ts);
+  vite build ok. Visual verdict = user (`#curve3d` → toggle AA, zoom).
+- 2026-07-31 — **curve3d 2D silhouette fix (user: "in 2D the 3D curve looks
+  ugly... it should look identical to 3D from above"; also AA questions).** The
+  2D ugly was the flat-projected tube MESH: the 2D ortho collapses every tube
+  face onto ONE depth layer (z→0.5), so back/side faces overlap the front into a
+  jumbled blob — 3D top-down looks different only because depth occludes the far
+  side. Fix: in flat 2D the board does NOT draw the tube mesh; it emits the
+  tube's TOP-DOWN SILHOUETTE as a clean analytic band along the curve's
+  xy-projection, width = the tube diameter (exactly the "3D from above" view,
+  razor-sharp, the extrude OQ-9 pattern). `getMesh()` returns null below a polar
+  gate (0.06, the extrude shadow gate); emit strokes vs. tubes split on the same
+  gate; frameSig now carries tilt + zoom band. **AA audit:** the toggle is 2×
+  whole-frame SUPERSAMPLING (canvas backing ×2, CSS-downscaled). It reads as "no
+  effect on the mesh" because 64-gon tubes are already sub-pixel-smooth, and the
+  reported "text worse" was most likely the text drawn OVER the jumbled 2D mesh
+  blob (now gone) — exact coverage at 2× cannot be worse; if it persists it is
+  the CSS-downscale path (esp. non-integer dpr) and the fix is an offscreen
+  render + blit instead of CSS downscale. 27 world tests; 24/24 suites green;
+  tsc clean (only pre-existing font.ts); vite build ok. Visual verdict = user.
+- 2026-07-31 — **3D architecture audit + dead-code cleanup (user: "i really dont
+  want any scattered implementation... how is the learning demo's 3D rendered?").**
+  Verified the map: ALL 3D bodies render through ONE GPU mesh pipeline
+  (`mesh3d.ts` — tris/lines/shadow) + ONE orbit camera + one shared depth buffer.
+  The learning demo's gradient-descent surface is `LossSurface3D` →
+  `s.graph3d` → `drawTris`+`drawLines` (frame.ts:1480); the curve tubes +
+  extrude walls feed the same pipeline via `s.interactive.getMesh()`. Content
+  builders (LossSurface3D, pushWalls/pushCap, pushTube) all emit the same 7-float
+  vertex format; THREE.js is only the orbit camera. Removed the v1 CPU
+  `Projector` class (painter-sorted 3D→2D — zero consumers left) from
+  project3d.ts; fixed a stale `meshAA (MSAA)` comment (it is 2× supersampling
+  since D19). **AA toggle audit:** it IS wired in #curve3d (`makeQualityPanel` →
+  `renderScale` → canvas ×2, CSS-downscaled = whole-frame supersample); it reads
+  as "nothing" because the scene is already sub-pixel-smooth (64-gon tubes +
+  exact analytic text) — nothing to alias. tsc clean; 24/24 suites green.
+- 2026-07-31 — **F3D-2 tube quality pass (user: "i dont like the quality... I
+  remember troika-three-text producing higher quality bezier curves").** Two
+  things. (1) Troika-three-text is a TEXT library (GPU winding-fill of glyph
+  bezier outlines into a texture atlas) — it draws no curves; our analytic
+  pipeline already does that glyph fill in closed form per-pixel (strictly
+  sharper, no atlas). The "higher quality curves" memory is three.js fat-lines/
+  TubeGeometry, whose quality secret is a TESSELATION BUDGET — which the tubes
+  lacked: the mesh was static at 18-gon / ~40px chords, so the silhouette
+  faceted at the default framing. (2) Quality fix: base 64-gon + ~10px centerline
+  chords (the same relative smoothness as the approved extrude cylinder) and a
+  QUANTIZED √2-zoom-band LOD (detail ~ z^0.75 scales centerline + radial; capped
+  ~470k verts, facets sub-pixel to ~5× zoom; beyond that the D3 "sampled
+  content" tradeoff, honestly labeled). Rebuilds are one-frame hitches at band
+  crossings only — mesh3d gates the upload on the Float32Array reference, so a
+  still frame (and pure orbiting) never rebuilds. Base mesh 140k verts / ~19ms
+  once. **tsc clean; 24/24 suites green; vite build ok.** Visual verdict = user
+  (`#curve3d` → tilt → zoom in). Awaiting CP6. STOPPED.
 - 2026-07-31 — **F3D-2 PIVOT to mesh tubes (user verdict on #curve3d: "kinda
   unstable and ugly — accept that for 3D we will need mesh3d").** Flat analytic
   ribbons are the wrong primitive for 3D curves (zero thickness along the normal

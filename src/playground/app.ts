@@ -19,6 +19,8 @@ import { ANALYTIC_MENU_THEME } from '../ui/analyticMenu';
 import { ANALYTIC_PANEL_THEME, AnalyticPanel } from '../ui/analyticPanel';
 import { FpsChip } from '../ui/fpsChip';
 import { uiScale } from '../camera/camera';
+import { createGlyphRenderer } from '../windfoil/gpu';
+import { createMeshRenderer } from '../windfoil/mesh3d';
 
 // An AppState (optionally with the shared reference document), dark theme, baked
 // static buffers, sized canvas. `useDoc=false` yields an empty document — the
@@ -42,6 +44,11 @@ export function createBaseApp(engine: Engine, useDoc: boolean): AppState {
   s.cycleTheme = theme.cycle;
   s.upscaler = upscaler;
   s.meshRenderer = meshRenderer;
+  // The AA toggle (MSAA) swaps these to lazily-created 4× variants and back; the
+  // engine's 1× renderers stay as the bases.
+  s.rendererBase = renderer;
+  s.meshRendererBase = meshRenderer;
+  s.shaderCode = engine.shaderCode;
   // Reusable screen-space HUD overlay for the analytic toolbar/menus finishApp wires
   // up (drawn through its own renderer with a screen-ortho matrix — see ui/screenHud.ts).
   s.screenHud = new ScreenHud(device, engine.shaderCode);
@@ -119,15 +126,23 @@ export function makeQualityPanel(s: AppState, include3D = false): AnalyticPanel 
     s.renderScale = v; s.camZ *= f; s.viewZ *= f; s.tgtZ *= f;
     setSize(s);
   };
-  // The "anti-aliasing" toggle is 2× SUPERSAMPLING (the robust, proven AA path — a
-  // multisample resolve black-screened because WebGPU clears the resolve target, not
-  // the MSAA view). It stashes the current resolution on enable and restores it on
-  // disable; the resolution slider is disabled while AA is on so the two can't fight.
-  let aaBase = s.renderScale || 1;
+  // The "anti-aliasing" toggle is REAL MSAA on the whole pass (sampleCount 4):
+  // a multisampled color attachment resolved to the swapchain, all pipelines
+  // (analytic + mesh + HUD) recreated at 4×. This smooths the MESH silhouette
+  // (triangle edges) without touching the analytic content's exact coverage —
+  // supersampling via renderScale was dropped because it cannot fix geometric
+  // facets and relied on the browser's CSS downscale. Recreated lazily + cached.
   const setAA = (v: boolean) => {
     s.meshAA = v;
-    if (v) { aaBase = s.renderScale || 1; applyRenderScale(Math.max(2, aaBase)); }
-    else { applyRenderScale(aaBase); }
+    if (v) {
+      s.renderer = s.rendererMsaa ?? (s.rendererMsaa = createGlyphRenderer(s.device, { code: s.shaderCode, format: 'rgba8unorm', sampleCount: 4, depthWrite: true }));
+      s.meshRenderer = s.meshRendererMsaa ?? (s.meshRendererMsaa = createMeshRenderer(s.device, 'rgba8unorm', { sampleCount: 4 }));
+      s.screenHud?.setSampleCount(s.device, s.shaderCode, 4);
+    } else {
+      s.renderer = s.rendererBase;
+      s.meshRenderer = s.meshRendererBase;
+      s.screenHud?.setSampleCount(s.device, s.shaderCode, 1);
+    }
   };
   const items: import('../ui/analyticPanel').PanelItem[] = [
     { kind: 'header', id: 'q', label: 'Quality' },
@@ -145,7 +160,7 @@ export function makeQualityPanel(s: AppState, include3D = false): AnalyticPanel 
       { kind: 'header', id: 'q3', label: '3D extrusion' },
       { kind: 'toggle', id: 'smooth', label: 'Smooth shaded walls',
         get: () => s.meshSmooth, set: (v) => { s.meshSmooth = v; } },
-      { kind: 'toggle', id: 'aa', label: 'Anti-aliasing (2× supersample)',
+      { kind: 'toggle', id: 'aa', label: 'Anti-aliasing (MSAA 4×)',
         get: () => s.meshAA, set: setAA },
       { kind: 'toggle', id: 'shadows', label: 'Real cast shadows',
         get: () => s.realShadows, set: (v) => { s.realShadows = v; } },

@@ -1,48 +1,9 @@
-// ── windgraph · 3D→2D projection (Phase 7) ───────────────────────────────────
-// The windfoil shader draws every instance flat on z=0, so 3D graphing is done
-// by projecting 3D geometry to 2D WORLD coordinates on the CPU each frame and
-// drawing analytic fills/strokes (painter-sorted back-to-front). This keeps the
-// single-draw-call analytic pipeline (crisp at any zoom) with zero shader change.
-//
-// Convention: world axes x,y horizontal, z UP. `az` orbits about the z axis,
-// `el` tilts the view down. project() returns a 2D screen position (pre-scale)
-// plus a depth for painter sorting (larger depth = farther from the viewer).
-
-export interface Projected { sx: number; sy: number; depth: number; }
-
-export class Projector {
-  az = 0.7;      // azimuth (radians)
-  el = 0.5;      // elevation (radians), 0 = edge-on, π/2 = top-down
-  scale = 1;     // world px per data unit
-  ox = 0; oy = 0; // 2D world origin the projection is placed at
-
-  project(x: number, y: number, z: number): Projected {
-    const ca = Math.cos(this.az), sa = Math.sin(this.az);
-    const ce = Math.cos(this.el), se = Math.sin(this.el);
-    // Rotate about z (azimuth).
-    const rx = x * ca + y * sa;
-    const ry = -x * sa + y * ca;
-    // Tilt about x (elevation): screen-up gets height + tilted depth.
-    const sx = rx;
-    const sy = z * ce - ry * se;
-    const depth = ry * ce + z * se;
-    return { sx, sy, depth };
-  }
-
-  /** Project to 2D WORLD coordinates (y-down), ready to feed the fill/stroke engine. */
-  toWorld(x: number, y: number, z: number): [number, number] {
-    const p = this.project(x, y, z);
-    return [this.ox + p.sx * this.scale, this.oy - p.sy * this.scale];
-  }
-
-  /** Camera-space depth only (for painter sorting). */
-  depthOf(x: number, y: number, z: number): number {
-    const ca = Math.cos(this.az), sa = Math.sin(this.az);
-    const ce = Math.cos(this.el), se = Math.sin(this.el);
-    const ry = -x * sa + y * ca;
-    return ry * ce + z * se;
-  }
-}
+// ── windgraph · 3D shared constants (Phase 7) ─────────────────────────────────
+// Shared light + shading + colormap helpers for the mesh3d pipeline and its
+// content builders (loss surface, extrude walls, curve tubes). The v1 CPU
+// `Projector` (painter-sorted 3D→2D projection) was REMOVED — windgraph v2
+// renders all 3D bodies through the GPU mesh3d pipeline (mesh3d.ts) with one
+// orbit camera; no consumer of Projector remained.
 
 // Unit light direction for simple Lambert shading of surface faces.
 export const LIGHT_DIR: [number, number, number] = (() => {

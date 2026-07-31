@@ -131,31 +131,22 @@ test('standalone emit: board owns an xf buffer aligned 1:1 with instances', () =
   assert(sawFlat, 'chrome/shadow instances stay at z=0');
 });
 
-test('curve3d board: watertight mesh tubes via getMesh, chrome stays analytic flat', () => {
+test('curve3d board: 2D emits top-down silhouette bands (no tube mesh in flat view)', () => {
   const cb = new WindgraphCurve3DBoard();
   cb.x0 = 0; cb.y0 = 0;
   const inst: number[] = [], crv: number[] = [], rws: number[] = [];
   cb.emit(mockFont, mockAtlas, inst, crv, rws, 0, view);
   const n = inst.length / 16;
-  assert(n > 0, 'emitted chrome instances (border/title/labels)');
-  const mesh = cb.getMesh();
-  assert(mesh !== null && mesh.length > 0, 'tube mesh non-empty');
-  const m = mesh!;
-  assert(m.length % 7 === 0, `mesh is 7 floats/vert (got ${m.length} % 7 = ${m.length % 7})`);
-  // Every vertex carries straight-alpha color + a valid Lambert shade (the r
-  // channel is color.r·shade, so its floor depends on the tube's color).
-  for (let v = 0; v < m.length / 7; v++) {
-    const a = m[v * 7 + 6];
-    assert(a === 1, `vertex ${v} alpha 1`);
-    const r = m[v * 7 + 3];
-    assert(r >= 0 && r <= 1, `vertex ${v} r channel in [0,1]`);
-  }
-  // No analytic 3D: no opaque prefix, no quaternion xf buffer.
-  assert((cb as any).opaqueCount === undefined, 'no opaqueCount (solid bodies go through mesh3d)');
-  assert((cb as any).xfBuffer === undefined, 'no xfBuffer (labels are flat ground chrome)');
+  // Each band is ONE analytic fill contour: border + helix + knot + x-axis +
+  // y-axis = 5 (the mock atlas emits no glyphs, so labels contribute 0).
+  assert(n === 5, `expected 5 (border + 4 silhouette bands), got ${n}`);
+  // In the flat 2D view the tube mesh is NOT drawn (it would flatten into a
+  // jumbled blob); the 2D silhouette bands own the view.
+  assert(cb.getMesh() === null, 'getMesh is null in 2D (silhouette bands own the view)');
+  assert(cb.frameSig(view) === new WindgraphCurve3DBoard().frameSig(view), 'sig is deterministic');
 });
 
-test('world: getMesh() composes the extrude walls + the curve3d tubes', () => {
+test('world: getMesh() composes the extrude walls (curve3d adds its tubes only when tilted)', () => {
   const w = new WindgraphWorld();
   const mesh = w.getMesh();
   assert(mesh === null || mesh.length % 7 === 0, 'world mesh is well-formed');
