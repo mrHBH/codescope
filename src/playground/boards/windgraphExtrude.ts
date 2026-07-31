@@ -12,10 +12,9 @@ import { Polygon, Circle, Label, Tex } from '../../windgraph/mobject/primitives'
 import type { RenderCtx } from '../../windgraph/mobject/mobject';
 import { emitBlobShadow, emitShadow, pushWalls, pushCap, insetLoop } from '../../windgraph/space3d/extrude';
 import { strokeInto } from '../../windgraph/stroke/stroke';
-import { layoutStr } from '../../layout/metrics';
-import type { GlyphAtlas } from '../../windfoil/bands';
+import { layoutStr, tw } from '../../layout/metrics';
 import { AnalyticPanel } from '../../ui/analyticPanel';
-import { positionBoardPanel, renderBoardPanel, panelHitXY, boardScreenChromeSig, renderBoardScreenChrome } from './sliderOverlay';
+import { positionBoardPanel, renderBoardPanel, panelHitXY } from './sliderOverlay';
 import { orbitPolar, isEnabled } from '../../camera/orbit';
 import { isTilted, toggleTilt } from '../../camera/camera';
 
@@ -23,7 +22,7 @@ const BLUE: number[] = [0.36, 0.62, 0.98, 1];
 const TEAL: number[] = [0.30, 0.85, 0.75, 1];
 const GOLD: number[] = [0.92, 0.74, 0.42, 1];
 const BORDER: number[] = [0.25, 0.26, 0.30, 1];
-const TITLE: number[] = [0.60, 0.64, 0.74, 1];
+const TITLE: number[] = [0.92, 0.94, 0.99, 1];
 
 const MAX_H = 130;
 
@@ -67,7 +66,7 @@ export class WindgraphExtrudeBoard {
   private cyl!: Circle;
   private headline!: Tex;
   private tag!: Label;
-  /** Screen-space slider panel (analytic, fixed-size, identical in 2D and 3D). */
+  /** World-space slider panel (analytic, fixed-size by default; D21). */
   panel: AnalyticPanel | null = null;
   private built = false;
   private emits = 0;
@@ -161,13 +160,13 @@ export class WindgraphExtrudeBoard {
   tryBeginDrag(wx: number, wy: number, _scale: number, sx?: number, sy?: number): boolean {
     this.ensure();
     positionBoardPanel(this, this.app);
-    const [px, py] = panelHitXY(this, wx, wy, sx, sy);
+    const [px, py] = panelHitXY(this, wx, wy);
     return !!(this.panel && this.panel.pointerDown(px, py));
   }
   dragTo(wx: number, wy: number) {
     if (this.panel && this.panel.isDragging) {
-      const useScreen = !!this.app?.cam3d.active;
-      this.panel.drag(useScreen ? this.app!.mx : wx, useScreen ? this.app!.my : wy);
+      // The panel is world-space in both modes → drive the drag with doc coords.
+      this.panel.drag(wx, wy);
     }
   }
   endDrag() { this.panel?.endDrag(); }
@@ -181,7 +180,7 @@ export class WindgraphExtrudeBoard {
     if (key === this.hoverKey) return this.hoverRes;
     this.hoverKey = key;
     positionBoardPanel(this, this.app);
-    const [hx, hy] = panelHitXY(this, wx, wy, sx, sy);
+    const [hx, hy] = panelHitXY(this, wx, wy);
     this.panel?.updateHover(hx, hy);
     return (this.hoverRes = (this.panel?.hovered ?? -1) >= 0);
   }
@@ -207,7 +206,7 @@ export class WindgraphExtrudeBoard {
     return `xtr|${this.rev}|${this.extrude}|${zq}|${tilted}`;
   }
 
-  emit(font: FontFace, atlas: any, inst: number[], crv: number[], rws: number[], _now: number, view: PlaneView, _camX?: number, _camY?: number) {
+  emit(font: FontFace, atlas: any, inst: number[], crv: number[], rws: number[], _now: number, _view: PlaneView, _camX?: number, _camY?: number) {
     this.ensure();
     this.emits++;
 
@@ -222,13 +221,17 @@ export class WindgraphExtrudeBoard {
     if (own) { xfArr.length = 0; for (let i = 0; i < need0; i++) xfArr.push(0); }
     else { while (xfArr.length < need0) xfArr.push(0); }
     const ctx: RenderCtx = { font, atlas, inst, crv, rws, xf: xfArr };
-    const k = 1 / Math.max(view.zoom, 0.05);
 
     // Board chrome (flat).
     const { x0, y0, width, height } = this;
     strokeInto([[x0, y0], [x0 + width, y0], [x0 + width, y0 + height], [x0, y0 + height], [x0, y0]], { width: 1.5 }, BORDER, inst, crv, rws);
-    const tSize = 20 * k;
-    layoutStr(inst, 'continuous 2D ↔ 3D — one space, no mode switch', TITLE, atlas.table, font, { x: x0 + 18 * k, y: y0 + tSize * 1.6, size: tSize });
+    // FIXED world-size title (k = 1, like the panel — D21/D22), centered over
+    // the top edge, no underline.
+    const tTitle = 'continuous 2D ↔ 3D — one space, no mode switch';
+    const tSize = 40;
+    const tBase = y0 + tSize * 0.4;
+    const tx = x0 + width / 2 - tw(tTitle, font, tSize) / 2;
+    layoutStr(inst, tTitle, TITLE, atlas.table, font, { x: tx, y: tBase, size: tSize });
 
     const h = this.extrude;
     this.square.extrude = h;
@@ -266,9 +269,11 @@ export class WindgraphExtrudeBoard {
     this.headline.emit(ctx);
     this.tag.emit(ctx);
 
-    // Slider panel: 2D world-space (here); 3D screen-HUD (renderScreenChrome).
+    // Slider panel: a world-space object in both modes (fixed world size by
+    // default; the panel's toggle switches to screen-constant), drawn into the
+    // scene buffer like the board content it controls.
     positionBoardPanel(this, this.app);
-    if (!this.app?.cam3d.active) renderBoardPanel(this, inst, crv, rws, font, atlas);
+    renderBoardPanel(this, inst, crv, rws, font, atlas);
 
     // Standalone: pad the trailing xf gap (slider chrome) and publish the buffer.
     if (own) {
@@ -279,12 +284,5 @@ export class WindgraphExtrudeBoard {
       if (this._xfFA.length < xfArr.length) this._xfFA = new Float32Array(xfArr.length);
       for (let i = 0; i < xfArr.length; i++) this._xfFA[i] = xfArr[i];
     }
-  }
-
-  /** Standalone 3D: the panel lives in the screen HUD (the world renders it itself
-   *  when this board is hosted, so these only fire when the board is s.interactive). */
-  screenChromeSig(s: AppState): string { return boardScreenChromeSig(this, s); }
-  renderScreenChrome(s: AppState, hud: { inst: number[]; crv: number[]; rws: number[] }, font: FontFace, atlas: GlyphAtlas) {
-    renderBoardScreenChrome(this, s, hud, font, atlas);
   }
 }

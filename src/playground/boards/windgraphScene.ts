@@ -14,18 +14,18 @@ import { WgScene } from '../../authoring/runtime/object-resolver';
 import { NumberPlane, type PlaneView } from '../../windgraph/coords/numberPlane';
 import { EmitCache } from '../../windfoil/emitCache';
 import { strokeInto } from '../../windgraph/stroke/stroke';
-import { layoutStr } from '../../layout/metrics';
+import { layoutStr, tw } from '../../layout/metrics';
 import type { FontFace } from '../../windfoil/font';
 import type { AppState } from '../../state';
 import { AnalyticPanel } from '../../ui/analyticPanel';
-import { positionBoardPanel, renderBoardPanel, panelHitXY, boardScreenChromeSig, renderBoardScreenChrome } from './sliderOverlay';
+import { positionBoardPanel, renderBoardPanel, panelHitXY } from './sliderOverlay';
 
 const BLUE: Color = [0.36, 0.62, 0.98, 1];
 const GOLD: Color = [0.92, 0.74, 0.42, 1];
 const TEAL: Color = [0.30, 0.85, 0.75, 1];
 const PINK: Color = [0.94, 0.55, 0.75, 1];
 const BORDER: Color = [0.25, 0.26, 0.30, 1];
-const TITLE: Color = [0.60, 0.64, 0.74, 1];
+const TITLE: Color = [0.92, 0.94, 0.99, 1];
 
 /** The CP2 demo scene: an authored triangle kit + a param-bound plot. */
 export function demoDoc(): SceneDoc {
@@ -97,7 +97,7 @@ export class WindgraphSceneBoard {
   private homeB: { x: number; y: number } | null = null;
   /** Numeric params surface as analytic sliders (task 1.5). */
   private sliders: { name: string; label: string; min: number; max: number; step: number }[] = [];
-  /** Screen-space slider panel (analytic, fixed-size, identical in 2D and 3D). */
+  /** World-space slider panel (analytic, fixed-size by default; D21). */
   panel: AnalyticPanel | null = null;
   /** Host AppState (set by the world) for world→screen projection of the panel. */
   app: AppState | null = null;
@@ -166,10 +166,10 @@ export class WindgraphSceneBoard {
 
   tryBeginDrag(wx: number, wy: number, scale: number, sx?: number, sy?: number): boolean {
     this.ensure();
-    // Sliders first. In 3D the panel is a screen-HUD overlay, so hit-test with the
-    // pointer's screen px; in 2D it is world-space, so use doc coords (panelHitXY).
+    // Sliders first — the panel is a world-space object in both modes, hit-tested
+    // in doc coords (panelHitXY).
     positionBoardPanel(this, this.app);
-    const [px, py] = panelHitXY(this, wx, wy, sx, sy);
+    const [px, py] = panelHitXY(this, wx, wy);
     if (this.panel && this.panel.pointerDown(px, py)) return true;
     const began = this.scene.tryBeginDrag(wx, wy, scale);
     if (began) this.rev++;
@@ -177,10 +177,8 @@ export class WindgraphSceneBoard {
   }
   dragTo(wx: number, wy: number) {
     if (this.panel && this.panel.isDragging) {
-      // 3D panel lives in screen px → drive the drag with the live pointer screen
-      // position; 2D panel is world-space → doc coords.
-      const useScreen = !!this.app?.cam3d.active;
-      this.panel.drag(useScreen ? this.app!.mx : wx, useScreen ? this.app!.my : wy);
+      // The panel is world-space in both modes → drive the drag with doc coords.
+      this.panel.drag(wx, wy);
       return;
     }
     this.scene.dragTo(wx, wy);
@@ -195,7 +193,7 @@ export class WindgraphSceneBoard {
     if (key === this.hoverKey) return this.hoverRes;
     this.hoverKey = key;
     positionBoardPanel(this, this.app);
-    const [hx, hy] = panelHitXY(this, wx, wy, sx, sy);
+    const [hx, hy] = panelHitXY(this, wx, wy);
     this.panel?.updateHover(hx, hy);
     if ((this.panel?.hovered ?? -1) >= 0) { this.scene.drag.hover = null; return (this.hoverRes = true); }
     if (wx < this.x0 - 40 || wx > this.x0 + this.width + 40 || wy < this.y0 - 40 || wy > this.y0 + this.height + 40) {
@@ -276,24 +274,18 @@ export class WindgraphSceneBoard {
         strokeInto(ring, { width: 2 / Math.max(view.zoom, 0.05) }, GOLD, inst, crv, rws);
       }
     });
-    // Uncached chrome: title + slider panel. The panel is positioned in doc
-    // coords at the board's corner (world-space, screen-constant size k=1/zoom),
-    // drawn into the world instance buffer — "in 3D" through the live VP, like
-    // the context menu. In 2D the ortho VP maps it to the same screen position.
-    const k = 1 / Math.max(view.zoom, 0.05);
-    const tSize = 18 * k;
-    layoutStr(inst, this.doc.meta.title, TITLE, atlas.table, font, { x: this.x0 + 16 * k, y: this.y0 + tSize * 0.4, size: tSize });
+    // Uncached chrome: title + slider panel. The title is a FIXED world-size
+    // object (k = 1, like the panel — D21/D22; screen-constant compensation made
+    // it visibly wobble during tilt, so everything is simply fixed), centered
+    // over the top edge so the corner panel never covers it. No underline
+    // (2026-07-31). The panel lives at the board corner (fixed world size, D21).
+    const title = this.doc.meta.title;
+    const tSize = 40;
+    const tBase = this.y0 + tSize * 0.4;
+    const tx = this.x0 + this.width / 2 - tw(title, font, tSize) / 2;
+    layoutStr(inst, title, TITLE, atlas.table, font, { x: tx, y: tBase, size: tSize });
     positionBoardPanel(this, this.app);
-    // In 3D the panel is drawn into the screen HUD (screen-constant, undistorted);
-    // emitting it here too would stack a perspective-distorted copy underneath.
-    if (!this.app?.cam3d.active) renderBoardPanel(this, inst, crv, rws, font, atlas);
-  }
-
-  /** Standalone 3D: the panel lives in the screen HUD (the world renders it itself
-   *  when this board is hosted, so these only fire when the board is s.interactive). */
-  screenChromeSig(s: AppState): string { return boardScreenChromeSig(this, s); }
-  renderScreenChrome(s: AppState, hud: { inst: number[]; crv: number[]; rws: number[] }, font: FontFace, atlas: any) {
-    renderBoardScreenChrome(this, s, hud, font, atlas);
+    renderBoardPanel(this, inst, crv, rws, font, atlas);
   }
 }
 

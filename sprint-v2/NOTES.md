@@ -425,8 +425,58 @@ from the code lives here. Newest entries at the bottom of each section.
   render pass redraws persistent instFA/xfBuf/mesh through the live
   `orbitViewProj` every frame (including skipped ones) — the VP is set as a
   uniform every frame, and `frameDataVersion` only gates the buffer UPLOAD
-  (not the draw call). This is the same mechanism 2D uses (skip between
-  wheel ticks, redraw through the ortho VP).
+   (not the draw call). This is the same mechanism 2D uses (skip between
+   wheel ticks, redraw through the ortho VP).
+
+- **D21 — Board slider panels: fixed-size WORLD objects in 3D, not screen-HUD
+  billboards (2026-07-31, user verdict on #windgraph).** `temp1` had pinned each
+  board's `AnalyticPanel` into the screen HUD in 3D (screen-ortho, backing-store
+  px at the corner's projection) — a 2D billboard that never tilts or dollies.
+  Reverted to the world-space design (what the 07-30 log claimed): panels emit
+  into the WORLD instance buffer at the board's corner in both modes. Hit-testing
+  + slider drags are always doc coords (the interactive contract delivers
+  ground-plane doc coords in 3D), so `panelHitXY` lost its screen-px branch and
+  `sx/sy` are unused for panels. `screenChromeSig`/`renderScreenChrome` +
+  `boardScreenChromeSig`/`renderBoardScreenChrome` deleted (no panel lives in the
+  HUD). `frameSig` already carried panel interaction state (open/hover/drag), so
+  frame-skip still rebuilds the world buffer on hover/drag. Follow-up (same day,
+  user: "in 2d mode it should also have fixed size + add a mode picker"):
+  FIXED world size (`k = 1`) is now the default in BOTH modes — a real flat panel
+  that zooms/tilts/dollies with the scene in 2D and 3D alike; each board panel
+  gets a `fixed size` toggle row that switches to `'screen'`
+  (`k = 1/cameraScale` — genuinely screen-constant in the ortho 2D VP; in 3D a
+  world object sized for the current camera distance, still foreshortens under
+  tilt — true billboards stay rejected). Mode lives on `SliderBoard.panelMode`
+  (default `'fixed'`) and is folded into `frameSig`/`boardPanelSig` so toggling
+  re-emits. Note: the toggle is per-board (no global setting). Open: user wants
+  to later explore panels that keep same VISIBLE size while rotating in the
+  corner — tracked in OQ-11. **Superseded same day (user: "make them fixed
+  sizes, remove the option"): the `fixed size` toggle is REMOVED — FIXED world
+  size (k = 1) is the only mode; `SliderBoard.panelMode`, the toggle rows, and
+  the screen branch in `positionBoardPanel` are all deleted.**
+- **D22 — Board titles: fixed-size world objects, like the panels (user: "the
+  labels for each graph; the size change; fix them; make them bigger",
+  2026-07-31).** The old titles were `T·k` with `k = 1/view.zoom`:
+  screen-constant in the ortho 2D VP but a fixed-world-size object in 3D, so
+  they SHRANK on tilt (the "size change") and were 18px tiny. Also,
+  `positionBoardPanel` keeps each board's settings panel open at the top-left
+  corner, so the old top-left title sat HIDDEN under the panel. Two attempts:
+  (1) screen-constant world text via `titleSize = clamp(T/groundScaleAt, T/2,
+  T·2.6)` — `groundScaleAt` projects a unit doc-y segment through the live
+  view-projection, so the title would bake T device px at any camera pose; a
+  quantized polar band in the world's `frameSig` re-baked it during tilt.
+  USER REJECTED: "they still change size" — the banded re-bake reads as a
+  continuous wobble (fixed-world object that snaps bigger at each polar band
+  while the camera keeps tilting). REVERTED to the D21 philosophy: titles are
+  simply FIXED world size (tSize = 40, k = 1) centered over the top edge — a
+  real ground object that tilts/dollies exactly like the plot and panel, no
+  compensation, no wobble. The gold underline was also removed. Kept from
+  attempt (1): top-center placement (visible above the open corner panel) and
+  the brighter near-white `TITLE` color ("bolder", same Lato). Lesson: **screen-
+  constant world text is a lie under a live perspective camera — the per-frame
+  size compensator always reads as wobble; pick either a true screen-HUD
+  overlay or a plain fixed-world object, never a hybrid.** OQ-11's
+  same-visible-size panel inherits the same verdict.
 
 ## 2. Technical tips (file:line anchored)
 
@@ -694,6 +744,19 @@ from the code lives here. Newest entries at the bottom of each section.
   world masthead or a toolbar button when convenient. Also open: A5's tangent is
   y=f(x)-only (matches the B5 note above); a tangent to an arbitrary *parametric*
   Mobject curve would reuse `calculus.derivative` on the curve's sampling.
+- **OQ-11 — Screen-constant panel in 3D, rotated (user idea, 2026-07-31).** After
+  D21 (fixed-size world panels), the user wants to explore panels that keep the
+  SAME visible size while living in the world (anchored at the board corner,
+  rotated/standing in the scene). Options: (a) keep the fixed-world panel but
+  compensate the emitted scale per frame with `k = 1/cameraScale` *as a world
+  object* — a perspective-projected rect whose world size is scaled so its
+  on-screen size is constant (depth-correct placement, not the screen-HUD
+  billboard); (b) billboard-toward-camera but in world space (billboard vertex
+  orientation, still depth-tested against the scene). D21 is the stepping stone;
+  revisit after CP6. **D22 verdict applies here too:** a per-frame size
+  compensator in world space reads as wobble under a live perspective camera —
+  the user rejected it for titles ("they still change size"); a same-visible-size
+  panel would likely need the same treatment to feel right.
 
 ## 4. Lessons (digest of oldsprintplan/POSTMORTEM.md + v1 sprint)
 

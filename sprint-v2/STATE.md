@@ -85,6 +85,31 @@ If this file and the code disagree, investigate before trusting either.
 
 ## Log
 
+- 2026-07-31 — **Slider panels: back to WORLD space in 3D (user: "they became
+  2D billboards — they need to be 3D in world space; fixed sizing for now").**
+  `temp1` had pinned each board's `AnalyticPanel` into the screen HUD in 3D
+  (screen-ortho overlay at the corner's projection) — the billboard the user
+  rejected. Panels now emit into the WORLD instance buffer at the board's corner
+  in both modes; hit-testing + slider drags are doc coords everywhere; the
+  screen-HUD panel path was deleted (`screenChromeSig`/`renderScreenChrome`
+  gone). Follow-up same day: **fixed world size is now the default in 2D AND 3D**
+  (a real flat object that zooms/tilts/dollies with the scene), and each board
+  panel gained a `fixed size` toggle to switch to screen-constant (`panelMode`
+  on `SliderBoard`, folded into `frameSig` so toggling re-emits). See NOTES.md
+  D21 + OQ-11 (later: same visible size, rotated). **tsc clean; 387 tests green
+  across 22 suites.** Awaiting CP6. STOPPED.
+- 2026-07-31 — **Board titles fixed (user: "the labels for each graph; the size
+  change; fix them; make them bigger").** Titles were 18px and screen-constant
+  only in 2D — under the 3D tilt they're fixed-world objects that SHRINK (the
+  size change), and they sat hidden under the always-open corner settings panel.
+  Attempt 1 = screen-constant compensator (`titleSize`/`groundScaleAt`, polar
+  band in frameSig) — USER REJECTED ("they still change size": the banded
+  re-bake reads as wobble mid-tilt). Final: titles are FIXED world size (tSize
+  40, k = 1, like the panels), top-CENTER (visible above the corner panel),
+  bright near-white, NO underline. Panels: the `fixed size` toggle is REMOVED —
+  fixed (k = 1) is the only mode (`panelMode`, toggle rows, screen branch all
+  deleted). **tsc clean; 387 tests green across 22 suites.** Awaiting CP6.
+  STOPPED.
 - 2026-07-27 — Sprint docs created (`sprint-v2/`, `SPRINT-windgraph-v2.md`,
   `WINDGRAPH.md`). Architecture settled: windgraph objects = IR primitives,
   islands = procedural/field content only. No code changed.

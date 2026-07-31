@@ -2,6 +2,7 @@
 // Run with: bun src/playground/boards/__test_windgraphScene.ts
 
 import { WindgraphSceneBoard, demoDoc, wgRepl } from './windgraphScene';
+import { positionBoardPanel } from './sliderOverlay';
 
 let passed = 0, failed = 0;
 function test(name: string, fn: () => void) {
@@ -102,6 +103,15 @@ test('slider drag maps pointer x to a quantized param value', () => {
   b.dragTo(tx0, rowMidY); // drag to min
   b.endDrag();
   approx(b.params.get('a'), 0.2, 0.001);
+});
+
+test('panel: always FIXED world size (k = 1) in both modes (D21; no mode toggle)', () => {
+  const b = board();
+  const mockApp = { cam3d: { active: false }, viewX: 0, viewY: 0, viewZ: 2, tCanvas: { width: 800, height: 600 } } as any;
+  positionBoardPanel(b, mockApp);
+  approx(b.panel!.scale, 1, 0.001);
+  approx(b.panel!.w, 236, 0.5);
+  assert(!b.panel!.items.some((it) => it.id === 'panelMode'), 'no size-mode toggle row remains');
 });
 
 test('autoDrive moves B and bumps rev (cinematic flight feed)', () => {

@@ -17,7 +17,7 @@ import type { Engine } from './engine';
 import type { SceneDoc, Color } from '../authoring/ir/types';
 import type { AppState } from '../state';
 import { scene } from '../authoring/builder/scene';
-import { isTilted, toggleTilt, cameraScale } from '../camera/camera';
+import { isTilted, toggleTilt } from '../camera/camera';
 import { orbitFrameRect } from '../camera/orbit';
 import { createBaseApp, finishApp, snapTo, makeQualityPanel, qualityToolbarButton } from './app';
 import { WindgraphSceneBoard, demoDoc } from './boards/windgraphScene';
@@ -28,7 +28,7 @@ import { layoutStr, tw } from '../layout/metrics';
 import type { FontFace } from '../windfoil/font';
 import type { PlaneView } from '../windgraph/coords/numberPlane';
 import type { GlyphAtlas } from '../windfoil/bands';
-import { positionBoardPanel, panelHitXY, boardScreenChromeSig, renderBoardScreenChrome } from './boards/sliderOverlay';
+import { positionBoardPanel, panelHitXY } from './boards/sliderOverlay';
 
 const BLUE: Color = [0.36, 0.62, 0.98, 1];
 const GOLD: Color = [0.92, 0.74, 0.42, 1];
@@ -223,10 +223,10 @@ export class WindgraphWorld {
   }
 
   tryBeginDrag(wx: number, wy: number, scale: number, sx?: number, sy?: number): boolean {
-    // Slider panels: screen px in 3D (HUD overlay), doc coords in 2D (world-space).
+    // Slider panels: world-space objects hit-tested in doc coords (both modes).
     for (const b of this.boards) {
       positionBoardPanel(b, this.app);
-      const [px, py] = panelHitXY(b, wx, wy, sx, sy);
+      const [px, py] = panelHitXY(b, wx, wy);
       if (b.panel && b.panel.pointerDown(px, py)) { this.active = b; return true; }
     }
     const b = this.boardAt(wx, wy);
@@ -246,10 +246,10 @@ export class WindgraphWorld {
     const key = `${wx}|${wy}|${Math.round(scale * 50)}|${sx ?? -1}|${sy ?? -1}|${this.boards.map((b) => b.rev).join(',')}`;
     if (key === this.hoverKey) return this.hoverRes;
     this.hoverKey = key;
-    // Slider panels hover-test in screen px (3D) or doc coords (2D).
+    // Slider panels hover-test in doc coords (world-space objects in both modes).
     for (const b of this.boards) {
       positionBoardPanel(b, this.app);
-      const [hx, hy] = panelHitXY(b, wx, wy, sx, sy);
+      const [hx, hy] = panelHitXY(b, wx, wy);
       b.panel?.updateHover(hx, hy);
       if ((b.panel?.hovered ?? -1) >= 0) return (this.hoverRes = true);
     }
@@ -475,22 +475,6 @@ export class WindgraphWorld {
   getBounds() {
     const b = this.boards[3] as WindgraphExtrudeBoard;
     return b.getBounds ? b.getBounds() : null;
-  }
-
-  /** In 3D the slider panels live in the screen HUD (screen-constant, undistorted);
-   *  the sig must change whenever a projected corner moves (camera motion) or a
-   *  panel's interaction state changes, so the HUD rebuilds. 2D panels are in the
-   *  world buffer (their state is already in frameSig), so this is empty there. */
-  screenChromeSig(s: AppState): string {
-    if (!s.cam3d.active) return '';
-    const cs = cameraScale(s);
-    let sig = `3d${Math.round(Math.log2(Math.max(cs, 1e-6)) * 16)}`;
-    for (const b of this.boards) sig += '|' + boardScreenChromeSig(b, s);
-    return sig;
-  }
-  renderScreenChrome(s: AppState, hud: { inst: number[]; crv: number[]; rws: number[] }, font: any, atlas: any) {
-    if (!s.cam3d.active) return; // 2D panels are drawn in the world buffer
-    for (const b of this.boards) renderBoardScreenChrome(b, s, hud, font, atlas);
   }
 
   private drawMasthead(font: FontFace, atlas: any, inst: number[], crv: number[], rws: number[], cL: number, cT: number, cR: number, cB: number) {

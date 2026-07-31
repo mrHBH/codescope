@@ -1,21 +1,19 @@
 // ── Board slider overlay helpers ─────────────────────────────────────────────
 // Each windgraph board owns a real AnalyticPanel for its parameter sliders.
-// In 2D the panel lives in WORLD space (doc coords, k = 1/cameraScale) drawn into
-// the world instance buffer — the ortho VP makes it screen-constant and crisp.
-// In 3D a ground-plane rect can NEVER be screen-constant under perspective (it
-// projects to a trapezoid and drifts in size as the camera dollies — the "sliders
-// keep shrinking" bug), so there the panel is drawn into the SCREEN HUD overlay
-// (screen-ortho, backing-store px) pinned to the board corner's projected screen
-// position: truly fixed-size and undistorted, like the toolbar/quality panel.
-// Hit-testing follows the same split: doc coords in 2D, screen px in 3D
-// (panelHitXY). At scale=1 (app=null, headless) the panel sits at the corner.
+// The panel lives in WORLD space: drawn into the world instance buffer at the
+// board's corner at FIXED world size (k = 1) in both 2D and 3D — a real flat
+// object on the ground that zooms/tilts/dollies with the scene exactly like the
+// plot it controls (D21; the 'fixed size' toggle of D21-followup was removed
+// 2026-07-31 — fixed is the only mode). Hit-testing is always in doc coords,
+// which the interactive contract delivers in both modes. At scale=1 (app=null,
+// headless) the panel sits at the corner.
 
 import type { AppState } from '../../state';
 import type { AnalyticPanel } from '../../ui/analyticPanel';
 import { ANALYTIC_PANEL_THEME } from '../../ui/analyticPanel';
 import type { FontFace } from '../../windfoil/font';
 import type { GlyphAtlas } from '../../windfoil/bands';
-import { cameraScale, cameraViewProj, uiScale } from '../../camera/camera';
+import { cameraViewProj } from '../../camera/camera';
 
 export interface SliderBoard {
   x0: number; y0: number; width: number; height: number;
@@ -42,33 +40,28 @@ export function worldToScreenPx(wx: number, wy: number, s: AppState | null): { x
   return { x: (wx - s.viewX) * s.viewZ + Cw / 2, y: (wy - s.viewY) * s.viewZ + Ch / 2 };
 }
 
-/** Pointer coords to hit-test a panel in: screen backing-px in 3D (the panel is a
- *  screen-HUD overlay there), doc coords in 2D (world-space panel). `sx/sy` are the
- *  pointer's backing-store px; in 2D they are ignored. */
-export function panelHitXY(b: SliderBoard, wx: number, wy: number, sx?: number, sy?: number): [number, number] {
-  return b.app?.cam3d.active ? [sx ?? wx, sy ?? wy] : [wx, wy];
+/** Pointer coords to hit-test a panel in: always doc (world) coords — the panel
+ *  is a world-space object in both 2D and 3D (the interactive contract delivers
+ *  ground-plane doc coords in both modes). */
+export function panelHitXY(b: SliderBoard, wx: number, wy: number): [number, number] {
+  return [wx, wy];
 }
 
 /** Position (and show/hide by visibility) one board's slider panel for this frame.
- *  2D: doc coords at the board's corner (world buffer). 3D: backing-store px at the
- *  corner's projected screen position (screen HUD), clamped to the viewport. */
+ *  Always FIXED world size (k = 1) in both modes — a real object in the scene;
+ *  closed when the corner's projection is far off-screen. */
 export function positionBoardPanel(b: SliderBoard, s: AppState | null): void {
   if (!b.panel) return;
-  const Cw = s ? s.tCanvas.width : 1e9;
-  const Ch = s ? s.tCanvas.height : 1e9;
-  const c = worldToScreenPx(b.x0, b.y0, s);
-  const vis = c.x > -600 && c.x < Cw + 600 && c.y > -600 && c.y < Ch + 600;
-  if (!vis) { b.panel.open = false; return; }
-  b.panel.open = true;
   if (s?.cam3d.active) {
-    const ui = uiScale(s);
-    b.panel.reposition(c.x + INSET * ui, c.y + INSET * ui, Cw, Ch, ui);
-    return;
+    const Cw = s.tCanvas.width, Ch = s.tCanvas.height;
+    const c = worldToScreenPx(b.x0, b.y0, s);
+    const vis = c.x > -600 && c.x < Cw + 600 && c.y > -600 && c.y < Ch + 600;
+    if (!vis) { b.panel.open = false; return; }
   }
-  const k = s ? 1 / cameraScale(s) : 1;
+  b.panel.open = true;
   // No viewport clamping (1e9) — the panel sits at the board's corner in doc
-  // coords; the world instance buffer handles culling/depth.
-  b.panel.reposition(b.x0 + INSET * k, b.y0 + INSET * k, 1e9, 1e9, k);
+  // coords; the world instance buffer handles culling/depth/clipping.
+  b.panel.reposition(b.x0 + INSET, b.y0 + INSET, 1e9, 1e9, 1);
 }
 
 /** Cheap per-frame signature of a board's panel interaction state (for frameSig). */
@@ -83,21 +76,4 @@ export function boardPanelSig(b: SliderBoard, s: AppState | null): string {
 /** Emit one board's panel into the world instance buffer (uncached chrome). */
 export function renderBoardPanel(b: SliderBoard, inst: number[], crv: number[], rws: number[], font: FontFace, atlas: GlyphAtlas): void {
   if (b.panel && b.panel.open) b.panel.render(font, atlas, inst, crv, rws, ANALYTIC_PANEL_THEME);
-}
-
-/** Screen-HUD chrome signature for one board's panel (3D only): the projected
- *  corner (moves with the camera) plus interaction state, so the HUD rebuilds when
- *  the panel moves or is touched. Empty in 2D (panel lives in the world buffer). */
-export function boardScreenChromeSig(b: SliderBoard, s: AppState): string {
-  if (!s.cam3d.active || !b.panel) return '';
-  const c = worldToScreenPx(b.x0, b.y0, s);
-  return `${Math.round(c.x)},${Math.round(c.y)},${b.panel.open ? 1 : 0},${b.panel.hovered},${b.panel.isDragging ? 1 : 0}`;
-}
-
-/** Render one board's panel into the screen-HUD overlay buffers (3D only), pinned
- *  to the corner's projected screen position. No-op in 2D. */
-export function renderBoardScreenChrome(b: SliderBoard, s: AppState, hud: { inst: number[]; crv: number[]; rws: number[] }, font: FontFace, atlas: GlyphAtlas): void {
-  if (!s.cam3d.active) return;
-  positionBoardPanel(b, s);
-  renderBoardPanel(b, hud.inst, hud.crv, hud.rws, font, atlas);
 }
