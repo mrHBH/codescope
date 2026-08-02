@@ -118,7 +118,9 @@ export function stepCamera(s: AppState, dt: number, now: number) {
 }
 
 // The effective world-px→device-px scale (drives the AA-skirt pad and caret
-// width). In 2D it's the zoom; in 3D it's the camera's on-axis scale.
+// width, and the zoom pill). In 2D it's the zoom; in 3D it's the perspective
+// scale at the centre-ray ground intersection (see orbit.orbitScale), which
+// equals the 2D zoom at top-down and stays correct under tilt + target drift.
 export function cameraScale(s: AppState): number {
   if (!s.cam3d.active) return s.viewZ;
   return orbitScale(s.tCanvas.height);

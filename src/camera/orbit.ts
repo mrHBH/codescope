@@ -28,17 +28,52 @@ const _tmp = new Float32Array(16);
 const _vp = new Float32Array(16); // last view-projection
 const _ro = new THREE.Vector3();
 const _rd = new THREE.Vector3();
+// ── Cursor-anchored rotation state (see rotDown / applyRot). ──────────────────
+// We rotate the whole rig rigidly about the ground point P under the cursor, but
+// we reconstruct each frame's pose from the PRESS-TIME base pose + an *eased*
+// cumulative angle (so it's damped like the old right-drag, not snappy). The new
+// offset direction is built from spherical coords exactly as camera-controls would
+// (same theta/phi sign + speed), so direction and sensitivity match the old
+// right-drag 1:1 — only the pivot differs (P instead of the target).
+const _YAXIS = new THREE.Vector3(0, 1, 0);
+const _rotP = new THREE.Vector3();        // ground pivot (world)
+const _rotC0 = new THREE.Vector3();       // base camera position at press
+const _rotT0 = new THREE.Vector3();       // base target at press
+const _rotQ0 = new THREE.Quaternion();    // base camera orientation at press
+const _rotSph0 = new THREE.Spherical();   // base offset (camera−target) spherical
+const _rotSphS = new THREE.Spherical();   // scratch spherical (base + eased Δ)
+const _rotO1 = new THREE.Vector3();       // rotated offset about T0
+const _rotC1 = new THREE.Vector3();       // scratch: orbit cam, then rigid cam
+const _rotT1 = new THREE.Vector3();       // scratch: rigid target
+const _rotQ1 = new THREE.Quaternion();    // orientation of orbit-about-T0 pose
+const _rotQt = new THREE.Quaternion();    // scratch (q0⁻¹)
+const _rotR = new THREE.Quaternion();     // rigid rotation = q1·q0⁻¹
+const _rotLook = new THREE.Matrix4();     // lookAt scratch
+const _rotRight = new THREE.Vector3();    // camera right (world) — truck fold
+const _rotUp = new THREE.Vector3();       // camera up (world) — truck fold
+let _rotThetaD = 0, _rotPhiD = 0;         // desired cumulative angles (rad)
+let _rotThetaC = 0, _rotPhiC = 0;         // eased current cumulative angles (rad)
+const ROT_TAU = 0.14;                     // damping time constant (s) — soft glide, matches TRUCK_SMOOTH_TAU
+let _domEl: HTMLElement | null = null;
+let _rotBound = false;
+let _rotActive = false;   // right button currently held for rotation
+let _rotSettle = false;   // released but still easing toward desired
+let _rotCssH = 1, _rotLX = 0, _rotLY = 0;
+const ROT_CLAMP_EPS = 0.0015;             // gimbal guard (matches enterOrbit)
 
 export function initOrbit(dom: HTMLElement) {
   camera = new THREE.PerspectiveCamera(50, 1, 1, 1e7);
   controls = new CameraControls(camera, dom);
+  _domEl = dom;
   // Mouse map: left is NONE so the app layer owns it (per-surface rule: text
   // cursor shown → drag selects, otherwise → drag pans via orbitTruck; clicks
-  // still pick on release), middle scrolls (truck), right-drag rotates, wheel
-  // dollies toward the cursor. Holding right swaps middle to zoom — see
-  // setOrbitPanChord().
+  // still pick on release), middle scrolls (truck), wheel dollies toward the
+  // cursor. Right-drag rotation is OWNED here (rotDown/rotMove/rotUp below) so it
+  // pivots about the ground point under the cursor instead of the orbit target —
+  // the library's target-based rotate is disabled (NONE). Holding right swaps
+  // middle to zoom — see setOrbitPanChord().
   controls.mouseButtons.left = CameraControls.ACTION.NONE;
-  controls.mouseButtons.right = CameraControls.ACTION.ROTATE;
+  controls.mouseButtons.right = CameraControls.ACTION.NONE;
   controls.mouseButtons.middle = CameraControls.ACTION.TRUCK;
   controls.mouseButtons.wheel = CameraControls.ACTION.DOLLY;
   controls.dollyToCursor = true;
@@ -50,15 +85,60 @@ export function initOrbit(dom: HTMLElement) {
   controls.maxDistance = 6e5;
   controls.enabled = false;
   ready = true;
+  if (!_rotBound) {
+    _rotBound = true;
+    dom.addEventListener('pointerdown', rotDown);
+    dom.addEventListener('pointermove', rotMove);
+    dom.addEventListener('pointerup', rotUp);
+    dom.addEventListener('pointercancel', rotUp);
+    dom.addEventListener('lostpointercapture', () => { _rotActive = false; });
+  }
 }
 
 export function isReady() { return ready; }
 export function isEnabled() { return ready && controls.enabled; }
 export function setOrbitEnabled(enabled: boolean) { if (ready) controls.enabled = enabled; }
 
-// The distance-based on-axis scale (world px → device px) for the AA-skirt pad.
+// The 3D zoom (world px → device px): the on-screen scale of the grounded document
+// at the viewport centre. This is the perspective scale at the point where the
+// centre view-ray intersects the ground plane (world y = 0):
+//   t = -camera.y / viewDir.y
+// Using the ray-ground distance (rather than controls.distance or camera.height)
+// fixes two decoupling bugs:
+//  1. Target float: screen-space truck / cursor-dolly moves the orbit target along
+//     the camera up/right which has a vertical component when tilted, floating the
+//     target off the floor. controls.distance (camera→target) then collapses toward
+//     zero while the ground is still far → reported millions for a zoomed-out view.
+//  2. Tilt inflation: camera.position.y = dist·cos(polar) shrinks with tilt, so a
+//     pure tilt (no zoom) inflated the pill toward the display cap.
+// The ray-ground distance equals controls.distance when the target is on the floor
+// (the common case), equals camera.height at top-down (polar=0), and stays bounded
+// and correct under any combination of tilt + target drift. When the view ray is
+// parallel to or above the ground (polar ≈ π/2) the ground at screen-centre is at
+// infinity; we fall back to the slant range so the pill stays finite.
+const _viewDir = new THREE.Vector3();
+// Centre-ray ground distance: where the viewport-centre ray hits the floor (world
+// y=0). Shared by the zoom pill, pan sensitivity and fly-zoom so all three stay
+// locked to the *visible* ground scale (not the slant range to a possibly-floated
+// target). Falls back to the slant range at the horizon.
+function groundCenterDist(): number {
+  camera.getWorldDirection(_viewDir);
+  const dy = _viewDir.y;
+  return dy < -1e-4 ? -camera.position.y / dy : controls.distance;
+}
 export function orbitScale(viewHpx: number): number {
-  const d = controls.distance;
+  return viewHpx / (2 * Math.max(groundCenterDist(), 1e-4) * Math.tan((camera.fov * DEG2RAD) / 2));
+}
+
+// Perspective scale (device-px per world-px) of a ground point at doc (dx,dy): the
+// on-screen size a grid cell there actually has. Uses the radial camera→point
+// distance in the same frustum formula as orbitScale. Lets each board's grid adapt
+// to its own apparent size instead of every grid marching to the centre zoom.
+const _gpWorld = new THREE.Vector3();
+export function orbitScaleAtDoc(dx: number, dy: number, viewHpx: number): number {
+  const [wx, , wz] = transformPoint(GROUND_MODEL, dx, dy, 0);
+  _gpWorld.set(wx, 0, wz);
+  const d = Math.max(camera.position.distanceTo(_gpWorld), 1e-4);
   return viewHpx / (2 * d * Math.tan((camera.fov * DEG2RAD) / 2));
 }
 
@@ -108,20 +188,82 @@ export function screenToDocLocal(sx: number, sy: number, Cw: number, Ch: number)
 // characteristic slower, smoother glide.
 export function updateOrbit(dtMs: number): boolean {
   if (!ready) return false;
+  // Cursor-anchored rotation owns the rig while active or settling (it rewrites the
+  // pose from the press-time base each frame), so pause the pan/fly chases then —
+  // they'd otherwise fight the setLookAt and the cursor pin would jump.
+  const rotBusy = _rotActive || _rotSettle;
+  let rotMoving = false;
+  if (!inTransition && rotBusy) rotMoving = rotTick(dtMs);
   // Ease out any pending drag-pan (see orbitTruck) via instant micro-trucks —
-  // per-frame exponential steps read as one smooth damped motion. Paused
-  // during setLookAt transitions so the snaps can't stomp them.
+  // per-frame exponential steps read as one smooth damped motion. Paused only
+  // during setLookAt transitions (the snaps can't stomp them). During rotation we
+  // fold the truck translation into the rotation base + pivot (same invariant as
+  // fly-forward: translating {C0,T0,P} together preserves the rigid rotation about
+  // P), so left-drag pan is never blocked by rotation settle — the old !rotBusy
+  // guard caused pan to accumulate during settle then dump all at once (the lag).
   if (!inTransition && (panPX !== 0 || panPY !== 0)) {
     const k = 1 - Math.exp(-(dtMs / 1000) / TRUCK_SMOOTH_TAU);
     const ax = panPX * k, ay = panPY * k;
     panPX -= ax; panPY -= ay;
     if (Math.abs(panPX) < 1e-6) panPX = 0;
     if (Math.abs(panPY) < 1e-6) panPY = 0;
-    controls.truck(ax, ay, false);
+    if (rotBusy) {
+      _rotRight.set(1, 0, 0).applyQuaternion(camera.quaternion);
+      _rotUp.set(0, 1, 0).applyQuaternion(camera.quaternion);
+      const tx = _rotRight.x * ax - _rotUp.x * ay;
+      const ty = _rotRight.y * ax - _rotUp.y * ay;
+      const tz = _rotRight.z * ax - _rotUp.z * ay;
+      _rotC0.x += tx; _rotC0.y += ty; _rotC0.z += tz;
+      _rotT0.x += tx; _rotT0.y += ty; _rotT0.z += tz;
+      _rotP.x += tx; _rotP.y += ty; _rotP.z += tz;
+      const t = controls.getTarget(_ro);
+      const c = camera.position;
+      controls.setLookAt(c.x + tx, c.y + ty, c.z + tz, t.x + tx, t.y + ty, t.z + tz, false);
+      camera.position.set(c.x + tx, c.y + ty, c.z + tz);
+    } else {
+      controls.truck(ax, ay, false);
+    }
+  }
+  // Fly-forward (right+wheel / ctrl+wheel zoom) drains EVERY frame — including
+  // while the right button is held for rotation. Blocking it during rotBusy was
+  // the bug: rotDown fires on the right *press*, so a pure right+wheel zoom (no
+  // drag) held rotBusy the whole gesture, flyFwd accumulated, then dumped after
+  // release as a laggy burst. Draining continuously keeps it smooth + instant with
+  // no post-gesture tail. While rotating we can't use controls.moveTo (rotTick's
+  // setLookAt would clobber it), so we fold the translation into the rotation base
+  // pose AND the pivot P by the same vector v: a rigid rotation about P is invariant
+  // under translating {C0,T0,P} together, so the cursor pin at P holds exactly and
+  // the fly + rotation compose cleanly. The ground clamp reads the post-rotation
+  // camera height (the live altitude), so it's correct under any tilt.
+  if (!inTransition && flyFwd !== 0) {
+    const k = 1 - Math.exp(-(dtMs / 1000) / TRUCK_SMOOTH_TAU);
+    let step = flyFwd * k;
+    flyFwd -= step;
+    if (Math.abs(flyFwd) < 1e-6) flyFwd = 0;
+    camera.getWorldDirection(_viewDir);
+    if (_viewDir.y < -1e-6) {
+      const maxStep = (camera.position.y - 0.01) / (-_viewDir.y);
+      if (step > maxStep) { step = Math.max(maxStep, 0); flyFwd = 0; }
+    }
+    if (step !== 0) {
+      const vx = _viewDir.x * step, vy = _viewDir.y * step, vz = _viewDir.z * step;
+      if (rotBusy) {
+        _rotC0.x += vx; _rotC0.y += vy; _rotC0.z += vz;
+        _rotT0.x += vx; _rotT0.y += vy; _rotT0.z += vz;
+        _rotP.x += vx; _rotP.y += vy; _rotP.z += vz;
+        const t = controls.getTarget(_ro);
+        const c = camera.position;
+        controls.setLookAt(c.x + vx, c.y + vy, c.z + vz, t.x + vx, t.y + vy, t.z + vz, false);
+        camera.position.set(c.x + vx, c.y + vy, c.z + vz);
+      } else {
+        const t = controls.getTarget(_ro);
+        controls.moveTo(t.x + vx, t.y + vy, t.z + vz, false);
+      }
+    }
   }
   const moving = controls.update(dtMs / 1000 / 2.2);
   if (inTransition && !moving) inTransition = false;
-  return moving;
+  return moving || rotMoving;
 }
 
 // Enter from the current 2D framing: place the camera straight above the ground
@@ -131,7 +273,7 @@ export function updateOrbit(dtMs: number): boolean {
 export function enterOrbit(docX: number, docY: number, viewZ: number, viewHpx: number) {
   const dist = viewHpx / (2 * viewZ * Math.tan((camera.fov * DEG2RAD) / 2));
   const [wx, wy, wz] = transformPoint(GROUND_MODEL, docX, docY, 0);
-  panPX = 0; panPY = 0;
+  panPX = 0; panPY = 0; flyFwd = 0;
   inTransition = false;
   controls.enabled = true;
   const eps = 0.0015; // ~0.09°, visually flat but not degenerate; +Z lean = azimuth 0
@@ -241,9 +383,16 @@ let panPX = 0, panPY = 0;
 // rotation keeps easing). updateOrbit clears it once the controls rest.
 let inTransition = false;
 const TRUCK_SMOOTH_TAU = 0.14;
+// Accumulated fly-forward distance (world units, positive = along view dir).
+// Eased out each frame in updateOrbit, same pattern as panPX/panPY.
+let flyFwd = 0;
 export function orbitTruck(dxPx: number, dyPx: number, viewHpx: number) {
   if (!ready) return;
-  const wpp = (2 * controls.distance * Math.tan((camera.fov * DEG2RAD) / 2)) / viewHpx;
+  // Screen-locked pan: 1 device-px drag = 1 device-px of ground motion at the
+  // *visible* centre scale. Using the centre-ray ground distance (not the slant
+  // range to a possibly-floated target) keeps the pan speed matched to the zoom
+  // pill at every tilt/zoom, so it never feels too fast or too slow.
+  const wpp = (2 * Math.max(groundCenterDist(), 1e-4) * Math.tan((camera.fov * DEG2RAD) / 2)) / viewHpx;
   panPX -= dxPx * wpp;
   panPY -= dyPx * wpp;
 }
@@ -268,7 +417,7 @@ export function orbitZoomToRect(x0: number, y0: number, x1: number, y1: number, 
   controls.normalizeRotations();
   // The fit is an absolute pose: drop any stale pan glide and mark the
   // transition so the pan chase can't teleport the camera mid-flight.
-  panPX = 0; panPY = 0;
+  panPX = 0; panPY = 0; flyFwd = 0;
   inTransition = animate;
   const eps = 0.0015; // same top-down gimbal avoidance as enterOrbit
   controls.setLookAt(cx, cy + dist * Math.cos(eps), cz + dist * Math.sin(eps), cx, cy, cz, animate);
@@ -289,7 +438,7 @@ export function orbitFrameRect(x0: number, y0: number, x1: number, y1: number, C
   const t = controls.getTarget(_ro);
   const d = _rd.copy(camera.position).sub(t).normalize();
   const ex = cx + d.x * dist, ey = d.y * dist, ez = cz + d.z * dist;
-  panPX = 0; panPY = 0;
+  panPX = 0; panPY = 0; flyFwd = 0;
   inTransition = animate;
   controls.setLookAt(ex, ey, ez, cx, 0, cz, animate);
 }
@@ -317,4 +466,124 @@ const WHEEL_DOLLY_K = 0.005;
 export function orbitDollyByWheel(deltaY: number) {
   if (!ready) return;
   controls.dollyTo(controls.distance * Math.exp(deltaY * WHEEL_DOLLY_K), true);
+}
+
+// Fly-forward zoom for 3D mode (right+wheel / ctrl+wheel): translates both camera
+// and orbit target along the view direction, so the camera always moves toward the
+// ground regardless of tilt angle. Unlike the library's dollyToCursor (which drifts
+// the target off the ground plane at low tilt, capping the effective zoom), this
+// preserves orbit angles and distance while reducing the camera altitude — the zoom
+// pill tracks ground proximity and never caps prematurely. The step is proportional
+// to the centre-ray ground distance for log-space-consistent sensitivity (same feel
+// as 2D wheel zoom). Eased out in updateOrbit via the flyFwd accumulator.
+export function orbitFlyForward(deltaY: number) {
+  if (!ready) return;
+  // Log-space zoom locked to the *visible* ground scale: each notch multiplies the
+  // centre-ray ground distance t by m = exp(deltaY·k) (scroll-up deltaY<0 → m<1 →
+  // zoom in), exactly mirroring the 2D wheel (camZ *= exp(-deltaY·k), and zoom ∝ 1/t).
+  // Moving the rig along +viewDir by s reduces t by exactly s (t' = t − s), so the
+  // translation that realises the factor is s = t·(1 − m). The old formula
+  // t·(exp(−deltaY·k) − 1) = t·(1 − m)/m over-moved on zoom-in by 1/m and under-moved
+  // on zoom-out — an asymmetry that read as "zooms way too fast", especially with
+  // large trackpad-pinch deltas. This form is symmetric in log-space at every tilt.
+  const t = Math.max(groundCenterDist(), 1e-4);
+  flyFwd += t * (1 - Math.exp(deltaY * 0.0022));
+}
+
+// ── Cursor-anchored rotation (right-drag) ────────────────────────────────────
+// The library's rotate pivots about the orbit target, so a feature under the
+// cursor swings away while some other point stays fixed. Instead we own right-drag
+// and rotate the whole rig rigidly about the ground point P under the cursor at
+// press time. A rigid rotation about P keeps P at the exact same pixel (its
+// camera-space coordinate is invariant), so the thing under the finger stays
+// pinned and everything spins around it.
+//
+// Damping: the desired cumulative angles (_rotThetaD/_rotPhiD) accumulate from
+// pointer deltas; each frame rotTick eases the current angles toward them with an
+// exponential (ROT_TAU), reconstructs the pose from the press-time base, and pushes
+// it via setLookAt(false). This gives the same soft glide as the old right-drag
+// (which used the library's damped rotate) instead of a snappy 1:1 jump.
+//
+// Direction: the signs are negated relative to the library's _rotateInternal so the
+// visual spin matches — the library orbits the camera around a fixed target (drag
+// right → camera moves left → scene appears right), whereas a rigid rotation about
+// P moves the camera in the same direction as the drag, so without negation the
+// scene would appear to go the wrong way.
+function applyRot() {
+  const r = _rotSph0.radius;
+  if (r < 1e-9) return;
+  // Orbit-about-T0 pose at the eased angles: offset = base spherical + Δ, camera =
+  // T0 + offset, orientation = lookAt(cam, T0). This is exactly the rotation R the
+  // library would have applied about T0 (same θ/φ sign + speed), which we then
+  // re-pivot about P.
+  _rotSphS.copy(_rotSph0);
+  _rotSphS.theta += _rotThetaC;
+  _rotSphS.phi = THREE.MathUtils.clamp(_rotSphS.phi + _rotPhiC, ROT_CLAMP_EPS, Math.PI / 2 - ROT_CLAMP_EPS);
+  _rotO1.setFromSpherical(_rotSphS);
+  _rotC1.copy(_rotT0).add(_rotO1);
+  _rotLook.lookAt(_rotC1, _rotT0, _YAXIS);
+  _rotQ1.setFromRotationMatrix(_rotLook);
+  _rotQt.copy(_rotQ0).invert();
+  _rotR.copy(_rotQ1).multiply(_rotQt); // rigid rotation = q1·q0⁻¹
+  // Re-pivot the whole rig about P: cam' = P + R·(C0−P), tgt' = P + R·(T0−P). The
+  // orientation is R·Q0 = Q1, so the cursor pin at P holds exactly (P's camera-space
+  // coord is invariant under a rigid rotation about P).
+  _rotC1.copy(_rotC0).sub(_rotP).applyQuaternion(_rotR).add(_rotP);
+  _rotT1.copy(_rotT0).sub(_rotP).applyQuaternion(_rotR).add(_rotP);
+  controls.setLookAt(_rotC1.x, _rotC1.y, _rotC1.z, _rotT1.x, _rotT1.y, _rotT1.z, false);
+  camera.position.copy(_rotC1);
+  camera.quaternion.copy(_rotQ1);
+}
+
+function rotTick(dtMs: number): boolean {
+  const k = 1 - Math.exp(-(dtMs / 1000) / ROT_TAU);
+  _rotThetaC += (_rotThetaD - _rotThetaC) * k;
+  _rotPhiC += (_rotPhiD - _rotPhiC) * k;
+  applyRot();
+  if (!_rotActive && Math.abs(_rotThetaD - _rotThetaC) < 1e-5 && Math.abs(_rotPhiD - _rotPhiC) < 1e-5) {
+    _rotThetaC = _rotThetaD; _rotPhiC = _rotPhiD;
+    _rotSettle = false;
+    return false;
+  }
+  return true;
+}
+
+function rotDown(e: PointerEvent) {
+  if (e.button !== 2 || !ready || !controls.enabled || inTransition || !_domEl) return;
+  const rect = _domEl.getBoundingClientRect();
+  const cv = _domEl as HTMLCanvasElement;
+  const w = cv.width || 1, h = cv.height || 1;
+  const sx = (e.clientX - rect.left) * (w / (rect.width || 1));
+  const sy = (e.clientY - rect.top) * (h / (rect.height || 1));
+  const d = screenToDocLocal(sx, sy, w, h);
+  _rotP.set(d.x, 0, d.y);
+  _rotC0.copy(camera.position);
+  controls.getTarget(_rotT0);
+  _rotQ0.copy(camera.quaternion);
+  _rotSph0.setFromVector3(_rotO1.copy(_rotC0).sub(_rotT0));
+  _rotThetaD = 0; _rotPhiD = 0;
+  _rotThetaC = 0; _rotPhiC = 0;
+  _rotCssH = rect.height || 1;
+  _rotLX = e.clientX; _rotLY = e.clientY;
+  _rotActive = true; _rotSettle = false;
+  try { _domEl.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+}
+
+function rotMove(e: PointerEvent) {
+  if (!_rotActive) return;
+  const dx = e.clientX - _rotLX, dy = e.clientY - _rotLY;
+  _rotLX = e.clientX; _rotLY = e.clientY;
+  // Negated vs the library's _rotateInternal: a rigid rotation about P moves the
+  // camera the same way as the drag, whereas the library's target-orbit moves it
+  // the opposite way for the same on-screen spin — so without the sign flip the
+  // scene appears to go backwards. Magnitude matches the library (2π per height).
+  _rotThetaD -= (Math.PI * 2) * dx / _rotCssH;
+  _rotPhiD -= (Math.PI * 2) * dy / _rotCssH;
+}
+
+function rotUp(e: PointerEvent) {
+  if (e.button !== 2 || !_rotActive || !_domEl) return;
+  _rotActive = false;
+  _rotSettle = true;
+  try { _domEl.releasePointerCapture(e.pointerId); } catch { /* ignore */ }
 }

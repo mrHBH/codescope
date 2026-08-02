@@ -5,7 +5,7 @@
 import type { AppState } from '../state';
 import type { StyledEl } from '../layout/types';
 import { bufCoords, scrToWorld, scrToDoc, goToPage, fitDocument, cameraScale, uiScale } from './camera';
-import { setOrbitEnabled, setOrbitPanChord, orbitTruck, orbitZoomToRect, orbitTargetLocal, orbitScale } from './orbit';
+import { setOrbitEnabled, setOrbitPanChord, orbitTruck, orbitZoomToRect, orbitTargetLocal, orbitScale, orbitFlyForward } from './orbit';
 import { screenLockedPose, worldToPose } from './screenWorld';
 import { hitTest, findEditableAncestor } from '../layout/walk';
 import { layoutEditable, placeCaretAtPoint, caretIndexAtPoint } from '../layout/editable';
@@ -559,22 +559,23 @@ export function attachInput(s: AppState): () => void {
     }
   }, { passive: false, capture: true });
 
-  // 3D wheel = pan by default, matching 2D (plain scroll pans; only ctrl / right+
-  // scroll zooms). camera-controls binds the wheel to DOLLY on the canvas, and that
-  // listener fires in the target phase — so to make plain scroll PAN instead we
-  // intercept earlier, in the capture phase on window, and stop the event before it
-  // reaches the canvas, converting it to a screen-space truck. Modifier-scroll is
-  // left untouched so the library's cursor-anchored dolly still owns zoom (the 3D
-  // equivalent of 2D ctrl/right+scroll). Without this, the scroll gesture that pans
-  // in 2D dollies in 3D — the "everything shrinks when I scroll" bug.
+  // 3D wheel: intercept in the capture phase on window (before camera-controls'
+  // canvas listener, which fires in the target phase) so we own BOTH gestures and
+  // the library's dolly never runs. Plain scroll = screen-space truck (matches 2D
+  // pan-on-scroll). ctrl / right+scroll = zoom, but NOT via the library's
+  // dollyToCursor: at low tilt that drifts the orbit target off the ground plane
+  // and counteracts the dolly, capping the effective zoom (stuck at ~5.9× while
+  // still high and wide). Instead we fly the whole rig forward along the view
+  // direction (orbitFlyForward), which always reduces the camera's altitude and is
+  // uncapped — the same log-space feel as 2D wheel zoom, with no premature ceiling.
   on(window, 'wheel', (e: WheelEvent) => {
     if (!s.cam3d.active || !s.cameraInput) return;
-    if (e.ctrlKey || rg.down) return;
     e.preventDefault();
     e.stopPropagation();
     s.lastWheelT = performance.now();
     rg.wheel();
-    orbitTruck(e.deltaX, e.deltaY, s.tCanvas.height);
+    if (e.ctrlKey || rg.down) orbitFlyForward(e.deltaY);
+    else orbitTruck(e.deltaX, e.deltaY, s.tCanvas.height);
   }, { passive: false, capture: true });
 
   // ── 3D picking ────────────────────────────────────────────────────────────
