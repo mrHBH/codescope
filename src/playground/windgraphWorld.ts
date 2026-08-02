@@ -18,8 +18,9 @@ import type { Engine } from './engine';
 import type { SceneDoc, Color } from '../authoring/ir/types';
 import type { AppState } from '../state';
 import { scene } from '../authoring/builder/scene';
-import { isTilted, toggleTilt } from '../camera/camera';
+import { isTilted, toggleTilt, replayBootPending } from '../camera/camera';
 import { orbitFrameRect } from '../camera/orbit';
+import { rectBehindNear } from '../camera/frustum';
 import { createBaseApp, finishApp, snapTo, makeQualityPanel, qualityToolbarButton } from './app';
 import { WindgraphSceneBoard, demoDoc } from './boards/windgraphScene';
 import { WindgraphExtrudeBoard } from './boards/windgraphExtrude';
@@ -70,8 +71,8 @@ export function plotsDoc(): SceneDoc {
     s.param.number('damp', { default: 0.10, min: 0, max: 0.5, step: 0.01, label: 'damping' });
     s.wg.plotFn('sin', 'sin(x)', { domain: [-20, 20], stroke: { color: TEAL, width: 2.5 } });
     s.wg.plotFn('damped', 'sin(x)*exp(-damp*x^2)', { domain: [-20, 20], stroke: { color: GOLD, width: 2.5 } });
-    s.wg.plotPolar('rose', '2.2*cos(k*t)', [0, 6.2832], { samples: 400, stroke: { color: PINK, width: 2 } });
-    s.wg.plotParametric('liss', '4.5*sin(3*t)', '4.5*sin(2*t + 0.6)', [0, 6.2832], { samples: 400, stroke: { color: BLUE, width: 2 } });
+    s.wg.plotPolar('rose', '2.2*cos(k*t)', [0, 6.2832], { samples: 240, stroke: { color: PINK, width: 2 } });
+    s.wg.plotParametric('liss', '4.5*sin(3*t)', '4.5*sin(2*t + 0.6)', [0, 6.2832], { samples: 240, stroke: { color: BLUE, width: 2 } });
     s.wg.plotImplicit('lemn', '(x^2+y^2)^2 - (x^2-y^2)', { stroke: { color: VIOLET, width: 2 } });
     s.wg.field('flow', 'vector', { x: '-y', y: 'x' }, { density: 0.5, color: [0.45, 0.55, 0.70, 0.5] });
   });
@@ -236,6 +237,16 @@ export class WindgraphWorld {
   dragTo(wx: number, wy: number) { this.active?.dragTo(wx, wy); }
   endDrag() { this.active?.endDrag(); this.active = null; }
   get dragging(): boolean { return this.active?.dragging ?? false; }
+  /** Spec id of the handle currently being dragged (for the recorder's input
+   *  classification), or null when no handle/slider is grabbed. */
+  get activeHandle(): string | null {
+    const b = this.active as any;
+    const scene = b?.scene as { drag?: { active?: { x: number; y: number } }; points?: Map<string, { x: number; y: number }> } | undefined;
+    const p = scene?.drag?.active;
+    if (!p || !scene?.points) return null;
+    for (const [id, g] of scene.points) if (g === p) return id;
+    return null;
+  }
   private hoverKey = '';
   private hoverRes = false;
   updateHover(wx: number, wy: number, scale: number, sx?: number, sy?: number): boolean {
@@ -306,6 +317,22 @@ export class WindgraphWorld {
     };
   }
 
+  /** Conservative per-board visibility. 2D: exact AABB vs the viewport (culls
+   *  boards fully off-screen — exact in the flat ortho camera). 3D: ALWAYS
+   *  visible. A 3D frustum test on the board RECT is not safe for a tilted
+   *  perspective camera: zooming into a board until its corners leave the
+   *  viewport (all 4 corners off one side, or behind the near plane) culls the
+   *  whole board — the lines/labels INSIDE it vanish even though they are on
+   *  screen (the user's "a line disappears when I zoom into it because its
+   *  frame is out of view"). Board replays are cached, so over-drawing an
+   *  off-screen board costs only a cheap slice compose + a hardware-clipped
+   *  draw — correctness over culling. (The old all-boards-in-3D emit did the
+   *  same and was never the FPS problem; the real 3D cost is GPU-side.) */
+  private boardVisible(b: WgBoard, _ctx: { vp: ArrayLike<number>; cam: { x: number; y: number } } | null, vL: number, vT: number, vR: number, vB: number): boolean {
+    if (this.app?.cam3d.active) return true;
+    return b.x0 <= vR && b.x0 + b.width >= vL && b.y0 <= vB && b.y0 + b.height >= vT;
+  }
+
   /** Frame-skip signature: the frame loop compares this to decide whether the
    *  world would emit identically — if so it redraws persistent GPU buffers
    *  with zero JS emit / conversion / upload (a still scene costs ~nothing).
@@ -316,8 +343,7 @@ export class WindgraphWorld {
     let sig = bp.sig;
     for (const b of this.boards) {
       sig += '|';
-      sig += (b.x0 <= bp.vR && b.x0 + b.width >= bp.vL && b.y0 <= bp.vB && b.y0 + b.height >= bp.vT)
-        ? b.sigFor(view) : 'off';
+      sig += this.boardVisible(b, null, bp.vL, bp.vT, bp.vR, bp.vB) ? b.sigFor(view) : 'off';
       // Panel interaction state (uncached chrome in the world buffer).
       sig += b.panel ? `p${b.panel.open ? 1 : 0},${b.panel.hovered},${b.panel.isDragging ? 1 : 0}` : '';
     }
@@ -375,15 +401,16 @@ export class WindgraphWorld {
     const tGrid = performance.now() - tg0;
 
     // Boards compose into the same comp buffers (their caches see number[] and
-    // behave identically; the pre-allocated backing means no reallocs). In 3D
-    // every board is emitted (cached replays are cheap) — the ray-cast visible
-    // rect can false-cull boards that are still on screen at tilted angles.
-    const cull2D = !this.app?.cam3d.active;
+    // behave identically; the pre-allocated backing means no reallocs). Both modes
+    // emit every visible board: 2D culls boards fully off-viewport (exact AABB),
+    // 3D always emits (a rect-frustum test false-culls boards whose content is
+    // still on screen — see boardVisible). Cached replays make over-emitting
+    // cheap; the frame-skip signature keeps a still scene from emitting at all.
     const tB: number[] = [];
     for (const b of this.boards) b.app = this.app;
     for (const b of this.boards) {
       const tb0 = performance.now();
-      if (!cull2D || (b.x0 <= vR && b.x0 + b.width >= vL && b.y0 <= vB && b.y0 + b.height >= vT)) {
+      if (this.boardVisible(b, null, vL, vT, vR, vB)) {
         setLen(cILen, cCLen, cRLen);
         (b as any).xfTarget = cXf;
         b.emit(font, atlas, cInst, cCrv, cRws, now, view);
@@ -446,17 +473,47 @@ export class WindgraphWorld {
   /** Depth-tested mesh of the extrude + curve3d boards, for frame.ts's mesh3d
    *  pass (drawn before the analytic pass so the solids are watertight at every
    *  angle and the analytic chrome/tops stay razor-sharp on top). */
+  // Cached combined mesh. mesh3d gates its GPU upload on the Float32Array
+  // REFERENCE (verts !== lastTris), so returning a STABLE reference while the
+  // boards' meshes are unchanged makes the static mesh free in steady state —
+  // the old code allocated a fresh combined array every frame, which forced a
+  // full re-upload of the extrude + curve3d mesh on EVERY frame (a hidden cost
+  // behind "3D tanks fps even when nothing moves"). Rebuilt only when a board's
+  // mesh reference changes (extrude-height slider / curve3d LOD band crossing).
+  private _meshA: Float32Array | null = null;
+  private _meshB: Float32Array | null = null;
+  private _meshCombined: Float32Array | null = null;
   getMesh(): Float32Array | null {
     const extrude = this.boards[3] as WindgraphExtrudeBoard;
     const a = extrude.getMesh ? extrude.getMesh() : null;
     const b = this.curve3d.getMesh ? this.curve3d.getMesh() : null;
     if (a && b) {
-      const out = new Float32Array(a.length + b.length);
-      out.set(a, 0);
-      out.set(b, a.length);
-      return out;
+      if (a !== this._meshA || b !== this._meshB) {
+        const out = new Float32Array(a.length + b.length);
+        out.set(a, 0);
+        out.set(b, a.length);
+        this._meshCombined = out;
+        this._meshA = a;
+        this._meshB = b;
+      }
+      return this._meshCombined;
     }
     return a ?? b;
+  }
+
+  /** Whether the mesh-producing boards (extrude + curve3d) are anywhere in front
+   *  of the camera. frame.ts uses this to gate the 4× MSAA mesh pass + the mesh
+   *  draw: a 3D view looking away from the solids (framed on a flat board) skips
+   *  the full-screen 4× clear+resolve entirely — the main fixed cost of "3D is
+   *  expensive even when nothing moves". The test is the BEHIND-CAMERA-only check
+   *  (rectBehindNear): a mesh board with any corner in front is never culled, so
+   *  zooming into a solid (its corners leave the viewport but stay in front) never
+   *  makes the mesh vanish — the aggressive-culling class the user rejected. */
+  meshVisible(vp: ArrayLike<number>, _camLocal: { x: number; y: number } | null): boolean {
+    const extrude = this.boards[3];
+    const c3d = this.curve3d;
+    const gone = (b: WgBoard) => rectBehindNear(vp, b.x0, b.y0, b.x0 + b.width, b.y0 + b.height);
+    return !(gone(extrude) && gone(c3d));
   }
 
   private drawMasthead(font: FontFace, atlas: any, inst: number[], crv: number[], rws: number[], cL: number, cT: number, cR: number, cB: number) {
@@ -494,8 +551,10 @@ export function bootWindgraphWorld(engine: Engine, onBack: () => void): () => vo
     s.velX = s.velY = 0;
   };
   const ov = world.overview;
-  snapTo(s, ov.x + ov.w / 2, ov.y + ov.h / 2,
-    Math.min((s.tCanvas.width / (ov.w + 240)) * 0.9, (s.tCanvas.height / (ov.h + 240)) * 0.9));
+  if (!replayBootPending()) {
+    snapTo(s, ov.x + ov.w / 2, ov.y + ov.h / 2,
+      Math.min((s.tCanvas.width / (ov.w + 240)) * 0.9, (s.tCanvas.height / (ov.h + 240)) * 0.9));
+  }
 
   const dispose = finishApp(s, onBack, [
     { id: 'cam3d', icon: 'cube', title: 'Toggle continuous 2D↔3D tilt (or double-tap the canvas)', active: () => world.tilted, onClick: () => world.toggleTilt() },

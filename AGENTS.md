@@ -46,6 +46,18 @@ editor, terminal, and file tree entirely through a closed-form coverage integral
 
 - Dev server: `bun run dev` (port 3000, see `vite.config.ts`).
 - Typecheck: `bunx tsc --noEmit` (use `bunx`, never `npx`).
+- Headless JS suites: `bun src/**/__test*.ts` + `bunx vitest run`.
+- **Record/replay perf protocol (real browser, real WebGPU — see `src/recorder/`,
+  `scripts/`, AGENTS "test infra"):**
+  - Manual record: open a demo (`#windgraph`), press `F2`, do the action, `F2` to save.
+  - Scripted record: `bun run perf:record <name> [--scenario drag|zoom|pan] [--zoom N]`.
+  - Bulk replay + assert: `bun run perf:replay [--expect-min N] [name]` — headed on the
+    system Chromium (`/usr/bin/chromium` or `PLAYWRIGHT_CHROMIUM`); `HEADLESS=1`
+    is software-WebGPU only and NOT real fps. The dev server auto-starts.
+  - `bun run perf` = record the default scenario then replay with a 30 fps floor.
+  - `#testinfra` demo lists recordings (rename/delete/replay + a stats table with
+    input labels, fps and js). Programmatic surface: `window.__recorder.start()/stop(name)`,
+    `window.__rec.state/getCam/setCam`, `window.__perf`, `window.__recReport`.
 
 ## 3. Where things live
 

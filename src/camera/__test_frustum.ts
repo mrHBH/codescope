@@ -35,11 +35,12 @@ test('all-corners-behind is NEVER culled (the visible-but-vanishing fix)', () =>
   const r: [number, number, number, number] = [0, 0, 10, 10];
   // The near plane clips the ground when the camera is low/close, so a rect the
   // camera looks at can have every corner behind it while filling the screen.
-  // The old camera-inside-rect guard culled those → boards vanished in view.
+  // Culling any all-behind rect (even via a camera-inside guard) risks making
+  // on-screen content disappear — correctness over culling.
+  assert(rect3DVisible(behind, ...r) === true, 'no camera position → draw');
   assert(rect3DVisible(behind, ...r, { x: 5, y: 5 }) === true, 'camera inside → visible');
   assert(rect3DVisible(behind, ...r, { x: 0, y: -20 }) === true,
     'camera outside + all corners behind → STILL DRAWN (was a false cull)');
-  assert(rect3DVisible(behind, ...r) === true, 'no camera position → draw');
   assert(rect3DVisible(behind, ...r, { x: 0, y: 0 }) === true, 'camera on the boundary → visible');
 });
 

@@ -146,14 +146,17 @@ function emitOp(ctx: RenderCtx, op: DrawOp, m: Aff, opacity: number, reveal = 1,
     const col = withAlpha(op.color, opacity);
     // width follows the transform scale so stroke weight is consistent in world units
     const style: StrokeStyle = { ...op.style, width: op.style.width * scaleOf(m) };
+    const emitPoly = (wp: Pt[], st: StrokeStyle) => {
+      if (wp.length >= 2) strokeInto(wp, st, col, inst, crv, rws);
+    };
     if (reveal < 1) {
       // Draw-on: flatten to a polyline and trim to `reveal` of the arc length.
       const base = op.quads ? flattenQuads(op.quads) : (op.points ?? []);
       const world = base.map((p) => tp(m, p));
       const trimmed = trimPolyline(world, reveal);
-      if (trimmed.length >= 2) strokeInto(trimmed, { ...style, cap: op.style.cap ?? 'round' }, col, inst, crv, rws);
+      emitPoly(trimmed, { ...style, cap: op.style.cap ?? 'round' });
     } else if (op.quads) { const q: number[] = []; strokeQuadPath(tq(m, op.quads), style, op.closed ?? false, q); fillQuads(q, col, inst, crv, rws); }
-    else if (op.points) { strokeInto(op.points.map((p) => tp(m, p)), style, col, inst, crv, rws); }
+    else if (op.points) { emitPoly(op.points.map((p) => tp(m, p)), style); }
   } else if (op.kind === 'text') {
     const s = scaleOf(m);
     let [x, y] = apply(m, op.x, op.y);

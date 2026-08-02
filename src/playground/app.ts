@@ -56,6 +56,9 @@ export function createBaseApp(engine: Engine, useDoc: boolean): AppState {
   buildStatic(s);
   s.pageVisible = new Array(s.pageRoots.length).fill(true);
   setSize(s); // sizing must precede any framing (which reads tCanvas dimensions)
+  // Publish the live app to the record/replay bridge (dev tool) without an import
+  // cycle: the bridge reads (globalThis).__csState for getCam/setCam + replay.
+  (globalThis as any).__csState = s;
   return s;
 }
 
@@ -103,6 +106,7 @@ export function finishApp(s: AppState, onBack: () => void, extras: ToolbarButton
     if (s.screenHud) s.screenHud.onBuild = null;
     if (s.fpsEl) s.fpsEl.style.display = prevFpsDisplay;
     removeEventListener('resize', onResize);
+    if ((globalThis as any).__csState === s) (globalThis as any).__csState = null;
   };
 }
 

@@ -1,0 +1,5908 @@
+{
+  "name": "latest",
+  "route": "windgraph",
+  "recordedAt": 1785702318429,
+  "viewport": {
+    "w": 2561,
+    "h": 1310,
+    "dpr": 1.5
+  },
+  "start": {
+    "active": false,
+    "x": 2000,
+    "y": 4605,
+    "z": 0.118970736629667,
+    "pose": null
+  },
+  "events": [
+    {
+      "t": 0,
+      "type": "pointerdown",
+      "x": 956,
+      "y": 51,
+      "button": 2,
+      "pointerId": 1
+    },
+    {
+      "t": 2,
+      "type": "pointermove",
+      "x": 955.3333740234375,
+      "y": 51,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6,
+      "type": "pointermove",
+      "x": 954,
+      "y": 51,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 14,
+      "type": "pointermove",
+      "x": 953.3333740234375,
+      "y": 51,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 18,
+      "type": "pointermove",
+      "x": 952,
+      "y": 51.66667175292969,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 31,
+      "type": "pointermove",
+      "x": 950.6666870117188,
+      "y": 51.66667175292969,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 39,
+      "type": "pointermove",
+      "x": 950,
+      "y": 51.66667175292969,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 72,
+      "type": "wheel",
+      "x": 950,
+      "y": 51,
+      "button": 0,
+      "pointerId": 1,
+      "deltaX": 0,
+      "deltaY": -30,
+      "deltaMode": 0,
+      "ctrlKey": false
+    },
+    {
+      "t": 83,
+      "type": "wheel",
+      "x": 950,
+      "y": 51,
+      "button": 0,
+      "pointerId": 1,
+      "deltaX": 0,
+      "deltaY": -15,
+      "deltaMode": 0,
+      "ctrlKey": false
+    },
+    {
+      "t": 92,
+      "type": "wheel",
+      "x": 950,
+      "y": 51,
+      "button": 0,
+      "pointerId": 1,
+      "deltaX": 0,
+      "deltaY": -15,
+      "deltaMode": 0,
+      "ctrlKey": false
+    },
+    {
+      "t": 98,
+      "type": "wheel",
+      "x": 950,
+      "y": 51,
+      "button": 0,
+      "pointerId": 1,
+      "deltaX": 0,
+      "deltaY": -45,
+      "deltaMode": 0,
+      "ctrlKey": false
+    },
+    {
+      "t": 120,
+      "type": "wheel",
+      "x": 950,
+      "y": 51,
+      "button": 0,
+      "pointerId": 1,
+      "deltaX": 0,
+      "deltaY": -30,
+      "deltaMode": 0,
+      "ctrlKey": false
+    },
+    {
+      "t": 141,
+      "type": "wheel",
+      "x": 950,
+      "y": 51,
+      "button": 0,
+      "pointerId": 1,
+      "deltaX": 0,
+      "deltaY": -120,
+      "deltaMode": 0,
+      "ctrlKey": false
+    },
+    {
+      "t": 141,
+      "type": "pointermove",
+      "x": 951.3333740234375,
+      "y": 51.66667175292969,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 156,
+      "type": "wheel",
+      "x": 950,
+      "y": 51,
+      "button": 0,
+      "pointerId": 1,
+      "deltaX": 0,
+      "deltaY": -120,
+      "deltaMode": 0,
+      "ctrlKey": false
+    },
+    {
+      "t": 171,
+      "type": "wheel",
+      "x": 951,
+      "y": 51,
+      "button": 0,
+      "pointerId": 1,
+      "deltaX": 0,
+      "deltaY": -60,
+      "deltaMode": 0,
+      "ctrlKey": false
+    },
+    {
+      "t": 171,
+      "type": "pointermove",
+      "x": 952,
+      "y": 51.66667175292969,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 175,
+      "type": "wheel",
+      "x": 952,
+      "y": 51,
+      "button": 0,
+      "pointerId": 1,
+      "deltaX": 0,
+      "deltaY": -45,
+      "deltaMode": 0,
+      "ctrlKey": false
+    },
+    {
+      "t": 180,
+      "type": "wheel",
+      "x": 952,
+      "y": 51,
+      "button": 0,
+      "pointerId": 1,
+      "deltaX": 0,
+      "deltaY": -15,
+      "deltaMode": 0,
+      "ctrlKey": false
+    },
+    {
+      "t": 184,
+      "type": "wheel",
+      "x": 952,
+      "y": 51,
+      "button": 0,
+      "pointerId": 1,
+      "deltaX": 0,
+      "deltaY": -15,
+      "deltaMode": 0,
+      "ctrlKey": false
+    },
+    {
+      "t": 188,
+      "type": "wheel",
+      "x": 952,
+      "y": 51,
+      "button": 0,
+      "pointerId": 1,
+      "deltaX": 0,
+      "deltaY": -15,
+      "deltaMode": 0,
+      "ctrlKey": false
+    },
+    {
+      "t": 197,
+      "type": "wheel",
+      "x": 952,
+      "y": 51,
+      "button": 0,
+      "pointerId": 1,
+      "deltaX": 0,
+      "deltaY": -15,
+      "deltaMode": 0,
+      "ctrlKey": false
+    },
+    {
+      "t": 205,
+      "type": "wheel",
+      "x": 952,
+      "y": 51,
+      "button": 0,
+      "pointerId": 1,
+      "deltaX": 0,
+      "deltaY": -15,
+      "deltaMode": 0,
+      "ctrlKey": false
+    },
+    {
+      "t": 223,
+      "type": "wheel",
+      "x": 952,
+      "y": 51,
+      "button": 0,
+      "pointerId": 1,
+      "deltaX": 0,
+      "deltaY": -15,
+      "deltaMode": 0,
+      "ctrlKey": false
+    },
+    {
+      "t": 241,
+      "type": "wheel",
+      "x": 952,
+      "y": 51,
+      "button": 0,
+      "pointerId": 1,
+      "deltaX": 0,
+      "deltaY": -15,
+      "deltaMode": 0,
+      "ctrlKey": false
+    },
+    {
+      "t": 261,
+      "type": "wheel",
+      "x": 952,
+      "y": 51,
+      "button": 0,
+      "pointerId": 1,
+      "deltaX": 0,
+      "deltaY": -15,
+      "deltaMode": 0,
+      "ctrlKey": false
+    },
+    {
+      "t": 281,
+      "type": "wheel",
+      "x": 952,
+      "y": 51,
+      "button": 0,
+      "pointerId": 1,
+      "deltaX": 0,
+      "deltaY": -15,
+      "deltaMode": 0,
+      "ctrlKey": false
+    },
+    {
+      "t": 356,
+      "type": "pointermove",
+      "x": 952,
+      "y": 52.333343505859375,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 360,
+      "type": "pointermove",
+      "x": 952,
+      "y": 53,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 364,
+      "type": "pointermove",
+      "x": 952,
+      "y": 55,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 368,
+      "type": "pointermove",
+      "x": 951.3333740234375,
+      "y": 56.333343505859375,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 373,
+      "type": "pointermove",
+      "x": 951.3333740234375,
+      "y": 58.333343505859375,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 377,
+      "type": "pointermove",
+      "x": 950,
+      "y": 61.66667175292969,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 381,
+      "type": "pointermove",
+      "x": 948,
+      "y": 64.33334350585938,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 385,
+      "type": "pointermove",
+      "x": 946.6666870117188,
+      "y": 67,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 389,
+      "type": "pointermove",
+      "x": 946.6666870117188,
+      "y": 69,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 394,
+      "type": "pointermove",
+      "x": 944,
+      "y": 72.33334350585938,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 408,
+      "type": "pointermove",
+      "x": 936.6666870117188,
+      "y": 90.33334350585938,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 410,
+      "type": "pointermove",
+      "x": 936.6666870117188,
+      "y": 92.33334350585938,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 414,
+      "type": "pointermove",
+      "x": 934,
+      "y": 98.33334350585938,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 418,
+      "type": "pointermove",
+      "x": 930,
+      "y": 103.66667175292969,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 423,
+      "type": "pointermove",
+      "x": 928.6666870117188,
+      "y": 110.33334350585938,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 427,
+      "type": "pointermove",
+      "x": 926.6666870117188,
+      "y": 115.66667175292969,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 431,
+      "type": "pointermove",
+      "x": 921.3333740234375,
+      "y": 123,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 435,
+      "type": "pointermove",
+      "x": 919.3333740234375,
+      "y": 130.33334350585938,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 439,
+      "type": "pointermove",
+      "x": 916,
+      "y": 133.6666717529297,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 443,
+      "type": "pointermove",
+      "x": 912,
+      "y": 141,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 447,
+      "type": "pointermove",
+      "x": 908.6666870117188,
+      "y": 150.33334350585938,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 451,
+      "type": "pointermove",
+      "x": 904.6666870117188,
+      "y": 155.6666717529297,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 456,
+      "type": "pointermove",
+      "x": 903.3333740234375,
+      "y": 163,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 460,
+      "type": "pointermove",
+      "x": 899.3333740234375,
+      "y": 168.33334350585938,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 464,
+      "type": "pointermove",
+      "x": 894,
+      "y": 177,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 468,
+      "type": "pointermove",
+      "x": 890.6666870117188,
+      "y": 182.33334350585938,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 472,
+      "type": "pointermove",
+      "x": 887.3333740234375,
+      "y": 187.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 476,
+      "type": "pointermove",
+      "x": 885.3333740234375,
+      "y": 195,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 481,
+      "type": "pointermove",
+      "x": 881.3333740234375,
+      "y": 200.33334350585938,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 485,
+      "type": "pointermove",
+      "x": 878,
+      "y": 205.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 489,
+      "type": "pointermove",
+      "x": 873.3333740234375,
+      "y": 212.33334350585938,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 493,
+      "type": "pointermove",
+      "x": 871.3333740234375,
+      "y": 219.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 498,
+      "type": "pointermove",
+      "x": 868,
+      "y": 223,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 502,
+      "type": "pointermove",
+      "x": 866.6666870117188,
+      "y": 226.33334350585938,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 506,
+      "type": "pointermove",
+      "x": 865.3333740234375,
+      "y": 228.33334350585938,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 510,
+      "type": "pointermove",
+      "x": 864,
+      "y": 232.33334350585938,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 514,
+      "type": "pointermove",
+      "x": 862.6666870117188,
+      "y": 235,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 514,
+      "type": "wheel",
+      "x": 862,
+      "y": 235,
+      "button": 0,
+      "pointerId": 1,
+      "deltaX": 0,
+      "deltaY": 30,
+      "deltaMode": 0,
+      "ctrlKey": false
+    },
+    {
+      "t": 518,
+      "type": "pointermove",
+      "x": 862.6666870117188,
+      "y": 236.33334350585938,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 523,
+      "type": "pointermove",
+      "x": 862.6666870117188,
+      "y": 237,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 527,
+      "type": "pointermove",
+      "x": 862,
+      "y": 238.33334350585938,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 531,
+      "type": "pointermove",
+      "x": 862,
+      "y": 239.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 535,
+      "type": "pointermove",
+      "x": 862,
+      "y": 240.33334350585938,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 556,
+      "type": "pointermove",
+      "x": 862.6666870117188,
+      "y": 240.33334350585938,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 568,
+      "type": "pointermove",
+      "x": 862.6666870117188,
+      "y": 241.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 581,
+      "type": "wheel",
+      "x": 862,
+      "y": 241,
+      "button": 0,
+      "pointerId": 1,
+      "deltaX": 0,
+      "deltaY": -30,
+      "deltaMode": 0,
+      "ctrlKey": false
+    },
+    {
+      "t": 586,
+      "type": "wheel",
+      "x": 862,
+      "y": 241,
+      "button": 0,
+      "pointerId": 1,
+      "deltaX": 0,
+      "deltaY": -15,
+      "deltaMode": 0,
+      "ctrlKey": false
+    },
+    {
+      "t": 593,
+      "type": "wheel",
+      "x": 862,
+      "y": 241,
+      "button": 0,
+      "pointerId": 1,
+      "deltaX": 0,
+      "deltaY": -15,
+      "deltaMode": 0,
+      "ctrlKey": false
+    },
+    {
+      "t": 598,
+      "type": "wheel",
+      "x": 862,
+      "y": 241,
+      "button": 0,
+      "pointerId": 1,
+      "deltaX": 0,
+      "deltaY": -15,
+      "deltaMode": 0,
+      "ctrlKey": false
+    },
+    {
+      "t": 604,
+      "type": "wheel",
+      "x": 862,
+      "y": 241,
+      "button": 0,
+      "pointerId": 1,
+      "deltaX": 0,
+      "deltaY": -15,
+      "deltaMode": 0,
+      "ctrlKey": false
+    },
+    {
+      "t": 611,
+      "type": "wheel",
+      "x": 862,
+      "y": 241,
+      "button": 0,
+      "pointerId": 1,
+      "deltaX": 0,
+      "deltaY": -15,
+      "deltaMode": 0,
+      "ctrlKey": false
+    },
+    {
+      "t": 615,
+      "type": "wheel",
+      "x": 862,
+      "y": 241,
+      "button": 0,
+      "pointerId": 1,
+      "deltaX": 0,
+      "deltaY": -30,
+      "deltaMode": 0,
+      "ctrlKey": false
+    },
+    {
+      "t": 619,
+      "type": "wheel",
+      "x": 862,
+      "y": 241,
+      "button": 0,
+      "pointerId": 1,
+      "deltaX": 0,
+      "deltaY": -15,
+      "deltaMode": 0,
+      "ctrlKey": false
+    },
+    {
+      "t": 624,
+      "type": "wheel",
+      "x": 862,
+      "y": 241,
+      "button": 0,
+      "pointerId": 1,
+      "deltaX": 0,
+      "deltaY": -15,
+      "deltaMode": 0,
+      "ctrlKey": false
+    },
+    {
+      "t": 630,
+      "type": "wheel",
+      "x": 862,
+      "y": 241,
+      "button": 0,
+      "pointerId": 1,
+      "deltaX": 0,
+      "deltaY": -15,
+      "deltaMode": 0,
+      "ctrlKey": false
+    },
+    {
+      "t": 635,
+      "type": "wheel",
+      "x": 862,
+      "y": 241,
+      "button": 0,
+      "pointerId": 1,
+      "deltaX": 0,
+      "deltaY": -15,
+      "deltaMode": 0,
+      "ctrlKey": false
+    },
+    {
+      "t": 640,
+      "type": "wheel",
+      "x": 862,
+      "y": 241,
+      "button": 0,
+      "pointerId": 1,
+      "deltaX": 0,
+      "deltaY": -15,
+      "deltaMode": 0,
+      "ctrlKey": false
+    },
+    {
+      "t": 646,
+      "type": "wheel",
+      "x": 862,
+      "y": 241,
+      "button": 0,
+      "pointerId": 1,
+      "deltaX": 0,
+      "deltaY": -15,
+      "deltaMode": 0,
+      "ctrlKey": false
+    },
+    {
+      "t": 649,
+      "type": "wheel",
+      "x": 862,
+      "y": 241,
+      "button": 0,
+      "pointerId": 1,
+      "deltaX": 0,
+      "deltaY": -15,
+      "deltaMode": 0,
+      "ctrlKey": false
+    },
+    {
+      "t": 653,
+      "type": "wheel",
+      "x": 862,
+      "y": 241,
+      "button": 0,
+      "pointerId": 1,
+      "deltaX": 0,
+      "deltaY": -15,
+      "deltaMode": 0,
+      "ctrlKey": false
+    },
+    {
+      "t": 659,
+      "type": "wheel",
+      "x": 862,
+      "y": 241,
+      "button": 0,
+      "pointerId": 1,
+      "deltaX": 0,
+      "deltaY": -15,
+      "deltaMode": 0,
+      "ctrlKey": false
+    },
+    {
+      "t": 662,
+      "type": "wheel",
+      "x": 862,
+      "y": 241,
+      "button": 0,
+      "pointerId": 1,
+      "deltaX": 0,
+      "deltaY": -15,
+      "deltaMode": 0,
+      "ctrlKey": false
+    },
+    {
+      "t": 667,
+      "type": "wheel",
+      "x": 862,
+      "y": 241,
+      "button": 0,
+      "pointerId": 1,
+      "deltaX": 0,
+      "deltaY": -15,
+      "deltaMode": 0,
+      "ctrlKey": false
+    },
+    {
+      "t": 672,
+      "type": "wheel",
+      "x": 862,
+      "y": 241,
+      "button": 0,
+      "pointerId": 1,
+      "deltaX": 0,
+      "deltaY": -15,
+      "deltaMode": 0,
+      "ctrlKey": false
+    },
+    {
+      "t": 681,
+      "type": "wheel",
+      "x": 862,
+      "y": 241,
+      "button": 0,
+      "pointerId": 1,
+      "deltaX": 0,
+      "deltaY": -15,
+      "deltaMode": 0,
+      "ctrlKey": false
+    },
+    {
+      "t": 685,
+      "type": "wheel",
+      "x": 862,
+      "y": 241,
+      "button": 0,
+      "pointerId": 1,
+      "deltaX": 0,
+      "deltaY": -15,
+      "deltaMode": 0,
+      "ctrlKey": false
+    },
+    {
+      "t": 698,
+      "type": "wheel",
+      "x": 862,
+      "y": 241,
+      "button": 0,
+      "pointerId": 1,
+      "deltaX": 0,
+      "deltaY": -15,
+      "deltaMode": 0,
+      "ctrlKey": false
+    },
+    {
+      "t": 706,
+      "type": "wheel",
+      "x": 862,
+      "y": 241,
+      "button": 0,
+      "pointerId": 1,
+      "deltaX": 0,
+      "deltaY": -15,
+      "deltaMode": 0,
+      "ctrlKey": false
+    },
+    {
+      "t": 731,
+      "type": "wheel",
+      "x": 862,
+      "y": 241,
+      "button": 0,
+      "pointerId": 1,
+      "deltaX": 0,
+      "deltaY": -15,
+      "deltaMode": 0,
+      "ctrlKey": false
+    },
+    {
+      "t": 735,
+      "type": "wheel",
+      "x": 862,
+      "y": 241,
+      "button": 0,
+      "pointerId": 1,
+      "deltaX": 0,
+      "deltaY": -15,
+      "deltaMode": 0,
+      "ctrlKey": false
+    },
+    {
+      "t": 748,
+      "type": "wheel",
+      "x": 862,
+      "y": 241,
+      "button": 0,
+      "pointerId": 1,
+      "deltaX": 0,
+      "deltaY": -15,
+      "deltaMode": 0,
+      "ctrlKey": false
+    },
+    {
+      "t": 752,
+      "type": "wheel",
+      "x": 862,
+      "y": 241,
+      "button": 0,
+      "pointerId": 1,
+      "deltaX": 0,
+      "deltaY": -15,
+      "deltaMode": 0,
+      "ctrlKey": false
+    },
+    {
+      "t": 755,
+      "type": "pointermove",
+      "x": 863.3333740234375,
+      "y": 241.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 760,
+      "type": "wheel",
+      "x": 863,
+      "y": 241,
+      "button": 0,
+      "pointerId": 1,
+      "deltaX": 0,
+      "deltaY": -15,
+      "deltaMode": 0,
+      "ctrlKey": false
+    },
+    {
+      "t": 764,
+      "type": "wheel",
+      "x": 863,
+      "y": 241,
+      "button": 0,
+      "pointerId": 1,
+      "deltaX": 0,
+      "deltaY": -15,
+      "deltaMode": 0,
+      "ctrlKey": false
+    },
+    {
+      "t": 768,
+      "type": "wheel",
+      "x": 863,
+      "y": 241,
+      "button": 0,
+      "pointerId": 1,
+      "deltaX": 0,
+      "deltaY": -15,
+      "deltaMode": 0,
+      "ctrlKey": false
+    },
+    {
+      "t": 775,
+      "type": "wheel",
+      "x": 863,
+      "y": 241,
+      "button": 0,
+      "pointerId": 1,
+      "deltaX": 0,
+      "deltaY": -15,
+      "deltaMode": 0,
+      "ctrlKey": false
+    },
+    {
+      "t": 782,
+      "type": "wheel",
+      "x": 863,
+      "y": 241,
+      "button": 0,
+      "pointerId": 1,
+      "deltaX": 0,
+      "deltaY": -15,
+      "deltaMode": 0,
+      "ctrlKey": false
+    },
+    {
+      "t": 785,
+      "type": "wheel",
+      "x": 863,
+      "y": 241,
+      "button": 0,
+      "pointerId": 1,
+      "deltaX": 0,
+      "deltaY": -15,
+      "deltaMode": 0,
+      "ctrlKey": false
+    },
+    {
+      "t": 790,
+      "type": "wheel",
+      "x": 863,
+      "y": 241,
+      "button": 0,
+      "pointerId": 1,
+      "deltaX": 0,
+      "deltaY": -15,
+      "deltaMode": 0,
+      "ctrlKey": false
+    },
+    {
+      "t": 794,
+      "type": "wheel",
+      "x": 863,
+      "y": 241,
+      "button": 0,
+      "pointerId": 1,
+      "deltaX": 0,
+      "deltaY": -15,
+      "deltaMode": 0,
+      "ctrlKey": false
+    },
+    {
+      "t": 803,
+      "type": "wheel",
+      "x": 863,
+      "y": 241,
+      "button": 0,
+      "pointerId": 1,
+      "deltaX": 0,
+      "deltaY": -15,
+      "deltaMode": 0,
+      "ctrlKey": false
+    },
+    {
+      "t": 808,
+      "type": "wheel",
+      "x": 863,
+      "y": 241,
+      "button": 0,
+      "pointerId": 1,
+      "deltaX": 0,
+      "deltaY": -15,
+      "deltaMode": 0,
+      "ctrlKey": false
+    },
+    {
+      "t": 821,
+      "type": "wheel",
+      "x": 863,
+      "y": 241,
+      "button": 0,
+      "pointerId": 1,
+      "deltaX": 0,
+      "deltaY": -15,
+      "deltaMode": 0,
+      "ctrlKey": false
+    },
+    {
+      "t": 831,
+      "type": "wheel",
+      "x": 863,
+      "y": 241,
+      "button": 0,
+      "pointerId": 1,
+      "deltaX": 0,
+      "deltaY": -15,
+      "deltaMode": 0,
+      "ctrlKey": false
+    },
+    {
+      "t": 839,
+      "type": "wheel",
+      "x": 863,
+      "y": 241,
+      "button": 0,
+      "pointerId": 1,
+      "deltaX": 0,
+      "deltaY": -15,
+      "deltaMode": 0,
+      "ctrlKey": false
+    },
+    {
+      "t": 848,
+      "type": "wheel",
+      "x": 863,
+      "y": 241,
+      "button": 0,
+      "pointerId": 1,
+      "deltaX": 0,
+      "deltaY": -15,
+      "deltaMode": 0,
+      "ctrlKey": false
+    },
+    {
+      "t": 860,
+      "type": "wheel",
+      "x": 863,
+      "y": 241,
+      "button": 0,
+      "pointerId": 1,
+      "deltaX": 0,
+      "deltaY": -15,
+      "deltaMode": 0,
+      "ctrlKey": false
+    },
+    {
+      "t": 873,
+      "type": "wheel",
+      "x": 863,
+      "y": 241,
+      "button": 0,
+      "pointerId": 1,
+      "deltaX": 0,
+      "deltaY": -15,
+      "deltaMode": 0,
+      "ctrlKey": false
+    },
+    {
+      "t": 1002,
+      "type": "pointermove",
+      "x": 863.3333740234375,
+      "y": 241.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1010,
+      "type": "pointermove",
+      "x": 863.3333740234375,
+      "y": 242.33334350585938,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1010,
+      "type": "pointerup",
+      "x": 863.3333740234375,
+      "y": 242.33334350585938,
+      "button": 2,
+      "pointerId": 1
+    },
+    {
+      "t": 1192,
+      "type": "pointerdown",
+      "x": 852,
+      "y": 380.3333435058594,
+      "button": 0,
+      "pointerId": 1
+    },
+    {
+      "t": 1193,
+      "type": "pointermove",
+      "x": 852,
+      "y": 381.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1199,
+      "type": "pointermove",
+      "x": 854.6666870117188,
+      "y": 383,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1202,
+      "type": "pointermove",
+      "x": 855.3333740234375,
+      "y": 383,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1206,
+      "type": "pointermove",
+      "x": 856.6666870117188,
+      "y": 384.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1210,
+      "type": "pointermove",
+      "x": 858,
+      "y": 384.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1215,
+      "type": "pointermove",
+      "x": 860,
+      "y": 384.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1219,
+      "type": "pointermove",
+      "x": 862.6666870117188,
+      "y": 385.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1223,
+      "type": "pointermove",
+      "x": 864,
+      "y": 385.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1227,
+      "type": "pointermove",
+      "x": 867.3333740234375,
+      "y": 385.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1231,
+      "type": "pointermove",
+      "x": 870,
+      "y": 385.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1235,
+      "type": "pointermove",
+      "x": 874,
+      "y": 385.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1240,
+      "type": "pointermove",
+      "x": 878,
+      "y": 385.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1244,
+      "type": "pointermove",
+      "x": 884.6666870117188,
+      "y": 385.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1248,
+      "type": "pointermove",
+      "x": 890.6666870117188,
+      "y": 385.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1252,
+      "type": "pointermove",
+      "x": 897.3333740234375,
+      "y": 385.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1256,
+      "type": "pointermove",
+      "x": 908.6666870117188,
+      "y": 385.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1260,
+      "type": "pointermove",
+      "x": 915.3333740234375,
+      "y": 383.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1265,
+      "type": "pointermove",
+      "x": 926.6666870117188,
+      "y": 383.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1269,
+      "type": "pointermove",
+      "x": 936.6666870117188,
+      "y": 381.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1273,
+      "type": "pointermove",
+      "x": 943.3333740234375,
+      "y": 379.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1277,
+      "type": "pointermove",
+      "x": 952.6666870117188,
+      "y": 379.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1281,
+      "type": "pointermove",
+      "x": 964,
+      "y": 375.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1285,
+      "type": "pointermove",
+      "x": 974,
+      "y": 373.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1289,
+      "type": "pointermove",
+      "x": 981.3333740234375,
+      "y": 373.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1294,
+      "type": "pointermove",
+      "x": 994,
+      "y": 370.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1298,
+      "type": "pointermove",
+      "x": 1006,
+      "y": 368.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1302,
+      "type": "pointermove",
+      "x": 1019.3333740234375,
+      "y": 366.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1306,
+      "type": "pointermove",
+      "x": 1030.666748046875,
+      "y": 364.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1310,
+      "type": "pointermove",
+      "x": 1042,
+      "y": 362.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1315,
+      "type": "pointermove",
+      "x": 1052,
+      "y": 360.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1319,
+      "type": "pointermove",
+      "x": 1061.3333740234375,
+      "y": 358.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1323,
+      "type": "pointermove",
+      "x": 1079.3333740234375,
+      "y": 354.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1327,
+      "type": "pointermove",
+      "x": 1088.666748046875,
+      "y": 352.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1331,
+      "type": "pointermove",
+      "x": 1100,
+      "y": 350.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1336,
+      "type": "pointermove",
+      "x": 1111.3333740234375,
+      "y": 348.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1339,
+      "type": "pointermove",
+      "x": 1123.3333740234375,
+      "y": 344.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1344,
+      "type": "pointermove",
+      "x": 1134.666748046875,
+      "y": 342.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1347,
+      "type": "pointermove",
+      "x": 1140,
+      "y": 341,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1352,
+      "type": "pointermove",
+      "x": 1150.666748046875,
+      "y": 337,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1356,
+      "type": "pointermove",
+      "x": 1158,
+      "y": 335,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1360,
+      "type": "pointermove",
+      "x": 1163.3333740234375,
+      "y": 333,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1365,
+      "type": "pointermove",
+      "x": 1168.666748046875,
+      "y": 331,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1369,
+      "type": "pointermove",
+      "x": 1174.666748046875,
+      "y": 328.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1373,
+      "type": "pointermove",
+      "x": 1178,
+      "y": 326.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1377,
+      "type": "pointermove",
+      "x": 1182.666748046875,
+      "y": 326.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1381,
+      "type": "pointermove",
+      "x": 1187.3333740234375,
+      "y": 325,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1385,
+      "type": "pointermove",
+      "x": 1190,
+      "y": 321.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1389,
+      "type": "pointermove",
+      "x": 1193.3333740234375,
+      "y": 321.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1394,
+      "type": "pointermove",
+      "x": 1196,
+      "y": 319,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1398,
+      "type": "pointermove",
+      "x": 1198.666748046875,
+      "y": 319,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1402,
+      "type": "pointermove",
+      "x": 1200,
+      "y": 318.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1406,
+      "type": "pointermove",
+      "x": 1202,
+      "y": 317,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1414,
+      "type": "pointermove",
+      "x": 1204.666748046875,
+      "y": 315.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1423,
+      "type": "pointermove",
+      "x": 1205.3333740234375,
+      "y": 315,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1427,
+      "type": "pointermove",
+      "x": 1206.666748046875,
+      "y": 313.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1431,
+      "type": "pointermove",
+      "x": 1208,
+      "y": 313.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1435,
+      "type": "pointermove",
+      "x": 1208,
+      "y": 312.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1440,
+      "type": "pointermove",
+      "x": 1208.666748046875,
+      "y": 312.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1444,
+      "type": "pointermove",
+      "x": 1210,
+      "y": 311.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1448,
+      "type": "pointermove",
+      "x": 1210.666748046875,
+      "y": 310.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1456,
+      "type": "pointermove",
+      "x": 1212,
+      "y": 310.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1460,
+      "type": "pointermove",
+      "x": 1213.3333740234375,
+      "y": 307.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1468,
+      "type": "pointermove",
+      "x": 1214.666748046875,
+      "y": 306.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1473,
+      "type": "pointermove",
+      "x": 1214.666748046875,
+      "y": 305.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1477,
+      "type": "pointermove",
+      "x": 1215.3333740234375,
+      "y": 304.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1481,
+      "type": "pointermove",
+      "x": 1216.666748046875,
+      "y": 303,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1486,
+      "type": "pointermove",
+      "x": 1216.666748046875,
+      "y": 302.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1489,
+      "type": "pointermove",
+      "x": 1217.3333740234375,
+      "y": 300.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1494,
+      "type": "pointermove",
+      "x": 1217.3333740234375,
+      "y": 297.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1498,
+      "type": "pointermove",
+      "x": 1218.666748046875,
+      "y": 297,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1502,
+      "type": "pointermove",
+      "x": 1218.666748046875,
+      "y": 294.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1506,
+      "type": "pointermove",
+      "x": 1218.666748046875,
+      "y": 291.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1510,
+      "type": "pointermove",
+      "x": 1218.666748046875,
+      "y": 291,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1514,
+      "type": "pointermove",
+      "x": 1218.666748046875,
+      "y": 289,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1519,
+      "type": "pointermove",
+      "x": 1218.666748046875,
+      "y": 287,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1523,
+      "type": "pointermove",
+      "x": 1218.666748046875,
+      "y": 285.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1527,
+      "type": "pointermove",
+      "x": 1218.666748046875,
+      "y": 283.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1531,
+      "type": "pointermove",
+      "x": 1218.666748046875,
+      "y": 282.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1535,
+      "type": "pointermove",
+      "x": 1218.666748046875,
+      "y": 280.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1539,
+      "type": "pointermove",
+      "x": 1218.666748046875,
+      "y": 279.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1544,
+      "type": "pointermove",
+      "x": 1218.666748046875,
+      "y": 278.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1548,
+      "type": "pointermove",
+      "x": 1218.666748046875,
+      "y": 276.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1556,
+      "type": "pointermove",
+      "x": 1218.666748046875,
+      "y": 275.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1561,
+      "type": "pointermove",
+      "x": 1218.666748046875,
+      "y": 274.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1569,
+      "type": "pointermove",
+      "x": 1218.666748046875,
+      "y": 273.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1581,
+      "type": "pointermove",
+      "x": 1218.666748046875,
+      "y": 272.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1656,
+      "type": "pointermove",
+      "x": 1218.666748046875,
+      "y": 273,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1661,
+      "type": "pointermove",
+      "x": 1218.666748046875,
+      "y": 274.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1665,
+      "type": "pointermove",
+      "x": 1218.666748046875,
+      "y": 275,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1671,
+      "type": "pointermove",
+      "x": 1220,
+      "y": 276.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1675,
+      "type": "pointermove",
+      "x": 1220,
+      "y": 278.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1679,
+      "type": "pointermove",
+      "x": 1220.666748046875,
+      "y": 279.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1687,
+      "type": "pointermove",
+      "x": 1222,
+      "y": 280.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1692,
+      "type": "pointermove",
+      "x": 1222,
+      "y": 281.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1696,
+      "type": "pointermove",
+      "x": 1223.3333740234375,
+      "y": 283,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1701,
+      "type": "pointermove",
+      "x": 1223.3333740234375,
+      "y": 284.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1706,
+      "type": "pointermove",
+      "x": 1224.666748046875,
+      "y": 285,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1712,
+      "type": "pointermove",
+      "x": 1225.3333740234375,
+      "y": 286.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1717,
+      "type": "pointermove",
+      "x": 1226.666748046875,
+      "y": 288.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1727,
+      "type": "pointermove",
+      "x": 1227.3333740234375,
+      "y": 290.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1732,
+      "type": "pointermove",
+      "x": 1229.3333740234375,
+      "y": 291.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1737,
+      "type": "pointermove",
+      "x": 1229.3333740234375,
+      "y": 293,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1742,
+      "type": "pointermove",
+      "x": 1232,
+      "y": 295.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1746,
+      "type": "pointermove",
+      "x": 1233.3333740234375,
+      "y": 296.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1751,
+      "type": "pointermove",
+      "x": 1234,
+      "y": 297.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1756,
+      "type": "pointermove",
+      "x": 1236.666748046875,
+      "y": 299,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1761,
+      "type": "pointermove",
+      "x": 1236.666748046875,
+      "y": 300.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1766,
+      "type": "pointermove",
+      "x": 1238,
+      "y": 301,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1771,
+      "type": "pointermove",
+      "x": 1238.666748046875,
+      "y": 302.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1775,
+      "type": "pointermove",
+      "x": 1240,
+      "y": 302.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1780,
+      "type": "pointermove",
+      "x": 1240,
+      "y": 303,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1785,
+      "type": "pointermove",
+      "x": 1242,
+      "y": 304.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1796,
+      "type": "pointermove",
+      "x": 1243.3333740234375,
+      "y": 305.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1800,
+      "type": "pointermove",
+      "x": 1244.666748046875,
+      "y": 305.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1810,
+      "type": "pointermove",
+      "x": 1246,
+      "y": 307,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1825,
+      "type": "pointermove",
+      "x": 1246,
+      "y": 308.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1833,
+      "type": "pointermove",
+      "x": 1246.666748046875,
+      "y": 308.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1911,
+      "type": "pointermove",
+      "x": 1247.3333740234375,
+      "y": 310.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1920,
+      "type": "pointermove",
+      "x": 1248.666748046875,
+      "y": 311.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1925,
+      "type": "pointermove",
+      "x": 1248.666748046875,
+      "y": 312.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1929,
+      "type": "pointermove",
+      "x": 1250,
+      "y": 313.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1933,
+      "type": "pointermove",
+      "x": 1250,
+      "y": 315,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1940,
+      "type": "pointermove",
+      "x": 1250.666748046875,
+      "y": 317.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1944,
+      "type": "pointermove",
+      "x": 1250.666748046875,
+      "y": 319,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1950,
+      "type": "pointermove",
+      "x": 1252,
+      "y": 319.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1954,
+      "type": "pointermove",
+      "x": 1252,
+      "y": 321,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1958,
+      "type": "pointermove",
+      "x": 1252,
+      "y": 321.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 1969,
+      "type": "pointermove",
+      "x": 1252.666748046875,
+      "y": 323.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 2005,
+      "type": "pointerup",
+      "x": 1252.666748046875,
+      "y": 323.66668701171875,
+      "button": 0,
+      "pointerId": 1
+    },
+    {
+      "t": 2700,
+      "type": "pointerdown",
+      "x": 1654.666748046875,
+      "y": 19.666671752929688,
+      "button": 0,
+      "pointerId": 1
+    },
+    {
+      "t": 2780,
+      "type": "pointerup",
+      "x": 1654.666748046875,
+      "y": 19.666671752929688,
+      "button": 0,
+      "pointerId": 1
+    },
+    {
+      "t": 3257,
+      "type": "pointerdown",
+      "x": 1304.666748046875,
+      "y": 472.3333740234375,
+      "button": 2,
+      "pointerId": 1
+    },
+    {
+      "t": 3262,
+      "type": "pointermove",
+      "x": 1305.3333740234375,
+      "y": 471,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3278,
+      "type": "pointermove",
+      "x": 1306.666748046875,
+      "y": 470.3333740234375,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3283,
+      "type": "pointermove",
+      "x": 1306.666748046875,
+      "y": 469,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3286,
+      "type": "pointermove",
+      "x": 1306.666748046875,
+      "y": 468.3333740234375,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3295,
+      "type": "pointermove",
+      "x": 1308,
+      "y": 467,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3299,
+      "type": "pointermove",
+      "x": 1308,
+      "y": 465.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3302,
+      "type": "pointermove",
+      "x": 1308.666748046875,
+      "y": 464.3333740234375,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3307,
+      "type": "pointermove",
+      "x": 1310,
+      "y": 463,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3316,
+      "type": "pointermove",
+      "x": 1311.3333740234375,
+      "y": 459.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3322,
+      "type": "pointermove",
+      "x": 1313.3333740234375,
+      "y": 457.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3332,
+      "type": "pointermove",
+      "x": 1317.3333740234375,
+      "y": 453,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3337,
+      "type": "pointermove",
+      "x": 1318.666748046875,
+      "y": 449.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3346,
+      "type": "pointermove",
+      "x": 1321.3333740234375,
+      "y": 447,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3348,
+      "type": "pointermove",
+      "x": 1324,
+      "y": 445.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3353,
+      "type": "pointermove",
+      "x": 1325.3333740234375,
+      "y": 443,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3359,
+      "type": "pointermove",
+      "x": 1328,
+      "y": 440.3333740234375,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3365,
+      "type": "pointermove",
+      "x": 1330.666748046875,
+      "y": 439,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3371,
+      "type": "pointermove",
+      "x": 1332,
+      "y": 438.3333740234375,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3376,
+      "type": "pointermove",
+      "x": 1334.666748046875,
+      "y": 435.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3384,
+      "type": "pointermove",
+      "x": 1336.666748046875,
+      "y": 434.3333740234375,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3387,
+      "type": "pointermove",
+      "x": 1340,
+      "y": 433,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3398,
+      "type": "pointermove",
+      "x": 1345.3333740234375,
+      "y": 431,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3403,
+      "type": "pointermove",
+      "x": 1348,
+      "y": 429,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3406,
+      "type": "pointermove",
+      "x": 1348.666748046875,
+      "y": 429,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3416,
+      "type": "pointermove",
+      "x": 1354,
+      "y": 427,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3424,
+      "type": "pointermove",
+      "x": 1357.3333740234375,
+      "y": 424.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3427,
+      "type": "pointermove",
+      "x": 1360,
+      "y": 424.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3435,
+      "type": "pointermove",
+      "x": 1362,
+      "y": 422.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3440,
+      "type": "pointermove",
+      "x": 1365.3333740234375,
+      "y": 421,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3448,
+      "type": "pointermove",
+      "x": 1368,
+      "y": 419.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3448,
+      "type": "pointermove",
+      "x": 1368.666748046875,
+      "y": 419.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3457,
+      "type": "pointermove",
+      "x": 1370.666748046875,
+      "y": 417.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3466,
+      "type": "pointermove",
+      "x": 1373.3333740234375,
+      "y": 416.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3470,
+      "type": "pointermove",
+      "x": 1374,
+      "y": 415.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3475,
+      "type": "pointermove",
+      "x": 1375.3333740234375,
+      "y": 414.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3483,
+      "type": "pointermove",
+      "x": 1376,
+      "y": 414.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3490,
+      "type": "pointermove",
+      "x": 1378.666748046875,
+      "y": 412.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3498,
+      "type": "pointermove",
+      "x": 1379.3333740234375,
+      "y": 411.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3502,
+      "type": "pointermove",
+      "x": 1379.3333740234375,
+      "y": 410.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3513,
+      "type": "pointermove",
+      "x": 1380.666748046875,
+      "y": 408.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3517,
+      "type": "pointermove",
+      "x": 1382,
+      "y": 407,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3521,
+      "type": "pointermove",
+      "x": 1382,
+      "y": 406.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3532,
+      "type": "pointermove",
+      "x": 1382.666748046875,
+      "y": 403,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3537,
+      "type": "pointermove",
+      "x": 1382.666748046875,
+      "y": 400.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3542,
+      "type": "pointermove",
+      "x": 1382.666748046875,
+      "y": 399.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3546,
+      "type": "pointermove",
+      "x": 1382.666748046875,
+      "y": 397.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3554,
+      "type": "pointermove",
+      "x": 1382.666748046875,
+      "y": 394.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3558,
+      "type": "pointermove",
+      "x": 1382.666748046875,
+      "y": 393,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3563,
+      "type": "pointermove",
+      "x": 1382.666748046875,
+      "y": 392.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3567,
+      "type": "pointermove",
+      "x": 1382.666748046875,
+      "y": 391,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3571,
+      "type": "pointermove",
+      "x": 1382.666748046875,
+      "y": 389,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3575,
+      "type": "pointermove",
+      "x": 1382,
+      "y": 388.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3579,
+      "type": "pointermove",
+      "x": 1382,
+      "y": 387,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3584,
+      "type": "pointermove",
+      "x": 1382,
+      "y": 386.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3600,
+      "type": "pointermove",
+      "x": 1380.666748046875,
+      "y": 385,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3604,
+      "type": "pointermove",
+      "x": 1380.666748046875,
+      "y": 384.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3613,
+      "type": "pointermove",
+      "x": 1380,
+      "y": 384.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3617,
+      "type": "pointermove",
+      "x": 1378.666748046875,
+      "y": 384.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3624,
+      "type": "pointermove",
+      "x": 1378.666748046875,
+      "y": 383,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3632,
+      "type": "pointermove",
+      "x": 1377.3333740234375,
+      "y": 383,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3641,
+      "type": "pointermove",
+      "x": 1376.666748046875,
+      "y": 383,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3645,
+      "type": "pointermove",
+      "x": 1376.666748046875,
+      "y": 382.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3648,
+      "type": "pointermove",
+      "x": 1375.3333740234375,
+      "y": 382.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3656,
+      "type": "pointermove",
+      "x": 1375.3333740234375,
+      "y": 381,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3661,
+      "type": "pointermove",
+      "x": 1374.666748046875,
+      "y": 381,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3666,
+      "type": "pointermove",
+      "x": 1374.666748046875,
+      "y": 380.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3669,
+      "type": "pointermove",
+      "x": 1373.3333740234375,
+      "y": 380.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3674,
+      "type": "pointermove",
+      "x": 1372,
+      "y": 379,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3678,
+      "type": "pointermove",
+      "x": 1371.3333740234375,
+      "y": 377.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3682,
+      "type": "pointermove",
+      "x": 1370,
+      "y": 377.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3686,
+      "type": "pointermove",
+      "x": 1368.666748046875,
+      "y": 377,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3691,
+      "type": "pointermove",
+      "x": 1367.3333740234375,
+      "y": 375.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3695,
+      "type": "pointermove",
+      "x": 1366,
+      "y": 374.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3698,
+      "type": "pointermove",
+      "x": 1364.666748046875,
+      "y": 374.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3703,
+      "type": "pointermove",
+      "x": 1363.3333740234375,
+      "y": 373,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3707,
+      "type": "pointermove",
+      "x": 1362,
+      "y": 371.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3716,
+      "type": "pointermove",
+      "x": 1360,
+      "y": 370.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3720,
+      "type": "pointermove",
+      "x": 1360,
+      "y": 369.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3724,
+      "type": "pointermove",
+      "x": 1358.666748046875,
+      "y": 368.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3727,
+      "type": "pointermove",
+      "x": 1358,
+      "y": 368.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3732,
+      "type": "pointermove",
+      "x": 1358,
+      "y": 367.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3736,
+      "type": "pointermove",
+      "x": 1356.666748046875,
+      "y": 366.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3745,
+      "type": "pointermove",
+      "x": 1356.666748046875,
+      "y": 365.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3748,
+      "type": "pointermove",
+      "x": 1356,
+      "y": 364.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3753,
+      "type": "pointermove",
+      "x": 1354.666748046875,
+      "y": 363,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3757,
+      "type": "pointermove",
+      "x": 1353.3333740234375,
+      "y": 361,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3762,
+      "type": "pointermove",
+      "x": 1353.3333740234375,
+      "y": 359.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3765,
+      "type": "pointermove",
+      "x": 1352.666748046875,
+      "y": 358.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3770,
+      "type": "pointermove",
+      "x": 1351.3333740234375,
+      "y": 357,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3774,
+      "type": "pointermove",
+      "x": 1351.3333740234375,
+      "y": 356.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3778,
+      "type": "pointermove",
+      "x": 1350,
+      "y": 355,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3782,
+      "type": "pointermove",
+      "x": 1348.666748046875,
+      "y": 354.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3786,
+      "type": "pointermove",
+      "x": 1348,
+      "y": 353,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3791,
+      "type": "pointermove",
+      "x": 1348,
+      "y": 351.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3795,
+      "type": "pointermove",
+      "x": 1346.666748046875,
+      "y": 350.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3798,
+      "type": "pointermove",
+      "x": 1346.666748046875,
+      "y": 349,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3803,
+      "type": "pointermove",
+      "x": 1346,
+      "y": 349,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3807,
+      "type": "pointermove",
+      "x": 1346,
+      "y": 348.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3811,
+      "type": "pointermove",
+      "x": 1344.666748046875,
+      "y": 348.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3827,
+      "type": "pointermove",
+      "x": 1344.666748046875,
+      "y": 347,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 3902,
+      "type": "pointerup",
+      "x": 1344.666748046875,
+      "y": 347,
+      "button": 2,
+      "pointerId": 1
+    },
+    {
+      "t": 4116,
+      "type": "pointerdown",
+      "x": 1282.666748046875,
+      "y": 425,
+      "button": 0,
+      "pointerId": 1
+    },
+    {
+      "t": 4122,
+      "type": "pointermove",
+      "x": 1284.666748046875,
+      "y": 419,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 4125,
+      "type": "pointermove",
+      "x": 1286,
+      "y": 413.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 4129,
+      "type": "pointermove",
+      "x": 1289.3333740234375,
+      "y": 409,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 4133,
+      "type": "pointermove",
+      "x": 1291.3333740234375,
+      "y": 404.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 4138,
+      "type": "pointermove",
+      "x": 1293.3333740234375,
+      "y": 401,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 4144,
+      "type": "pointermove",
+      "x": 1298,
+      "y": 393.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 4150,
+      "type": "pointermove",
+      "x": 1301.3333740234375,
+      "y": 387,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 4154,
+      "type": "pointermove",
+      "x": 1303.3333740234375,
+      "y": 382.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 4158,
+      "type": "pointermove",
+      "x": 1306.666748046875,
+      "y": 377,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 4163,
+      "type": "pointermove",
+      "x": 1308,
+      "y": 374.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 4173,
+      "type": "pointermove",
+      "x": 1314,
+      "y": 363.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 4177,
+      "type": "pointermove",
+      "x": 1316,
+      "y": 361,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 4182,
+      "type": "pointermove",
+      "x": 1318.666748046875,
+      "y": 357.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 4186,
+      "type": "pointermove",
+      "x": 1320,
+      "y": 355,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 4191,
+      "type": "pointermove",
+      "x": 1321.3333740234375,
+      "y": 353.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 4196,
+      "type": "pointermove",
+      "x": 1322.666748046875,
+      "y": 351,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 4200,
+      "type": "pointermove",
+      "x": 1324,
+      "y": 348.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 4204,
+      "type": "pointermove",
+      "x": 1324.666748046875,
+      "y": 347,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 4211,
+      "type": "pointermove",
+      "x": 1324.666748046875,
+      "y": 345.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 4215,
+      "type": "pointermove",
+      "x": 1326,
+      "y": 344.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 4219,
+      "type": "pointermove",
+      "x": 1327.3333740234375,
+      "y": 343,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 4224,
+      "type": "pointermove",
+      "x": 1327.3333740234375,
+      "y": 342.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 4232,
+      "type": "pointermove",
+      "x": 1328,
+      "y": 341,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 4245,
+      "type": "pointermove",
+      "x": 1328,
+      "y": 339.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 4248,
+      "type": "pointermove",
+      "x": 1329.3333740234375,
+      "y": 338.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 4263,
+      "type": "pointermove",
+      "x": 1330.666748046875,
+      "y": 337,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 4275,
+      "type": "pointermove",
+      "x": 1330.666748046875,
+      "y": 336.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 4283,
+      "type": "pointermove",
+      "x": 1330.666748046875,
+      "y": 335,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 4291,
+      "type": "pointermove",
+      "x": 1330.666748046875,
+      "y": 334.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 4295,
+      "type": "pointermove",
+      "x": 1331.3333740234375,
+      "y": 334.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 4300,
+      "type": "pointermove",
+      "x": 1331.3333740234375,
+      "y": 333,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 4309,
+      "type": "pointermove",
+      "x": 1331.3333740234375,
+      "y": 332.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 4313,
+      "type": "pointermove",
+      "x": 1331.3333740234375,
+      "y": 331,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 4321,
+      "type": "pointermove",
+      "x": 1331.3333740234375,
+      "y": 330.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 4325,
+      "type": "pointermove",
+      "x": 1331.3333740234375,
+      "y": 329,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 4332,
+      "type": "pointermove",
+      "x": 1331.3333740234375,
+      "y": 328.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 4337,
+      "type": "pointermove",
+      "x": 1331.3333740234375,
+      "y": 326.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 4341,
+      "type": "pointermove",
+      "x": 1331.3333740234375,
+      "y": 325,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 4350,
+      "type": "pointermove",
+      "x": 1331.3333740234375,
+      "y": 322.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 4354,
+      "type": "pointermove",
+      "x": 1331.3333740234375,
+      "y": 320.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 4360,
+      "type": "pointermove",
+      "x": 1331.3333740234375,
+      "y": 317.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 4363,
+      "type": "pointermove",
+      "x": 1331.3333740234375,
+      "y": 317,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 4367,
+      "type": "pointermove",
+      "x": 1331.3333740234375,
+      "y": 315,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 4373,
+      "type": "pointermove",
+      "x": 1331.3333740234375,
+      "y": 313,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 4379,
+      "type": "pointermove",
+      "x": 1330.666748046875,
+      "y": 311,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 4383,
+      "type": "pointermove",
+      "x": 1330.666748046875,
+      "y": 309.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 4388,
+      "type": "pointermove",
+      "x": 1330.666748046875,
+      "y": 309,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 4396,
+      "type": "pointermove",
+      "x": 1329.3333740234375,
+      "y": 306.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 4400,
+      "type": "pointermove",
+      "x": 1329.3333740234375,
+      "y": 305.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 4409,
+      "type": "pointermove",
+      "x": 1328,
+      "y": 304.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 4417,
+      "type": "pointermove",
+      "x": 1328,
+      "y": 303.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 4422,
+      "type": "pointermove",
+      "x": 1328,
+      "y": 302.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 4442,
+      "type": "pointermove",
+      "x": 1327.3333740234375,
+      "y": 301.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 4453,
+      "type": "pointermove",
+      "x": 1327.3333740234375,
+      "y": 300.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 4500,
+      "type": "pointerup",
+      "x": 1327.3333740234375,
+      "y": 300.3333435058594,
+      "button": 0,
+      "pointerId": 1
+    },
+    {
+      "t": 5407,
+      "type": "pointerdown",
+      "x": 1071.3333740234375,
+      "y": 275,
+      "button": 0,
+      "pointerId": 1
+    },
+    {
+      "t": 5516,
+      "type": "pointermove",
+      "x": 1070.666748046875,
+      "y": 275,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 5522,
+      "type": "pointermove",
+      "x": 1070,
+      "y": 275,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 5528,
+      "type": "pointermove",
+      "x": 1068,
+      "y": 273.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 5535,
+      "type": "pointermove",
+      "x": 1067.3333740234375,
+      "y": 273.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 5544,
+      "type": "pointermove",
+      "x": 1065.3333740234375,
+      "y": 273.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 5549,
+      "type": "pointermove",
+      "x": 1064,
+      "y": 272.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 5557,
+      "type": "pointermove",
+      "x": 1062,
+      "y": 272.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 5563,
+      "type": "pointermove",
+      "x": 1060.666748046875,
+      "y": 272.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 5569,
+      "type": "pointermove",
+      "x": 1058.666748046875,
+      "y": 272.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 5576,
+      "type": "pointermove",
+      "x": 1056.666748046875,
+      "y": 271.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 5582,
+      "type": "pointermove",
+      "x": 1054.666748046875,
+      "y": 271.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 5590,
+      "type": "pointermove",
+      "x": 1052.666748046875,
+      "y": 271.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 5596,
+      "type": "pointermove",
+      "x": 1050,
+      "y": 270.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 5603,
+      "type": "pointermove",
+      "x": 1046.666748046875,
+      "y": 270.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 5609,
+      "type": "pointermove",
+      "x": 1044.666748046875,
+      "y": 270.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 5615,
+      "type": "pointermove",
+      "x": 1041.3333740234375,
+      "y": 270.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 5624,
+      "type": "pointermove",
+      "x": 1037.3333740234375,
+      "y": 270.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 5630,
+      "type": "pointermove",
+      "x": 1033.3333740234375,
+      "y": 270.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 5639,
+      "type": "pointermove",
+      "x": 1027.3333740234375,
+      "y": 270.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 5645,
+      "type": "pointermove",
+      "x": 1020.6666870117188,
+      "y": 270.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 5652,
+      "type": "pointermove",
+      "x": 1008,
+      "y": 270.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 5660,
+      "type": "pointermove",
+      "x": 996.6666870117188,
+      "y": 270.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 5667,
+      "type": "pointermove",
+      "x": 978,
+      "y": 270.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 5677,
+      "type": "pointermove",
+      "x": 952,
+      "y": 270.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 5685,
+      "type": "pointermove",
+      "x": 936.6666870117188,
+      "y": 270.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 5695,
+      "type": "pointermove",
+      "x": 918.6666870117188,
+      "y": 270.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 5707,
+      "type": "pointermove",
+      "x": 896,
+      "y": 272.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 5734,
+      "type": "pointermove",
+      "x": 854,
+      "y": 278.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 5744,
+      "type": "pointermove",
+      "x": 840,
+      "y": 279.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 5755,
+      "type": "pointermove",
+      "x": 827.3333740234375,
+      "y": 281.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 5765,
+      "type": "pointermove",
+      "x": 812.6666870117188,
+      "y": 283,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 5777,
+      "type": "pointermove",
+      "x": 800,
+      "y": 286.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 5783,
+      "type": "pointermove",
+      "x": 792.6666870117188,
+      "y": 288.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 5791,
+      "type": "pointermove",
+      "x": 780.6666870117188,
+      "y": 289.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 5802,
+      "type": "pointermove",
+      "x": 766,
+      "y": 293.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 5812,
+      "type": "pointermove",
+      "x": 749.3333740234375,
+      "y": 297,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 5819,
+      "type": "pointermove",
+      "x": 736.6666870117188,
+      "y": 298.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 5828,
+      "type": "pointermove",
+      "x": 718.6666870117188,
+      "y": 302.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 5839,
+      "type": "pointermove",
+      "x": 702,
+      "y": 305.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 5850,
+      "type": "pointermove",
+      "x": 680,
+      "y": 309,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 5858,
+      "type": "pointermove",
+      "x": 670,
+      "y": 311,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 5868,
+      "type": "pointermove",
+      "x": 655.3333740234375,
+      "y": 315,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 5878,
+      "type": "pointermove",
+      "x": 642.6666870117188,
+      "y": 316.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 5887,
+      "type": "pointermove",
+      "x": 629.3333740234375,
+      "y": 319.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 5896,
+      "type": "pointermove",
+      "x": 618.6666870117188,
+      "y": 321.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 5907,
+      "type": "pointermove",
+      "x": 606,
+      "y": 325,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 5918,
+      "type": "pointermove",
+      "x": 587.3333740234375,
+      "y": 328.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 5927,
+      "type": "pointermove",
+      "x": 570.6666870117188,
+      "y": 331.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 5937,
+      "type": "pointermove",
+      "x": 555.3333740234375,
+      "y": 335.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 5947,
+      "type": "pointermove",
+      "x": 538,
+      "y": 339.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 5959,
+      "type": "pointermove",
+      "x": 513.3333740234375,
+      "y": 343,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 5965,
+      "type": "pointermove",
+      "x": 506.66668701171875,
+      "y": 345,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 5975,
+      "type": "pointermove",
+      "x": 491.3333435058594,
+      "y": 348.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 5985,
+      "type": "pointermove",
+      "x": 478.66668701171875,
+      "y": 351.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 5997,
+      "type": "pointermove",
+      "x": 461.3333435058594,
+      "y": 354.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6003,
+      "type": "pointermove",
+      "x": 453.3333435058594,
+      "y": 355.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6013,
+      "type": "pointermove",
+      "x": 443.3333435058594,
+      "y": 359.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6023,
+      "type": "pointermove",
+      "x": 427.3333435058594,
+      "y": 364.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6035,
+      "type": "pointermove",
+      "x": 410,
+      "y": 367.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6040,
+      "type": "pointermove",
+      "x": 402,
+      "y": 371,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6050,
+      "type": "pointermove",
+      "x": 386,
+      "y": 376.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6060,
+      "type": "pointermove",
+      "x": 372,
+      "y": 381.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6070,
+      "type": "pointermove",
+      "x": 358.66668701171875,
+      "y": 386.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6076,
+      "type": "pointermove",
+      "x": 351.3333435058594,
+      "y": 389.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6087,
+      "type": "pointermove",
+      "x": 344,
+      "y": 392.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6097,
+      "type": "pointermove",
+      "x": 340.66668701171875,
+      "y": 393,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6129,
+      "type": "pointermove",
+      "x": 340.66668701171875,
+      "y": 394.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6141,
+      "type": "pointermove",
+      "x": 341.3333435058594,
+      "y": 394.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6150,
+      "type": "pointermove",
+      "x": 342.66668701171875,
+      "y": 395.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6161,
+      "type": "pointermove",
+      "x": 345.3333435058594,
+      "y": 396.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6170,
+      "type": "pointermove",
+      "x": 348,
+      "y": 397.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6179,
+      "type": "pointermove",
+      "x": 351.3333435058594,
+      "y": 399.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6190,
+      "type": "pointermove",
+      "x": 356.66668701171875,
+      "y": 403.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6202,
+      "type": "pointermove",
+      "x": 362.66668701171875,
+      "y": 411.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6208,
+      "type": "pointermove",
+      "x": 366,
+      "y": 415,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6218,
+      "type": "pointermove",
+      "x": 370.66668701171875,
+      "y": 424.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6228,
+      "type": "pointermove",
+      "x": 377.3333435058594,
+      "y": 434.3333740234375,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6240,
+      "type": "pointermove",
+      "x": 382,
+      "y": 442.3333740234375,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6245,
+      "type": "pointermove",
+      "x": 384.66668701171875,
+      "y": 447,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6255,
+      "type": "pointermove",
+      "x": 387.3333435058594,
+      "y": 453,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6265,
+      "type": "pointermove",
+      "x": 390,
+      "y": 457.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6275,
+      "type": "pointermove",
+      "x": 392.66668701171875,
+      "y": 462.3333740234375,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6281,
+      "type": "pointermove",
+      "x": 394.66668701171875,
+      "y": 465,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6292,
+      "type": "pointermove",
+      "x": 396.66668701171875,
+      "y": 468.3333740234375,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6302,
+      "type": "pointermove",
+      "x": 399.3333435058594,
+      "y": 471.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6312,
+      "type": "pointermove",
+      "x": 402.66668701171875,
+      "y": 475.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6320,
+      "type": "pointermove",
+      "x": 405.3333435058594,
+      "y": 478.3333740234375,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6331,
+      "type": "pointermove",
+      "x": 410.66668701171875,
+      "y": 480.3333740234375,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6341,
+      "type": "pointermove",
+      "x": 414.66668701171875,
+      "y": 483,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6350,
+      "type": "pointermove",
+      "x": 419.3333435058594,
+      "y": 485,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6360,
+      "type": "pointermove",
+      "x": 426.66668701171875,
+      "y": 487.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6370,
+      "type": "pointermove",
+      "x": 434.66668701171875,
+      "y": 489.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6381,
+      "type": "pointermove",
+      "x": 448.66668701171875,
+      "y": 491.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6390,
+      "type": "pointermove",
+      "x": 460,
+      "y": 491.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6399,
+      "type": "pointermove",
+      "x": 474.66668701171875,
+      "y": 493,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6412,
+      "type": "pointermove",
+      "x": 502,
+      "y": 493,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6424,
+      "type": "pointermove",
+      "x": 522.6666870117188,
+      "y": 493,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6430,
+      "type": "pointermove",
+      "x": 538.6666870117188,
+      "y": 493,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6440,
+      "type": "pointermove",
+      "x": 557.3333740234375,
+      "y": 493,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6451,
+      "type": "pointermove",
+      "x": 584.6666870117188,
+      "y": 491,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6463,
+      "type": "pointermove",
+      "x": 618,
+      "y": 487.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6468,
+      "type": "pointermove",
+      "x": 632.6666870117188,
+      "y": 485.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6478,
+      "type": "pointermove",
+      "x": 656,
+      "y": 481.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6489,
+      "type": "pointermove",
+      "x": 675.3333740234375,
+      "y": 477.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6499,
+      "type": "pointermove",
+      "x": 697.3333740234375,
+      "y": 472.3333740234375,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6505,
+      "type": "pointermove",
+      "x": 707.3333740234375,
+      "y": 470.3333740234375,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6516,
+      "type": "pointermove",
+      "x": 724.6666870117188,
+      "y": 468.3333740234375,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6526,
+      "type": "pointermove",
+      "x": 746,
+      "y": 465,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6537,
+      "type": "pointermove",
+      "x": 765.3333740234375,
+      "y": 463,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6548,
+      "type": "pointermove",
+      "x": 790.6666870117188,
+      "y": 463,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6564,
+      "type": "pointermove",
+      "x": 824.6666870117188,
+      "y": 461,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6575,
+      "type": "pointermove",
+      "x": 848,
+      "y": 461,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6586,
+      "type": "pointermove",
+      "x": 868,
+      "y": 461,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6594,
+      "type": "pointermove",
+      "x": 883.3333740234375,
+      "y": 461,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6605,
+      "type": "pointermove",
+      "x": 899.3333740234375,
+      "y": 461,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6614,
+      "type": "pointermove",
+      "x": 916,
+      "y": 461,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6623,
+      "type": "pointermove",
+      "x": 930.6666870117188,
+      "y": 461,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6632,
+      "type": "pointermove",
+      "x": 946,
+      "y": 461,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6642,
+      "type": "pointermove",
+      "x": 962.6666870117188,
+      "y": 461,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6653,
+      "type": "pointermove",
+      "x": 981.3333740234375,
+      "y": 461,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6661,
+      "type": "pointermove",
+      "x": 992,
+      "y": 461,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6671,
+      "type": "pointermove",
+      "x": 1002.6666870117188,
+      "y": 461,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6680,
+      "type": "pointermove",
+      "x": 1011.3333740234375,
+      "y": 461,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6693,
+      "type": "pointermove",
+      "x": 1024,
+      "y": 462.3333740234375,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6699,
+      "type": "pointermove",
+      "x": 1028,
+      "y": 462.3333740234375,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6708,
+      "type": "pointermove",
+      "x": 1037.3333740234375,
+      "y": 462.3333740234375,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6718,
+      "type": "pointermove",
+      "x": 1045.3333740234375,
+      "y": 462.3333740234375,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6729,
+      "type": "pointermove",
+      "x": 1054.666748046875,
+      "y": 462.3333740234375,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6735,
+      "type": "pointermove",
+      "x": 1057.3333740234375,
+      "y": 462.3333740234375,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6745,
+      "type": "pointermove",
+      "x": 1062,
+      "y": 462.3333740234375,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6755,
+      "type": "pointermove",
+      "x": 1064,
+      "y": 462.3333740234375,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6800,
+      "type": "pointermove",
+      "x": 1063.3333740234375,
+      "y": 462.3333740234375,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6805,
+      "type": "pointermove",
+      "x": 1062.666748046875,
+      "y": 462.3333740234375,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6813,
+      "type": "pointermove",
+      "x": 1058,
+      "y": 463.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6822,
+      "type": "pointermove",
+      "x": 1051.3333740234375,
+      "y": 465,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6831,
+      "type": "pointermove",
+      "x": 1036.666748046875,
+      "y": 467,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6838,
+      "type": "pointermove",
+      "x": 1022.6666870117188,
+      "y": 468.3333740234375,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6847,
+      "type": "pointermove",
+      "x": 1002,
+      "y": 472.3333740234375,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6857,
+      "type": "pointermove",
+      "x": 973.3333740234375,
+      "y": 478.3333740234375,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6867,
+      "type": "pointermove",
+      "x": 946,
+      "y": 482.3333740234375,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6874,
+      "type": "pointermove",
+      "x": 924.6666870117188,
+      "y": 484.3333740234375,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6884,
+      "type": "pointermove",
+      "x": 889.3333740234375,
+      "y": 490.3333740234375,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6894,
+      "type": "pointermove",
+      "x": 864,
+      "y": 494.3333740234375,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6903,
+      "type": "pointermove",
+      "x": 839.3333740234375,
+      "y": 496.3333740234375,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6912,
+      "type": "pointermove",
+      "x": 816.6666870117188,
+      "y": 499.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6923,
+      "type": "pointermove",
+      "x": 792.6666870117188,
+      "y": 503.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6934,
+      "type": "pointermove",
+      "x": 774,
+      "y": 505.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6942,
+      "type": "pointermove",
+      "x": 756.6666870117188,
+      "y": 509,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6952,
+      "type": "pointermove",
+      "x": 738.6666870117188,
+      "y": 511,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6962,
+      "type": "pointermove",
+      "x": 719.3333740234375,
+      "y": 513,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6975,
+      "type": "pointermove",
+      "x": 699.3333740234375,
+      "y": 517,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6981,
+      "type": "pointermove",
+      "x": 691.3333740234375,
+      "y": 518.3333740234375,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 6990,
+      "type": "pointermove",
+      "x": 676.6666870117188,
+      "y": 518.3333740234375,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 7001,
+      "type": "pointermove",
+      "x": 665.3333740234375,
+      "y": 519.6666870117188,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 7012,
+      "type": "pointermove",
+      "x": 654,
+      "y": 521.6666870117188,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 7017,
+      "type": "pointermove",
+      "x": 648,
+      "y": 523,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 7027,
+      "type": "pointermove",
+      "x": 634.6666870117188,
+      "y": 524.3333740234375,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 7037,
+      "type": "pointermove",
+      "x": 622.6666870117188,
+      "y": 526.3333740234375,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 7047,
+      "type": "pointermove",
+      "x": 610,
+      "y": 529,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 7053,
+      "type": "pointermove",
+      "x": 602,
+      "y": 529,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 7064,
+      "type": "pointermove",
+      "x": 584.6666870117188,
+      "y": 534.3333740234375,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 7074,
+      "type": "pointermove",
+      "x": 564.6666870117188,
+      "y": 539.6666870117188,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 7084,
+      "type": "pointermove",
+      "x": 544.6666870117188,
+      "y": 545.6666870117188,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 7091,
+      "type": "pointermove",
+      "x": 534,
+      "y": 549,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 7102,
+      "type": "pointermove",
+      "x": 509.3333435058594,
+      "y": 557,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 7112,
+      "type": "pointermove",
+      "x": 489.3333435058594,
+      "y": 562.3333740234375,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 7122,
+      "type": "pointermove",
+      "x": 469.3333435058594,
+      "y": 570.3333740234375,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 7130,
+      "type": "pointermove",
+      "x": 456.66668701171875,
+      "y": 575.6666870117188,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 7140,
+      "type": "pointermove",
+      "x": 439.3333435058594,
+      "y": 581,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 7150,
+      "type": "pointermove",
+      "x": 425.3333435058594,
+      "y": 586.3333740234375,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 7159,
+      "type": "pointermove",
+      "x": 412,
+      "y": 593,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 7168,
+      "type": "pointermove",
+      "x": 401.3333435058594,
+      "y": 596.3333740234375,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 7178,
+      "type": "pointermove",
+      "x": 390,
+      "y": 601,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 7187,
+      "type": "pointermove",
+      "x": 380,
+      "y": 606.3333740234375,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 7196,
+      "type": "pointermove",
+      "x": 371.3333435058594,
+      "y": 611,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 7205,
+      "type": "pointermove",
+      "x": 362,
+      "y": 614.3333740234375,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 7215,
+      "type": "pointermove",
+      "x": 350.66668701171875,
+      "y": 619,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 7227,
+      "type": "pointermove",
+      "x": 340,
+      "y": 623.6666870117188,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 7232,
+      "type": "pointermove",
+      "x": 334,
+      "y": 625.6666870117188,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 7242,
+      "type": "pointermove",
+      "x": 325.3333435058594,
+      "y": 628.3333740234375,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 7252,
+      "type": "pointermove",
+      "x": 316.66668701171875,
+      "y": 631.6666870117188,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 7265,
+      "type": "pointermove",
+      "x": 304.66668701171875,
+      "y": 636.3333740234375,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 7270,
+      "type": "pointermove",
+      "x": 300.66668701171875,
+      "y": 638.3333740234375,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 7281,
+      "type": "pointermove",
+      "x": 294,
+      "y": 640.3333740234375,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 7291,
+      "type": "pointermove",
+      "x": 288.66668701171875,
+      "y": 643,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 7301,
+      "type": "pointermove",
+      "x": 281.3333435058594,
+      "y": 645.6666870117188,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 7307,
+      "type": "pointermove",
+      "x": 279.3333435058594,
+      "y": 645.6666870117188,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 7316,
+      "type": "pointermove",
+      "x": 275.3333435058594,
+      "y": 647.6666870117188,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 7325,
+      "type": "pointermove",
+      "x": 270.66668701171875,
+      "y": 649,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 7334,
+      "type": "pointermove",
+      "x": 268,
+      "y": 651.6666870117188,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 7340,
+      "type": "pointermove",
+      "x": 265.3333435058594,
+      "y": 651.6666870117188,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 7350,
+      "type": "pointermove",
+      "x": 264.66668701171875,
+      "y": 651.6666870117188,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 7361,
+      "type": "pointermove",
+      "x": 263.3333435058594,
+      "y": 652.3333740234375,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 7521,
+      "type": "pointermove",
+      "x": 262,
+      "y": 652.3333740234375,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 7537,
+      "type": "pointermove",
+      "x": 261.3333435058594,
+      "y": 652.3333740234375,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 7700,
+      "type": "pointermove",
+      "x": 262,
+      "y": 652.3333740234375,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 7710,
+      "type": "pointermove",
+      "x": 265.3333435058594,
+      "y": 651.6666870117188,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 7715,
+      "type": "pointermove",
+      "x": 268.66668701171875,
+      "y": 651.6666870117188,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 7723,
+      "type": "pointermove",
+      "x": 275.3333435058594,
+      "y": 649.6666870117188,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 7733,
+      "type": "pointermove",
+      "x": 288,
+      "y": 646.3333740234375,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 7745,
+      "type": "pointermove",
+      "x": 300.66668701171875,
+      "y": 643.6666870117188,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 7751,
+      "type": "pointermove",
+      "x": 310.66668701171875,
+      "y": 643.6666870117188,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 7760,
+      "type": "pointermove",
+      "x": 325.3333435058594,
+      "y": 640.3333740234375,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 7771,
+      "type": "pointermove",
+      "x": 340,
+      "y": 638.3333740234375,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 7782,
+      "type": "pointermove",
+      "x": 363.3333435058594,
+      "y": 636.3333740234375,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 7788,
+      "type": "pointermove",
+      "x": 374,
+      "y": 634.3333740234375,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 7799,
+      "type": "pointermove",
+      "x": 397.3333435058594,
+      "y": 631,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 7809,
+      "type": "pointermove",
+      "x": 418.66668701171875,
+      "y": 629,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 7818,
+      "type": "pointermove",
+      "x": 436.66668701171875,
+      "y": 627,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 7825,
+      "type": "pointermove",
+      "x": 446.66668701171875,
+      "y": 627,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 7836,
+      "type": "pointermove",
+      "x": 464.66668701171875,
+      "y": 623,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 7847,
+      "type": "pointermove",
+      "x": 477.3333435058594,
+      "y": 623,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 7856,
+      "type": "pointermove",
+      "x": 490.66668701171875,
+      "y": 621.6666870117188,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 7865,
+      "type": "pointermove",
+      "x": 506,
+      "y": 619.6666870117188,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 7874,
+      "type": "pointermove",
+      "x": 528,
+      "y": 619.6666870117188,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 7885,
+      "type": "pointermove",
+      "x": 556.6666870117188,
+      "y": 617.6666870117188,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 7894,
+      "type": "pointermove",
+      "x": 577.3333740234375,
+      "y": 617.6666870117188,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 7903,
+      "type": "pointermove",
+      "x": 608,
+      "y": 615.6666870117188,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 7913,
+      "type": "pointermove",
+      "x": 637.3333740234375,
+      "y": 613.6666870117188,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 7926,
+      "type": "pointermove",
+      "x": 682.6666870117188,
+      "y": 612.3333740234375,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 7932,
+      "type": "pointermove",
+      "x": 702.6666870117188,
+      "y": 610.3333740234375,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 7941,
+      "type": "pointermove",
+      "x": 736,
+      "y": 608.3333740234375,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 7951,
+      "type": "pointermove",
+      "x": 763.3333740234375,
+      "y": 604.3333740234375,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 7962,
+      "type": "pointermove",
+      "x": 796.6666870117188,
+      "y": 600.3333740234375,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 7968,
+      "type": "pointermove",
+      "x": 814,
+      "y": 598.3333740234375,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 7978,
+      "type": "pointermove",
+      "x": 841.3333740234375,
+      "y": 594.3333740234375,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 7988,
+      "type": "pointermove",
+      "x": 870.6666870117188,
+      "y": 592.3333740234375,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 7999,
+      "type": "pointermove",
+      "x": 897.3333740234375,
+      "y": 588.3333740234375,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 8005,
+      "type": "pointermove",
+      "x": 912.6666870117188,
+      "y": 587,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 8014,
+      "type": "pointermove",
+      "x": 934.6666870117188,
+      "y": 585,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 8024,
+      "type": "pointermove",
+      "x": 950.6666870117188,
+      "y": 581,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 8034,
+      "type": "pointermove",
+      "x": 968,
+      "y": 579.6666870117188,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 8040,
+      "type": "pointermove",
+      "x": 978,
+      "y": 579.6666870117188,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 8050,
+      "type": "pointermove",
+      "x": 995.3333740234375,
+      "y": 575.6666870117188,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 8059,
+      "type": "pointermove",
+      "x": 1004,
+      "y": 574.3333740234375,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 8068,
+      "type": "pointermove",
+      "x": 1008.6666870117188,
+      "y": 573,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 8075,
+      "type": "pointermove",
+      "x": 1010.6666870117188,
+      "y": 573,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 8085,
+      "type": "pointermove",
+      "x": 1012.6666870117188,
+      "y": 572.3333740234375,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 8183,
+      "type": "pointermove",
+      "x": 1012.6666870117188,
+      "y": 571,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 8190,
+      "type": "pointermove",
+      "x": 1012.6666870117188,
+      "y": 570.3333740234375,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 8199,
+      "type": "pointermove",
+      "x": 1010.6666870117188,
+      "y": 566.3333740234375,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 8208,
+      "type": "pointermove",
+      "x": 1006,
+      "y": 557.6666870117188,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 8219,
+      "type": "pointermove",
+      "x": 1001.3333740234375,
+      "y": 547,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 8227,
+      "type": "pointermove",
+      "x": 996,
+      "y": 533,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 8237,
+      "type": "pointermove",
+      "x": 992.6666870117188,
+      "y": 524.3333740234375,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 8247,
+      "type": "pointermove",
+      "x": 983.3333740234375,
+      "y": 499,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 8259,
+      "type": "pointermove",
+      "x": 976,
+      "y": 471,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 8265,
+      "type": "pointermove",
+      "x": 972,
+      "y": 458.3333740234375,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 8275,
+      "type": "pointermove",
+      "x": 966.6666870117188,
+      "y": 435.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 8286,
+      "type": "pointermove",
+      "x": 960.6666870117188,
+      "y": 415.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 8297,
+      "type": "pointermove",
+      "x": 958.6666870117188,
+      "y": 400.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 8303,
+      "type": "pointermove",
+      "x": 957.3333740234375,
+      "y": 393,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 8313,
+      "type": "pointermove",
+      "x": 956,
+      "y": 382.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 8324,
+      "type": "pointermove",
+      "x": 956,
+      "y": 371,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 8334,
+      "type": "pointermove",
+      "x": 954,
+      "y": 361,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 8341,
+      "type": "pointermove",
+      "x": 954,
+      "y": 357,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 8351,
+      "type": "pointermove",
+      "x": 954,
+      "y": 349,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 8361,
+      "type": "pointermove",
+      "x": 952.6666870117188,
+      "y": 342.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 8372,
+      "type": "pointermove",
+      "x": 952.6666870117188,
+      "y": 337,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 8378,
+      "type": "pointermove",
+      "x": 952.6666870117188,
+      "y": 333.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 8389,
+      "type": "pointermove",
+      "x": 952.6666870117188,
+      "y": 327,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 8399,
+      "type": "pointermove",
+      "x": 952.6666870117188,
+      "y": 322.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 8409,
+      "type": "pointermove",
+      "x": 952.6666870117188,
+      "y": 316.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 8416,
+      "type": "pointermove",
+      "x": 952.6666870117188,
+      "y": 313.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 8426,
+      "type": "pointermove",
+      "x": 952.6666870117188,
+      "y": 309,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 8434,
+      "type": "pointermove",
+      "x": 952.6666870117188,
+      "y": 306.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 8443,
+      "type": "pointermove",
+      "x": 952.6666870117188,
+      "y": 304.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 8451,
+      "type": "pointermove",
+      "x": 952.6666870117188,
+      "y": 301,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 8461,
+      "type": "pointermove",
+      "x": 952.6666870117188,
+      "y": 300.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 8522,
+      "type": "pointermove",
+      "x": 952.6666870117188,
+      "y": 301,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 8529,
+      "type": "pointermove",
+      "x": 952.6666870117188,
+      "y": 303.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 8537,
+      "type": "pointermove",
+      "x": 952.6666870117188,
+      "y": 307,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 8546,
+      "type": "pointermove",
+      "x": 954.6666870117188,
+      "y": 313.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 8558,
+      "type": "pointermove",
+      "x": 956,
+      "y": 328.3333435058594,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 8564,
+      "type": "pointermove",
+      "x": 957.3333740234375,
+      "y": 335,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 8573,
+      "type": "pointermove",
+      "x": 959.3333740234375,
+      "y": 355,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 8582,
+      "type": "pointermove",
+      "x": 963.3333740234375,
+      "y": 375,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 8593,
+      "type": "pointermove",
+      "x": 965.3333740234375,
+      "y": 397,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 8599,
+      "type": "pointermove",
+      "x": 967.3333740234375,
+      "y": 409.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 8607,
+      "type": "pointermove",
+      "x": 969.3333740234375,
+      "y": 431.66668701171875,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 8617,
+      "type": "pointermove",
+      "x": 971.3333740234375,
+      "y": 456.3333740234375,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 8628,
+      "type": "pointermove",
+      "x": 973.3333740234375,
+      "y": 478.3333740234375,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 8667,
+      "type": "pointermove",
+      "x": 981.3333740234375,
+      "y": 527.6666870117188,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 8678,
+      "type": "pointermove",
+      "x": 984.6666870117188,
+      "y": 533,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 8689,
+      "type": "pointermove",
+      "x": 986,
+      "y": 537.6666870117188,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 8701,
+      "type": "pointermove",
+      "x": 986.6666870117188,
+      "y": 541,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 8708,
+      "type": "pointermove",
+      "x": 986.6666870117188,
+      "y": 541.6666870117188,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 8716,
+      "type": "pointermove",
+      "x": 986.6666870117188,
+      "y": 543,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 8727,
+      "type": "pointermove",
+      "x": 988,
+      "y": 543.6666870117188,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 8738,
+      "type": "pointermove",
+      "x": 988,
+      "y": 545.6666870117188,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 8750,
+      "type": "pointermove",
+      "x": 988,
+      "y": 547,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 8763,
+      "type": "pointermove",
+      "x": 988,
+      "y": 547.6666870117188,
+      "button": -1,
+      "pointerId": 1
+    },
+    {
+      "t": 8832,
+      "type": "pointerup",
+      "x": 988,
+      "y": 547.6666870117188,
+      "button": 0,
+      "pointerId": 1
+    }
+  ],
+  "duration": 8832,
+  "summary": {
+    "frames": 1899,
+    "fpsMin": 87,
+    "fpsAvg": 199,
+    "fpsP95": 240,
+    "jsMax": 37.6,
+    "jsAvg": 1.8,
+    "dropped": 1,
+    "inputs": {
+      "rotate (3D)": 2,
+      "wheel zoom": 62,
+      "camera pan": 2,
+      "ui button": 1,
+      "handle drag B": 1
+    }
+  }
+}

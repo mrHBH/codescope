@@ -7,7 +7,7 @@
 // populated — an empty document (pageRoots=[]) simply renders nothing.
 
 import type { Engine } from './engine';
-import { goToPage } from '../camera/camera';
+import { goToPage, replayBootPending } from '../camera/camera';
 import { MathDemo } from './boards/mathDemo';
 import { bootPlayground } from './playground';
 import { bootExplainer } from './explainer';
@@ -21,6 +21,7 @@ import { IslandGallery } from '../authoring/islands/gallery';
 // Island registrations (side-effect import — ensures builtins register)
 import '../authoring/islands';
 import { createBaseApp, finishApp, snapTo, makeQualityPanel, qualityToolbarButton } from './app';
+import { bootTestinfra } from './testinfra';
 
 export interface Demo {
   id: string;
@@ -41,7 +42,7 @@ function bootReference(engine: Engine, onBack: () => void): () => void {
     );
   }
   goToPage(s, 0);
-  snapTo(s, s.tgtX, s.tgtY, s.tgtZ);
+  if (!replayBootPending()) snapTo(s, s.tgtX, s.tgtY, s.tgtZ);
   return finishApp(s, onBack);
 }
 
@@ -52,7 +53,7 @@ function bootMath(engine: Engine, onBack: () => void): () => void {
   board.x0 = 0; board.y0 = 0;
   s.mathDemo = board;
   const z = Math.min((s.tCanvas.width / (board.width + 160)) * 0.9, (s.tCanvas.height / (board.height + 160)) * 0.9);
-  snapTo(s, board.x0 + board.width / 2, board.y0 + board.height / 2, z);
+  if (!replayBootPending()) snapTo(s, board.x0 + board.width / 2, board.y0 + board.height / 2, z);
   return finishApp(s, onBack);
 }
 
@@ -61,7 +62,7 @@ function bootIslands(engine: Engine, onBack: () => void): () => void {
   const gallery = new IslandGallery();
   s.interactive = gallery;
   const z = Math.min((s.tCanvas.width / (gallery.width + 160)) * 0.9, (s.tCanvas.height / (gallery.height + 160)) * 0.9);
-  snapTo(s, gallery.x0 + gallery.width / 2, gallery.y0 + gallery.height / 2, z);
+  if (!replayBootPending()) snapTo(s, gallery.x0 + gallery.width / 2, gallery.y0 + gallery.height / 2, z);
   return finishApp(s, onBack);
 }
 
@@ -78,7 +79,7 @@ function bootExtrude(engine: Engine, onBack: () => void): () => void {
   const qualityPanel = makeQualityPanel(s, true);
   s.panel = qualityPanel;
   const z = Math.min((s.tCanvas.width / (board.width + 160)) * 0.9, (s.tCanvas.height / (board.height + 160)) * 0.9);
-  snapTo(s, board.x0 + board.width / 2, board.y0 + board.height / 2, z);
+  if (!replayBootPending()) snapTo(s, board.x0 + board.width / 2, board.y0 + board.height / 2, z);
   return finishApp(s, onBack, [
     { id: 'cam3d', icon: 'cube', title: 'Toggle continuous 2D↔3D tilt (or double-tap the canvas)', active: () => board.tilted, onClick: () => board.toggleTilt() },
     qualityToolbarButton(s, qualityPanel),
@@ -97,7 +98,7 @@ function bootCurve3d(engine: Engine, onBack: () => void): () => void {
   const qualityPanel = makeQualityPanel(s, true);
   s.panel = qualityPanel;
   const z = Math.min((s.tCanvas.width / (board.width + 160)) * 0.9, (s.tCanvas.height / (board.height + 160)) * 0.9);
-  snapTo(s, board.x0 + board.width / 2, board.y0 + board.height / 2, z);
+  if (!replayBootPending()) snapTo(s, board.x0 + board.width / 2, board.y0 + board.height / 2, z);
   return finishApp(s, onBack, [
     { id: 'cam3d', icon: 'cube', title: 'Toggle continuous 2D↔3D tilt (or double-tap the canvas)', active: () => board.tilted, onClick: () => board.toggleTilt() },
     qualityToolbarButton(s, qualityPanel),
@@ -169,5 +170,10 @@ export const DEMOS: Demo[] = [
     id: 'math', name: 'Math typesetting',
     blurb: 'KaTeX-quality analytic LaTeX: fractions, radicals, big operators, matrices — all resolution-independent.',
     boot: bootMath,
+  },
+  {
+    id: 'testinfra', name: 'Test infra (recordings)',
+    blurb: 'List your F2 recordings — rename, delete, replay, and view the input/fps/js stats table for each.',
+    boot: bootTestinfra,
   },
 ];

@@ -638,6 +638,245 @@ from the code lives here. Newest entries at the bottom of each section.
     (3) grids in arbitrary planes (fillRule-3 is currently ground-plane-keyed);
     (4) plane∩mesh + curve∩plane intersection primitives (F3D-5 slicing).
 
+- **D27 — 3D perf pass: stroke wedge joins + conservative 3D board culling +
+  mesh-upload cache + MSAA gating (user: "turning on 3D tanks fps even when the
+  viewport doesn't change; dragging tanks way more in 3D; I expect 0 fps hit for
+  redrawing simple lines/circles; massively improve plot perf", 2026-08-02).**
+  Headless profiling (bun emit benchmarks) found FOUR independent costs.
+  (1) **STROKE ROUND-JOIN DISC SPAM.** `strokePolyline`/`strokeQuadPath` emitted a
+  FULL 24-seg disc at EVERY vertex for `join:'round'` (the default for circles,
+  ellipses, arcs, geometry — `primitives.ts stroke()`). A circle = 32 discs × 24 =
+  768 quads; the cost is `fillQuads` (pushMonotonePieces + bandPieces, ~0.5μs/quad).
+  A join only needs to fill the turn WEDGE, not a full circle. New `addRoundJoin`
+  emits an arc fan spanning the actual turn angle (segs = ceil(|turn|/15°)), so a
+  near-straight join is 1 quad and a sharp corner a few; `strokeQuadPath` now also
+  HONORS `style.join` (it ignored it before — always round). **Circle re-stroke
+  0.57→0.11ms (5×), orbit 0.42→0.08ms; triangle scene.emit dirty 0.84→0.27ms.**
+  NOTE: `plotFn`/`plotParametric` ALREADY use `join:'miter'` (object-resolver.ts:518,
+  a prior fix) so they did NOT benefit — their floor is the 240-sample ribbon through
+  `fillQuads` (~1.2ms), a deeper row-band renderer cost left alone (reducing samples
+  risks the "sharp at any zoom" moat; plots are CACHED during vertex drag anyway —
+  they only re-emit on slider scrub / LOD settle).
+  (2) **3D EMITTED ALL 9 BOARDS EVERY FRAME.** The world's emit had `cull2D =
+  !cam3d.active` — in 3D it composed the whole world (1168 inst / 1.23ms idle)
+  because the earlier ray-cast AABB false-culled tilted boards. Re-enabled per-board
+  culling via `rect3DVisible` (the conservative clip-space frustum test) with a
+  half-board margin. **3D idle 1.23→0.64ms, 3D drag 2.1→1.2ms** (now proportional
+  to visible boards, like 2D). frameSig + emit share one `cullCtx3D()` so the
+  frame-skip sig and the emit agree on visibility.
+  (3) **THE COMBINED MESH RE-UPLOADED EVERY FRAME.** `world.getMesh()` allocated a
+  FRESH combined Float32Array (extrude + curve3d) on every call; mesh3d gates its
+  GPU upload on the array REFERENCE (`verts !== lastTris`), so the static mesh
+  re-uploaded every frame. Now cached — rebuilt only when a board's mesh reference
+  changes (extrude slider / curve3d LOD band). Steady-state mesh upload → 0.
+  (4) **4× MSAA RAN WHENEVER THE WORLD HAD ANY MESH.** `msaa = meshAA &&
+  (hasGraph3d || hasInteractiveMesh)` — the world always has the extrude+curve3d
+  mesh, so 3D paid the 4× mesh pass even framed on a flat board far from the solids.
+  Now gated on `meshVisible(vp, camLocal)` (frustum test of the mesh boards) +
+  graph3d visibility; the imesh draw is skipped too when not visible.
+  **FRUSTUM CONTRACT CHANGE (reverses the 07-31 "all-behind → never cull"):** the
+  all-4-corners-behind case now draws IFF the camera's ground position is inside the
+  rect (else culled). The 07-31 revert claimed a camera-inside guard false-culled
+  boards the camera looks at; a headless orbit sim across low/close/steep/deep-zoom
+  poses proved otherwise — a board the camera LOOKS AT from outside is NEVER
+  all-behind (its near corners stay in front = the MIXED case, which still always
+  draws); all-behind only occurs for boards genuinely behind the camera
+  (camera-outside → correctly culled). `__test_frustum.ts` updated to the new
+  contract + bench8 locks "deep zoom into a board's center/edge/corner stays
+  visible" (the user's "don't make lines disappear" constraint). Without camLocal
+  the test stays conservative (draw). tsc clean; 25 bun suites + vitest green.
+  Visual verdict = user (WebGPU headless unavailable).
+
+- **D28 — D27 review + corrections (user: "the fps still tanks; my lines are no
+  longer infinite, so that was clearly not the issue", 2026-08-02).** D27's
+  culling/bbox-clip theory was the wrong diagnosis; two of its changes were the
+  regressions the user named, and neither was the perf problem. Headless
+  measurements + code reading established the real cost structure.
+  **What D27 got wrong.** (1) The "off-board bbox fill cost" theory (line
+  clipping + instance-level bbox culling + slice-bbox skip) never addressed the
+  measured drag cost: the world emit during a drag is ~1.2-1.8ms JS (9 boards ×
+  cached replay + the dragged board's rebuild) — fine for 60fps — and the GPU
+  fragment fill is dominated by PLOT bands, not off-board intersection points.
+  The clipping made infinite lines stop at the board edge (user-visible
+  regression) and was reverted. (2) The 3D per-board frustum culling
+  (`rect3DVisible` all-behind camera-inside contract) is what made "a line
+  disappear when I zoom into it because its frame is out of view": a board the
+  camera looks at can have all four corners outside the side planes (all-front)
+  or behind the near plane (all-behind with the camera's ground position just
+  outside the expanded rect) while its INTERIOR is still on screen — the test
+  only checks the 4 corners. Reverted to always-emit-in-3D; `rect3DVisible`
+  restored to "any corner behind → never cull". Board replays are cached and the
+  frame-skip signature makes a still scene emit ~0 JS, so over-emitting is cheap.
+  **The real 3D-static cost.** GPU-side: the 4× MSAA mesh pass is a FULL-SCREEN
+  4× color+depth clear + resolve every 3D frame regardless of mesh size (a fixed
+  ~1-3ms), plus the analytic pass renders every board under perspective with the
+  anisotropic supersampling up to 4× at grazing angles (the main 3D-vs-2D
+  multiplier on the plot fill). The mesh itself is small (~50k tris combined).
+  MSAA is now gated on `rectBehindNear` (all 4 corners behind the near plane) —
+  the ONLY gate that can't false-cull a mesh you're looking at — so a flat-board
+  view skips the pass entirely and a zoomed-in solid never vanishes.
+  **The real drag/plot cost.** The winding integral is O(pieces-per-band) per
+  pixel. Dense plots reach 400-600 pieces in their steepest y-bands (a sine's
+  steep segments all cross the same 2px band at ~200 x-positions); a pixel there
+  iterates them all. The x-sorted early-break only helps the fully-left side; the
+  RIGHT-zone (every fully-right piece adds sx·clipped_dy) must be summed for
+  every pixel left of it — that term is large (it's what makes the winding 1
+  inside a stroke) and cannot be dropped or bucketed without visibly hardening
+  the left AA edges. An exact fix needs a per-column y1/y3-prefix right-zone (4
+  binary searches/column — too slow at NX>2) or a 2D prefix grid with exact
+  y-thresholds (the y-clamp makes coarse y-buckets accumulate error). Sample
+  reduction is the safe stopgap (D28: plotFn 240→160, parametric/polar 320→200,
+  rose/liss 400→240; sub-pixel sagitta at typical zoom, LOD resamples at bands) —
+  measured worst band 632→418, total pieces 15.3k→11k. **Next step (honest): the
+  2D gather (x-columns + an exact right-zone prefix), which is the only thing
+  that makes dense plots cheap.** Until then, plots are the GPU-bound part of a
+   drag at mid/deep zoom.
+
+- **D29 — record/replay harness: measure perf in a REAL browser, not headless
+  (user: "stop writing headless tests every time — F2 to record, a testbench that
+  replays in a real chromium you control, for absolute certainty the issue is
+  gone", 2026-08-02).** This is the instrument the user asked for, and the right
+  one: the drag/overview tanks are GPU fragment-fill + buffer re-upload, which a
+  headless JS microbench (timing only emit()) cannot see — that mismatch is exactly
+  why D28's bbox-clip theory looked plausible in headless but did nothing on screen.
+  **Do NOT re-attempt the D27/D28-reverted perf guesses** (line clipping to the
+  board rect, instance-level bbox culling, 3D rect-frustum board culling, the
+  frustum all-behind camera-inside contract): D28 established they are visual
+  regressions ("lines stop at the board edge", "a line disappears when I zoom into
+  it") that don't touch the GPU-bound cost. The perf direction is D28's (sample
+  reduction stopgap + `rectBehindNear` MSAA gate + the future shader 2D-gather).
+  What D29 adds is the MEASUREMENT + the safe CPU wins that survived D28's review:
+  `src/recorder/` + `scripts/replay.ts` + a vite dev plugin + the `#testbench` demo.
+  `frame.ts` publishes `window.__perf` each frame (the chip is GPU-drawn, not DOM).
+  `recorder/bridge.ts` exposes getCam/setCam on `window.__rec`; live state is
+  `(globalThis).__csState` (set in createBaseApp, cleared in the finishApp disposer
+  — no import cycle). `recorder/recorder.ts`: **F2** toggles recording (window
+  keydown capture); records canvas pointer/wheel events in capture phase (moves only
+  while a button is down) with timestamps + start cam + viewport; samples `__perf`
+  for a recorded-fps baseline; tiny DOM "● REC" pill; on stop `prompt()`s a name →
+  save. `recorder/store.ts`: HttpStore (vite plugin) + localStorage fallback +
+  `createStore()` probe. **Vite plugin** (`vite.config.ts`, dev-only) serves
+  GET/POST/DELETE `/__rec[/:name]` over `recordings/*.json` (sanitized name,
+  traversal→400), mounted inline so it beats vite's SPA/history fallback (curl-
+  verified: empty list = `[]` JSON, not index.html). `recorder/replay.ts`:
+  `?replay=<name>` on the route hash restores the start cam, dispatches the events
+  at cadence onto the canvas, samples `__perf` over the action window, publishes
+  `window.__recReport` + postMessage + overlay. **Replay needs synthetic events to
+  drive drags**: `input.ts` wraps `setPointerCapture` in try/catch (`cap()`) — it
+  throws on untrusted events; capture only retargets move/up, which the harness
+  dispatches directly, and drag tracking keys off `s.pointers`, not capture.
+  `#testbench` (`testbench.ts`, real-DOM overlay) lists recordings + replays each in
+  a same-origin iframe sized to the recorded viewport (manual companion; shows
+  recorded vs this-machine fps). `scripts/replay.ts` = automated headed-Chromium
+  runner (Playwright via a runtime import so tsc stays clean with/without the dep):
+  per recording a context at the EXACT viewport + deviceScaleFactor (bit-exact),
+  reads the report, prints a table; auto-starts the dev server; degrades to an
+  install hint when Playwright is absent (verified: exit 1 + message). **Playwright
+  is NOT installed** (D6 = no new deps without sign-off) — the runner + the
+  `testbench:replay` script are wired and ready; `#testbench` needs no install.
+  Honest caveat: HEADLESS chromium = software WebGPU (SwiftShader) ≠ real-GPU fps;
+  the runner defaults to HEADED (real GPU) on the user's machine = the "absolute
+  certainty" they asked for. The safe CPU wins kept from the perf attempts: wedge
+  round-joins (`stroke.ts addRoundJoin` — a round join fills only the turn wedge,
+  not a 24-seg disc; circles/arcs cheaper, plots unaffected since they use miter)
+  and the `getMesh()` reference-cache (the combined extrude+curve3d mesh no longer
+  re-uploads every frame). tsc clean; 25 bun suites + vitest green. Verdict + fps =
+  user: `bun run dev` → F2-record the drag → replay in `#testbench`; or
+  `npm i -D playwright && npx playwright install chromium && bun run testbench:replay`.
+
+- **D30 — record/replay test infra FIXED + Playwright protocol (user: "the
+  replay did not work; no iframe or CSS for the replay demo; wire in
+  Playwright", 2026-08-02).** D29's recorder recorded fine but replay was broken
+  and glued to the `#testbench` iframe. **Why replay didn't work (2 real bugs):**
+  (1) `recorder.ts stop()` captured the camera via `getCam()` at STOP — the pose
+  AFTER the action — so the replay restored the wrong camera and the gesture
+  landed on wrong geometry. Fixed: capture `startCam` at `start()` (the replay
+  restore point). (2) `stop()` called `prompt()` for the save name — blocks in
+  automation. Fixed: `window.__recorder.stop(name?)` accepts a name and skips the
+  dialog. **Removed `#testbench`** (the iframe + CSS demo) per directive; the
+  replay engine now publishes only `window.__recReport` (+ console) — Playwright
+  polls that. **Protocol:** `bun run perf:record <name> [--scenario drag|zoom|pan]`
+  (scripts/record.ts) drives a scripted gesture via `page.mouse` while the in-page
+  recorder captures it (1500ms warm-up first so recorded fps isn't cold-start
+  jank); `bun run perf:replay [--expect-min N]` (scripts/replay.ts) replays every
+  `recordings/*.json` at its exact viewport + deviceScaleFactor and asserts.
+  **Units bug fixed:** the recording's `viewport` is the canvas BACKING size
+  (device px); the Playwright context viewport is CSS px → divide by dpr so the
+  canvas backing matches and `viewportMatch` stays true (was double-sized at dpr 2).
+  **Browser = the SYSTEM chromium, HEADED** (`/usr/bin/chromium`, `PLAYWRIGHT_CHROMIUM`
+  override): Playwright's bundled chromium AND the system chromium in HEADLESS mode
+  both expose NO WebGPU adapter on this machine (`requestAdapter` → null even with
+  `--enable-unsafe-swiftshader` + `VK_ICD_FILENAMES`); headed on `DISPLAY=:0` with
+  the real GPU (`nvidia ampere`) works. So the honest number is headed; `HEADLESS=1`
+  is software-only and caveated in the output. **Measured** (rec/replay avg/min):
+  tri-drag 232/199→238/218, tri-zoom 238/204→240/239, tri-pan 237/218→238/217 —
+  the protocol is stable and the numbers confirm the world at overview is cheap
+  (the perf gap is the deep-zoom plot fill, D28). Verdict = user.
+
+- **D31 — testinfra demo + input classification + crisp launches (user: "when
+  you open chromium yourself it's blurry; I need a demo listing recordings with
+  rename/delete/replay + a stats table of input labels + js + fps; you shall
+  have programmatic access to record/replay/assess", 2026-08-02).** Built on D30's
+  recorder/replay. **`#testinfra` demo** (`src/playground/testinfra.ts`): lists
+  `recordings/*.json` (name, route, viewport, recorded fps, input labels) with
+  per-row [▶ replay] [📊 stats] [✎ rename] [🗑 delete]. ▶ → `#<route>?replay=<name>`;
+  📊 → `+&stats=1` → after the replay the engine shows a stats table
+  (`showStatsPanel`) with input labels, recorded vs replay fps avg/min/p95, js
+  avg/max, dropped frames, duration, viewport match + a "back to testinfra"
+  button. **Two SPA gotchas learned:** (1) the app boots from the INITIAL hash
+  only — a `location.hash =` change is a same-document navigation that does
+  NOTHING; set the hash then `location.reload()`. (2) CLI flag values are
+  positional-name-shaped; the parsers in `scripts/record.ts`/`replay.ts` skip a
+  flag's consumed value so `--zoom 4` / `--expect-min 60` don't become recording
+  names. **Input classification** lives in the recorder: pointerdown (button 0)
+  schedules a 0ms `classifyPointerDown` that reads the app state AFTER the app's
+  handler — `WindgraphWorld.activeHandle` (new getter → "handle drag A"),
+  `interactive.boards[].panel.isDragging` ("slider drag"), `s.dragging`
+  ("camera pan"); button 2 → "rotate (3D)"; wheel → "wheel zoom". Stored in
+  `Recording.summary.inputs` (label→count). **RecSummary** grew to fps
+  avg/min/p95 + js avg/max + dropped (via `window.__perf.dt`, new). **Blur
+  root cause:** the display is 2560×1440@2 (HiDPI) but a fresh Playwright window
+  reports `screen` 1280×720 at deviceScaleFactor 1 — the compositor upscales a
+  dpr-1 window 2× → blurry. Fix: render at the display's physical dpr
+  (`deviceScaleFactor: 2`, `PLAYWRIGHT_DSF` overrides) at the screen CSS size, so
+  canvas backing = physical pixels. A related bug: `worldToScreen` used backing
+  px (`canvas.width`) but `page.mouse` uses CSS px — divide-out dpr by using
+  `innerWidth/Height`. And the default drag recording must FRAME the handle
+  (point A's screen y is negative at the full-world overview → off-screen →
+  empty recording); the record script now frames A for the drag scenario
+  (`--zoom N` for deep-zoom plot-fill tests). **Measured (2560×1440@2, nvidia):
+  tri-drag 202/150, tri-zoom 186/107, tri-pan 210/124, deep-drag@z3 187/129 —
+  the deep-zoom drag is ~20% slower than overview, the plot-fill tank (D28).**
+  tsc + suites green.
+
+- **D32 — analytic #testinfra + the deep-zoom plot-fill fix (user: "no dom,
+  purely analytical test infra, reference design, svg icons, polish; then fix the
+  fps tank when moving camera or dragging handles", 2026-08-02).** The D31 DOM
+  testinfra demo was replaced by a fully analytic board
+  (`src/playground/boards/testInfraBoard.ts`) following the ReferenceHudBoard
+  pattern: world-space, `addRect`/`layoutStr`/geometric icons, zero DOM, per-row
+  ▶ 📊 🗑 buttons (delete = click-twice confirm), hover, empty state, and a stats
+  table drawn from `localStorage['cs-last-report']` (the replay engine persists
+  it; the board reads it back and shows "LAST REPLAY · name"). **FPS fix — the
+  deep-zoom tank is OFF-SCREEN plot pieces, not the visible arc.** The protocol
+  measured a zoom-5 handle drag at 188fps replay (vs 238 overview) with jsAvg
+  0.7ms → GPU fill. The plot LOD scales samples UP with zoom (√zoom, to 2.2-2.8×
+  at zoom 5-8) but samples the FULL domain; the winding integral pays
+  O(pieces-per-band) per pixel, so the extra deep-zoom samples (all off-screen
+  except a small arc) triple the cost for nothing. The visible arc is already
+  sub-pixel-smooth at 1× base (sagitta <0.3px at zoom 8), so the multiplier only
+  buys waste. `WgScene.plotSamples()` caps it at 1.5× base. Measured: zoom-5
+  drag 188→205fps, zoom-8 drag →228fps. The residual (deep zoom min-fps spikes)
+  is the D28 2D-gather open problem. tsc + suites green.
+  **Follow-up (same day): the recorder's route bug.** A recording made inside a
+  demo booted from the LAUNCHER carried `route: launcher` — the launcher's pick
+  boots the demo without changing the URL hash, so `route()` (which reads the
+  hash) was wrong and the replay booted the launcher ("nothing happens"). Fixed:
+  `main.ts` sets `location.hash = '#' + demo.id` on pick; `runReplayFromQuery`
+  also runs on the launcher route; the recorder refuses to start on the launcher
+  and labels toolbar/menu presses as "ui button"/"ui click" (the 3D toggle etc.
+  ARE captured as pointer events — they replay by re-clicking the same button).
+
 ## 2. Technical tips (file:line anchored)
 
 **The 3D substrate already exists — extend, don't rebuild:**

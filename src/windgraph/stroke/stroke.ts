@@ -109,6 +109,37 @@ function addStraightJoin(out: number[], v: Pt, dPrev: Pt, dNext: Pt, hw: number,
   polyLoopCW(out, [v, aPrev, [mx, my], aNext]);
 }
 
+// A round join filling ONLY the outer turn wedge at vertex V (an arc of radius hw
+// spanning the turn angle), NOT a full disc. A full 24-seg disc at every vertex
+// was the dominant stroke cost: a smooth 200-sample plot emitted ~4800 join quads
+// (≈3ms in fillQuads) almost all hidden inside the segment rectangles. The segment
+// count scales with the turn angle, so a near-straight join is one quad and a sharp
+// 90° corner a few — round corners stay smooth, smooth curves stay cheap. Wound CW
+// (via polyLoopCW) to match the nonzero union fill.
+function addRoundJoin(out: number[], v: Pt, dPrev: Pt, dNext: Pt, hw: number) {
+  const cross = dPrev[0] * dNext[1] - dPrev[1] * dNext[0];
+  if (Math.abs(cross) < 1e-9) return; // collinear — the rectangles already meet, no gap
+  const s = cross > 0 ? -1 : 1; // outer-side normal sign (matches addStraightJoin)
+  const a0 = Math.atan2(dPrev[0] * s, -dPrev[1] * s); // angle of incoming outer normal
+  const a1 = Math.atan2(dNext[0] * s, -dNext[1] * s); // angle of outgoing outer normal
+  let span = a1 - a0;
+  if (span > Math.PI) span -= Math.PI * 2;
+  if (span < -Math.PI) span += Math.PI * 2;
+  const segs = Math.max(1, Math.ceil(Math.abs(span) / (Math.PI / 12))); // ~15°/seg
+  const poly: Pt[] = [v];
+  for (let i = 0; i <= segs; i++) {
+    const a = a0 + (span * i) / segs;
+    poly.push([v[0] + hw * Math.cos(a), v[1] + hw * Math.sin(a)]);
+  }
+  polyLoopCW(out, poly);
+}
+
+// Dispatch a join by style. Round → turn wedge; miter/bevel → addStraightJoin.
+function addJoin(out: number[], v: Pt, dPrev: Pt, dNext: Pt, hw: number, join: Join, miterLimit: number) {
+  if (join === 'round') addRoundJoin(out, v, dPrev, dNext, hw);
+  else addStraightJoin(out, v, dPrev, dNext, hw, join, miterLimit);
+}
+
 // ── polyline stroking ────────────────────────────────────────────────────────
 export function strokePolyline(points: Pt[], style: StrokeStyle, out: number[] = []): number[] {
   const hw = style.width / 2;
@@ -124,10 +155,9 @@ export function strokePolyline(points: Pt[], style: StrokeStyle, out: number[] =
   for (let i = 0; i < pts.length - 1; i++) segRect(out, pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1], hw);
 
   for (let i = 1; i < pts.length - 1; i++) {
-    if (join === 'round') { discCW(out, pts[i][0], pts[i][1], hw); continue; }
     const dPrev = norm(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
     const dNext = norm(pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]);
-    addStraightJoin(out, pts[i], dPrev, dNext, hw, join, miterLimit);
+    addJoin(out, pts[i], dPrev, dNext, hw, join, miterLimit);
   }
 
   const a = pts[0], a2 = pts[1], b = pts[pts.length - 1], b2 = pts[pts.length - 2];
@@ -148,19 +178,31 @@ function squareCap(out: number[], prev: Pt, end: Pt, hw: number) {
 // (not faceted) at any zoom; round joins between pieces hide tangent kinks.
 export function strokeQuadPath(quads: number[], style: StrokeStyle, closed = false, out: number[] = []): number[] {
   const hw = style.width / 2;
+  const join = style.join ?? 'round';
+  const miterLimit = style.miterLimit ?? 4;
   const n = quads.length / 6;
   for (let i = 0; i < n; i++) strokeQuadPiece(out, quads, i * 6, hw);
-  // Round joins at every shared endpoint hide the C1 kinks between pieces.
-  for (let i = 0; i < n; i++) {
+  if (n === 0) return out;
+  // Tangent directions at a piece's start (P0→C) and end (C→P2).
+  const startTan = (i: number): Pt => { const b = i * 6; return norm(quads[b + 2] - quads[b], quads[b + 3] - quads[b + 1]); };
+  const endTan = (i: number): Pt => { const b = i * 6; return norm(quads[b + 4] - quads[b + 2], quads[b + 5] - quads[b + 3]); };
+  // Wedge joins at each shared endpoint fill the tangent turn between consecutive
+  // pieces (a full disc per piece was the circle/curve stroke cost). The join spans
+  // only the turn angle, so a smooth curve's near-collinear pieces cost ~1 quad each.
+  for (let i = 1; i < n; i++) {
     const b = i * 6;
-    discCW(out, quads[b], quads[b + 1], hw);           // piece start
+    addJoin(out, [quads[b], quads[b + 1]], endTan(i - 1), startTan(i), hw, join, miterLimit);
   }
   const last = (n - 1) * 6;
-  if (closed) discCW(out, quads[last + 4], quads[last + 5], hw);
-  else {
+  if (closed) {
+    if (n > 1) addJoin(out, [quads[0], quads[1]], endTan(n - 1), startTan(0), hw, join, miterLimit);
+  } else {
     const cap = style.cap ?? 'butt';
-    if (cap === 'round') discCW(out, quads[last + 4], quads[last + 5], hw); // far end
-    // (start already gets a disc from the join loop above; butt/square TODO for curves)
+    if (cap === 'round') {
+      discCW(out, quads[0], quads[1], hw);                 // start cap
+      discCW(out, quads[last + 4], quads[last + 5], hw);   // end cap
+    }
+    // (butt/square curve caps TODO; butt needs nothing, the ribbon ends flat)
   }
   return out;
 }

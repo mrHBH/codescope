@@ -126,6 +126,15 @@ export function cameraScale(s: AppState): number {
   return orbitScale(s.tCanvas.height);
 }
 
+// True while a recording is being replayed (`?replay=<name>` in the URL): the
+// demo boots normally but should NOT frame the camera (the replay engine restores
+// the recorded start pose as the first camera, so the "boot overview then jump to
+// the pose" flash is skipped). Set by main.ts before boot; cleared by the replay
+// engine after it restores the pose.
+export function replayBootPending(): boolean {
+  return typeof window !== 'undefined' && !!(window as any).__replayPending;
+}
+
 // This frame's view-projection matrix: orthographic (legacy 2D) or the
 // camera-controls perspective camera with the document laid flat on the ground.
 const _orthoVP = new Float32Array(16) as Mat4;

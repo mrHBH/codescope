@@ -119,6 +119,15 @@ export class WgScene {
   private lastParamSig = '';
   /** Zoom-LOD sample density for plots (set by the hosting board each emit). */
   private lodScale = 1;
+  /** Plot sample count for the current LOD band. The LOD scales samples UP with
+   *  zoom (√zoom, up to 3×) to keep the visible arc smooth at deep zoom — but the
+   *  plot is sampled over its FULL domain, and at deep zoom only a small arc is
+   *  on screen. 1.5× base is enough to keep the visible arc sub-pixel-smooth
+   *  (the extra samples only feed OFF-screen pieces that the winding integral
+   *  still pays for per-pixel — the deep-zoom plot-fill tank). Cap at 1.5× base. */
+  private plotSamples(base: number): number {
+    return Math.max(48, Math.min(Math.round(base * this.lodScale), Math.round(base * 1.5)));
+  }
 
   constructor(doc: SceneDoc, params: Map<string, any>, plane: NumberPlane, onChange: () => void = () => {}) {
     this.doc = doc;
@@ -512,14 +521,14 @@ export class WgScene {
         const fn = compileExpr(s.expr);
         const d0 = this.num((s.domain?.[0] ?? plane.xMin) as WgNum);
         const d1 = this.num((s.domain?.[1] ?? plane.xMax) as WgNum);
-        const base = s.samples ?? 240;
+        const base = s.samples ?? 160;
         // Miter joins: round joins cost a 24-quad disc PER SAMPLE (the instance
         // dominator); on dense smooth samples miter is visually identical.
         const props = { ...this.strokeProps(s, COL_PLOT), join: 'miter' as const };
         const group = new Group();
         this.register(id, group, s);
         const resample = () => {
-          const n = Math.max(48, Math.round(base * this.lodScale));
+          const n = this.plotSamples(base);
           group.children.length = 0;
           for (const seg of this.sampleCurve(d0(), d1(), n, (x) => ({ y: fn(this.scope({ x })) }))) {
             group.add(new Polyline(seg, props));
@@ -534,12 +543,12 @@ export class WgScene {
       case 'wg-plot-parametric': {
         const fx = compileExpr(s.xExpr), fy = compileExpr(s.yExpr);
         const t0 = this.num(s.tRange[0] as WgNum), t1 = this.num(s.tRange[1] as WgNum);
-        const base = s.samples ?? 320;
+        const base = s.samples ?? 200;
         const props = { ...this.strokeProps(s, COL_PLOT), join: 'miter' as const };
         const group = new Group();
         this.register(id, group, s);
         const resample = () => {
-          const n = Math.max(48, Math.round(base * this.lodScale));
+          const n = this.plotSamples(base);
           group.children.length = 0;
           for (const seg of this.sampleCurve(t0(), t1(), n, (t) => ({ x: fx(this.scope({ t })), y: fy(this.scope({ t })) }))) {
             group.add(new Polyline(seg, props));
@@ -553,12 +562,12 @@ export class WgScene {
       case 'wg-plot-polar': {
         const fr = compileExpr(s.rExpr);
         const t0 = this.num(s.tRange[0] as WgNum), t1 = this.num(s.tRange[1] as WgNum);
-        const base = s.samples ?? 320;
+        const base = s.samples ?? 200;
         const props = { ...this.strokeProps(s, COL_PLOT), join: 'miter' as const };
         const group = new Group();
         this.register(id, group, s);
         const resample = () => {
-          const n = Math.max(48, Math.round(base * this.lodScale));
+          const n = this.plotSamples(base);
           group.children.length = 0;
           for (const seg of this.sampleCurve(t0(), t1(), n, (t) => {
             const r = fr(this.scope({ t }));
@@ -608,12 +617,12 @@ export class WgScene {
         const pieces = (s.pieces as { cond: string; expr: string }[]).map((p) => ({ cond: compileExpr(p.cond), expr: compileExpr(p.expr) }));
         const d0 = this.num((s.domain?.[0] ?? plane.xMin) as WgNum);
         const d1 = this.num((s.domain?.[1] ?? plane.xMax) as WgNum);
-        const base = s.samples ?? 240;
+        const base = s.samples ?? 160;
         const props = { ...this.strokeProps(s, COL_PLOT), join: 'miter' as const };
         const group = new Group();
         this.register(id, group, s);
         const resample = () => {
-          const n = Math.max(48, Math.round(base * this.lodScale));
+          const n = this.plotSamples(base);
           group.children.length = 0;
           for (const seg of this.sampleCurve(d0(), d1(), n, (x) => {
             const sc = this.scope({ x });
@@ -699,7 +708,7 @@ export class WgScene {
         const group = new Group();
         this.register(id, group, s);
         const resample = () => {
-          const n = Math.max(48, Math.round(base * this.lodScale));
+          const n = this.plotSamples(base);
           const f = (x: number) => fn(this.scope({ x }));
           const xv = at();
           const half = (d1() - d0()) * 0.5;
@@ -728,7 +737,7 @@ export class WgScene {
         const group = new Group();
         this.register(id, group, s);
         const resample = () => {
-          const n = Math.max(48, Math.round(base * this.lodScale));
+          const n = this.plotSamples(base);
           const f = (x: number) => fn(this.scope({ x }));
           group.children.length = 0;
           const pts = accumulation(f, from(), d0(), d1(), n);
@@ -853,13 +862,13 @@ export class WgScene {
         const period = this.num((s.period ?? Math.PI * 2) as WgNum);
         const d0 = this.num((s.domain?.[0] ?? 0) as WgNum);
         const d1 = this.num((s.domain?.[1] ?? Math.PI * 2) as WgNum);
-        const base = s.samples ?? 240;
+        const base = s.samples ?? 160;
         const color = s.color ?? COL_PLOT;
         const props = { ...this.strokeProps(s, COL_PLOT), join: 'miter' as const };
         const group = new Group();
         this.register(id, group, s);
         const resample = () => {
-          const n = Math.max(48, Math.round(base * this.lodScale));
+          const n = this.plotSamples(base);
           const f = (x: number) => fn(this.scope({ x }));
           const coeffs = fourierCoeffs(f, Math.max(0, Math.round(terms())), period(), 400);
           group.children.length = 0;
@@ -1954,7 +1963,7 @@ export class WgScene {
     }
   }
 
-  /** Infinite line as a very long segment spanning the plane's world extent. */
+  /** Infinite line as a segment spanning the plane's world extent. */
   private addInfiniteLine(id: string, l: GLine, s: Record<string, any>) {
     const plane = this.plane;
     const half = (Math.abs(plane.xMax - plane.xMin) * plane.unitX + Math.abs(plane.yMax - plane.yMin) * plane.unitY);

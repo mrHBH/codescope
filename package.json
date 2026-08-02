@@ -12,6 +12,9 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "perf:record": "bun scripts/record.ts",
+    "perf:replay": "bun scripts/replay.ts",
+    "perf": "bun scripts/record.ts && bun scripts/replay.ts --expect-min 30",
     "upstream:sync": "git -C ../windfoil fetch origin && git -C ../windfoil reset --hard origin/main",
     "upstream:diff": "git diff --no-index ../windfoil/src/windfoil.wgsl src/windfoil/windfoil.wgsl"
   },
@@ -25,6 +28,7 @@
     "@biomejs/biome": "^2.0.0",
     "@types/three": "^0.185.0",
     "@webgpu/types": "^0.1.71",
+    "playwright": "^1.62.1",
     "typescript": "^7.0.2",
     "vite": "^8.1.3",
     "vitest": "^4.1.10"

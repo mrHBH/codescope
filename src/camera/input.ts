@@ -66,6 +66,11 @@ export function attachInput(s: AppState): () => void {
   const ac = new AbortController();
   const { signal } = ac;
   const on = (t: EventTarget, type: string, h: (e: any) => void, opts?: AddEventListenerOptions) => t.addEventListener(type, h, { ...opts, signal });
+  // setPointerCapture throws on synthetic (untrusted) pointer events — the replay
+  // harness dispatches exactly those to reproduce a recorded drag. Capture only
+  // retargets move/up to the canvas; the harness dispatches them there directly,
+  // so a failed capture is harmless (drag tracking keys off s.pointers, not capture).
+  const cap = (id: number) => { try { rCanvas.setPointerCapture(id); } catch { /* replay / unsupported */ } };
   const gate = new MenuGate((t, sz) => {
     const sc = sz / s.font.unitsPerEm;
     let tw = 0;
@@ -158,7 +163,7 @@ export function attachInput(s: AppState): () => void {
     // slider drags), and dismiss on a click outside — standard popup behaviour.
     if (s.panel?.open) {
       const b = bufCoords(s, e.clientX, e.clientY);
-      rCanvas.setPointerCapture(e.pointerId);
+      cap(e.pointerId);
       if (s.panel.pointerDown(b.x, b.y)) return;
       s.panel.hide();
       return;
@@ -177,7 +182,7 @@ export function attachInput(s: AppState): () => void {
       // left button is NONE — the app owns it). A press on a windgraph handle
       // grabs the handle instead and suppresses camera motion.
       const b = bufCoords(s, e.clientX, e.clientY);
-      rCanvas.setPointerCapture(e.pointerId);
+      cap(e.pointerId);
       s.pointers.set(e.pointerId, { x: b.x, y: b.y });
       s.dragging = true; s.velX = s.velY = 0; s.lastMoveT = performance.now();
       if (s.pointerInput && s.interactive) {
@@ -190,7 +195,7 @@ export function attachInput(s: AppState): () => void {
       return;
     }
     if (!s.pointerInput && !s.cameraInput) return; // both inputs disabled
-    rCanvas.setPointerCapture(e.pointerId);
+    cap(e.pointerId);
     const b = bufCoords(s, e.clientX, e.clientY);
     s.pointers.set(e.pointerId, { x: b.x, y: b.y });
     s.dragging = true; s.velX = s.velY = 0; s.lastMoveT = performance.now();

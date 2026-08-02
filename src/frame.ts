@@ -22,7 +22,7 @@ import { DEPTH_FORMAT } from './windfoil/mesh3d';
 import { EmitCache } from './windfoil/emitCache';
 import { ANALYTIC_MENU_THEME } from './ui/analyticMenu';
 import { poseXform } from './camera/screenWorld';
-import { rect3DVisible } from './camera/frustum';
+import { rect3DVisible, rectBehindNear } from './camera/frustum';
 import { setMeshAA } from './windfoil/msaaSwap';
 import { Retirer } from './windfoil/retire';
 
@@ -1479,7 +1479,21 @@ export function runFrame(s: AppState): () => void {
     const imesh: Float32Array | null = ib?.getMesh?.() ?? null;
     const hasGraph3d = !!(s.graph3d && s.meshRenderer);
     const hasInteractiveMesh = !!(s.meshRenderer && imesh && imesh.length);
-    const msaa = s.meshAA && (hasGraph3d || hasInteractiveMesh) ? 4 : 1;
+    // The 4× MSAA pass exists to smooth MESH silhouettes. Its fixed cost is a
+    // full-screen 4× color+depth clear + resolve EVERY frame — the main hidden
+    // "3D is slow even when nothing moves" cost — so it only runs when a mesh is
+    // actually in front of the camera. The visibility test is the BEHIND-CAMERA-
+    // ONLY check (a board with any corner in front is never culled): a mesh you
+    // zoom into stays visible (its corners leaving the viewport is not a cull),
+    // while a view framed on a flat board skips the pass entirely.
+    const meshInFront = (x0: number, y0: number, x1: number, y1: number) => {
+      if (!s.cam3d.active) return true;
+      return !rectBehindNear(viewProj, x0, y0, x1, y1);
+    };
+    const g3d = s.graph3d as { cx: number; cy: number; halfSpan: number } | null | undefined;
+    const graph3dInView = !!(g3d && s.meshRenderer) && meshInFront(g3d.cx - g3d.halfSpan, g3d.cy - g3d.halfSpan, g3d.cx + g3d.halfSpan, g3d.cy + g3d.halfSpan);
+    const imeshInView = hasInteractiveMesh && (ib?.meshVisible ? ib.meshVisible(viewProj, _camLocal) : true);
+    const msaa = s.meshAA && (graph3dInView || imeshInView) ? 4 : 1;
     const depthView = ensureDepthView(s.device, renderW, renderH, 1);
     const msaaDepthView = msaa > 1 ? ensureDepthView(s.device, renderW, renderH, 4) : null;
     const swapView = s.gpuCtx.getCurrentTexture().createView();
@@ -1539,7 +1553,7 @@ export function runFrame(s: AppState): () => void {
           line(mpass, m.lines);
         }
       }
-      if (imesh && imesh.length) {
+      if (imesh && imesh.length && imeshInView) {
         s.meshRenderer.setViewProj(meshVP);
         tri(mpass, imesh);
       }
@@ -1630,6 +1644,13 @@ export function runFrame(s: AppState): () => void {
     const frameJs = performance.now() - t0;
     jsMs = jsMs * .9 + frameJs * .1;
     if (s.perf && s.perf.running) s.perf.sample(dt, frameJs, inst.length / 16, prof, evThisFrame, evCoalThisFrame, evMsThisFrame);
+    // Perf introspection hook for the recorder/replay harness (dev tool): a real
+    // browser reads window.__perf each frame to measure fps during a replayed
+    // action (the on-screen chip is GPU-drawn, not DOM, so it can't be scraped).
+    // One object assign/frame — negligible. fps uses the smoothed frame interval.
+    if (typeof window !== 'undefined') {
+      (window as any).__perf = { fps: 1000 / fpsDt, jsMs, frameMs: frameJs, inst: inst.length / 16, now: performance.now(), dt };
+    }
   }
   requestAnimationFrame(frame);
   return () => { alive = false; }; // stop handle: cancels the loop for demo teardown

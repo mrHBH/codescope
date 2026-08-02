@@ -51,10 +51,23 @@ export function rect3DVisible(
   if (cw <= 1e-6) behind++; else { front++; if (cx < -cw) left++; if (cx > cw) right++; if (cy < -cw) top++; if (cy > cw) bot++; }
   if (behind > 0) {
     // Any corner behind the near plane: the side tests can't prove the rect
-    // off-screen (see header) → always draw.
+    // off-screen (see header) → always draw. Includes the all-4-behind case (a
+    // rect the camera looks at low/close fills the screen with every corner
+    // behind the near plane — culling it was the "things disappear" bug).
     return true;
   }
   // All corners in front: exact plane tests.
   if (left === 4 || right === 4 || top === 4 || bot === 4) return false;
   return true;
+}
+
+// True when all 4 corners of a ground rect are BEHIND the near plane (w ≤ 0) —
+// the camera looks away from it entirely. Unlike rect3DVisible this is only the
+// behind-camera case, so it NEVER culls a board that could be on screen (a rect
+// the camera looks at has at least one corner in front — the mixed case). Used to
+// gate the 4× MSAA mesh pass: a mesh whose boards are all behind the camera is
+// invisible, so the expensive full-screen MSAA pass can be skipped.
+export function rectBehindNear(vp: ArrayLike<number>, x0: number, y0: number, x1: number, y1: number): boolean {
+  const cw = (x: number, y: number) => vp[3] * x + vp[7] * y + vp[15];
+  return cw(x0, y0) <= 1e-6 && cw(x1, y0) <= 1e-6 && cw(x1, y1) <= 1e-6 && cw(x0, y1) <= 1e-6;
 }
