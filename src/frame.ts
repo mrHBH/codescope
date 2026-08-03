@@ -958,6 +958,16 @@ export function runFrame(s: AppState): () => void {
   let lastFrameSig = '';
   let lastInstLen = 0, lastCrvLen = 0, lastRwsLen = 0;
   let skipCount = 0;
+  // Per-frame section timings for the __trace dev hook (published, then reset).
+  let _traceSections: Record<string, number> = Object.create(null);
+  // Partial-upload state (drag-fps fix stage 3): the last full-sync snapshot the
+  // GPU buffers are known to match. Any mismatch forces a full upload that frame.
+  let lastStaticRev = -1, lastBaseCrvLen = -1, lastBaseRwsLen = -1;
+  let lastUpCx = NaN, lastUpCy = NaN, lastUpCam3d = false, lastUpInstLen = -1;
+  let lastCrvFA: Float32Array | null = null, lastRwsUA: Uint32Array | null = null, lastInstFA: Float32Array | null = null;
+  // Dirty ranges from this frame's world emit (null = full upload), handed to
+  // the renderer's draw for ranged writeBuffer calls.
+  let _frameDirty: import('./windfoil/gpu').DirtyRanges | null = null;
 
   function frame(now: number) {
     if (!alive) return; // demo torn down → stop the loop
@@ -1002,12 +1012,17 @@ export function runFrame(s: AppState): () => void {
 
     // Per-segment JS profiling — only while the benchmark runs (performance.now()
     // per segment is not free). Marks accumulate ms since the previous mark.
+    // `window.__trace = 1` (dev tool, see scripts/shots.ts) enables the same
+    // buckets outside the benchmark and publishes them on window.__perfSections.
     const prof: Record<string, number> | null = s.perf && s.perf.running ? Object.create(null) : null;
-    let profT = prof ? performance.now() : 0;
+    const trace = typeof window !== 'undefined' && !!(window as any).__trace;
+    let profT = prof || trace ? performance.now() : 0;
     const mark = (name: string) => {
-      if (!prof) return;
+      if (!prof && !trace) return;
       const t = performance.now();
-      prof[name] = (prof[name] || 0) + (t - profT);
+      const ms = t - profT;
+      if (prof) prof[name] = (prof[name] || 0) + ms;
+      if (trace) _traceSections[name] = (_traceSections[name] || 0) + ms;
       profT = t;
     };
 
@@ -1360,12 +1375,18 @@ export function runFrame(s: AppState): () => void {
     // windgraph Phase-7 3D graphing board is drawn as a TRUE 3D mesh (below, in
     // the render pass) — not as windfoil instances — so it rises off the ground.
 
+    // Content emitted OUTSIDE the interactive world's dirty-range tracking
+    // (math/bench/results boards, the world-projected menu) forces a full GPU
+    // upload this frame — the world's ranges don't cover it.
+    let extraEmitted = false;
+
     // windgraph Phase-6 math typesetting board (world-space).
     if (s.mathDemo) {
       const g = s.mathDemo;
       const gR = g.x0 + g.width, gB = g.y0 + g.height;
       if (boardVis(g.x0, g.y0, gR, gB)) {
         g.emit(s.font, s.atlas, inst, crv, rws, now, boardView);
+        extraEmitted = true;
       }
     }
     mark('math');
@@ -1376,6 +1397,7 @@ export function runFrame(s: AppState): () => void {
       const gR = g.x0 + g.width, gB = g.y0 + g.height;
       if (boardVis(g.x0, g.y0, gR, gB)) {
         benchCache.run(`m${g.mode}`, inst, crv, rws, () => g.emit(s.font, s.atlas, inst, crv, rws, now, boardView));
+        extraEmitted = true;
       }
     }
 
@@ -1385,6 +1407,7 @@ export function runFrame(s: AppState): () => void {
       const g = s.perf;
       if (boardVis(g.x0, g.y0, g.x0 + g.width, g.y0 + g.height)) {
         resultsCache.run(`r${g.version}`, inst, crv, rws, () => g.emit(s.font, s.atlas, inst, crv, rws));
+        extraEmitted = true;
       }
     }
     mark('bench');
@@ -1397,6 +1420,7 @@ export function runFrame(s: AppState): () => void {
     if (s.analyticMenu?.open && s.menuWorldPose) {
       const mp = s.menuWorldPose;
       s.analyticMenu.render(s.font, s.atlas, inst, crv, rws, ANALYTIC_MENU_THEME, poseXform(mp.pose, mp.Wv, mp.Hv));
+      extraEmitted = true;
     } else if (s.menuWorldPose && !s.analyticMenu?.open) {
       s.menuWorldPose = null;
     }
@@ -1419,38 +1443,89 @@ export function runFrame(s: AppState): () => void {
     // Skipped frames keep the previous frame's typed arrays + GPU buffers —
     // the signature match guarantees identical content (camera included).
     if (!skipFrame) {
-      if (crv.length > s.crvFA.length) s.crvFA = new Float32Array(crv.length * 2);
-      s.crvFA.set(crv);
-      if (rws.length > s.rwsUA.length) s.rwsUA = new Uint32Array(rws.length * 2);
-      s.rwsUA.set(rws);
+      // ── partial upload (drag-fps fix stage 3) ────────────────────────────
+      // The interactive world reports the float ranges that changed this emit
+      // (its comp buffers persist across frames). Only those ranges are synced
+      // into the typed arrays + written to the GPU — a handle drag uploads one
+      // board's ~16KB instead of the full ~1.76MB curve buffer. Every condition
+      // that could leave a clean GPU range stale forces a full upload instead:
+      //   · the world said "everything changed" (structural / naive fallback)
+      //   · non-world content also emitted (math/bench/menu — untracked)
+      //   · the static prefix changed (theme/staticRev, atlas size)
+      //   · a typed array was reallocated (fresh = empty)
+      //   · the instance count grew past the last upload (menu open / growth —
+      //     the new tail was never uploaded)
+      //   · in 2D the camera moved: inst is camera-relative, so clean ranges
+      //     hold the OLD camera's coords (3D inst is absolute — camera-free).
+      const worldAny = s.interactive as { dirtyRanges?: () => import('./windfoil/gpu').DirtyRanges | null } | null;
+      let dirty = typeof worldAny?.dirtyRanges === 'function' ? worldAny.dirtyRanges() : null;
+      if (extraEmitted) dirty = null;
+      if (s.staticRev !== lastStaticRev || s.baseCrvLen !== lastBaseCrvLen || s.baseRwsLen !== lastBaseRwsLen) dirty = null;
+      const crvGrew = crv.length > s.crvFA.length;
+      const rwsGrew = rws.length > s.rwsUA.length;
+      const instGrew = inst.length > s.instFA.length;
+      if (crvGrew || rwsGrew || instGrew || s.crvFA !== lastCrvFA || s.rwsUA !== lastRwsUA || s.instFA !== lastInstFA) dirty = null;
+      const cam3dNow = s.cam3d.active;
+      const cx = s.viewX, cy = s.viewY;
+      const camMoved = !cam3dNow && (cx !== lastUpCx || cy !== lastUpCy);
+      const instPartialOk = !!dirty && !camMoved && cam3dNow === lastUpCam3d && inst.length <= lastUpInstLen;
+      if (!instPartialOk) dirty = null; // inst drives the decision: crv/rws/xf partial only when inst is
+      if (crvGrew) s.crvFA = new Float32Array(crv.length * 2);
+      if (dirty) {
+        for (const [a, b] of dirty.crv) for (let i = a; i < b; i++) s.crvFA[i] = crv[i];
+      } else {
+        s.crvFA.set(crv);
+      }
+      if (rwsGrew) s.rwsUA = new Uint32Array(rws.length * 2);
+      if (dirty) {
+        for (const [a, b] of dirty.rws) for (let i = a; i < b; i++) s.rwsUA[i] = rws[i];
+      } else {
+        s.rwsUA.set(rws);
+      }
       // Upload instance buffer. In 2D mode, subtract camera center from each
       // instance origin in JS (f64) so the GPU sees small coordinates even at
       // extreme zoom — true infinite zoom. 3D mode passes absolute coords because
       // orbitViewProj handles the camera transform internally.
-      if (inst.length > s.instFA.length) s.instFA = new Float32Array(inst.length * 2);
-      if (s.cam3d.active) {
-        s.instFA.set(inst);
+      if (instGrew) s.instFA = new Float32Array(inst.length * 2);
+      if (cam3dNow) {
+        if (dirty) {
+          for (const [a, b] of dirty.inst) for (let i = a; i < b; i++) s.instFA[i] = inst[i];
+        } else {
+          s.instFA.set(inst);
+        }
       } else {
-        const cx = s.viewX, cy = s.viewY;
-        for (let i = 0; i < inst.length; i += 16) {
-          s.instFA[i] = inst[i] - cx;       // place.x relative to camera (f64→f32)
-          s.instFA[i + 1] = inst[i + 1] - cy;
-          for (let j = 2; j < 16; j++) s.instFA[i + j] = inst[i + j];
-          // Procedural grid (fillRule 3): band.zw is a world point a grid line
-          // passes through (phase). The shader computes lines from
-          // (place + rc − phase), and place is camera-relative here — the phase
-          // must be shifted the SAME way or the grid slides WITH the camera in
-          // 2D (screen-anchored) instead of staying world-anchored. For every
-          // other instance band.zw (glyph bandH/invH, rect params) is copied
-          // verbatim above and MUST NOT be touched.
-          if (inst[i + 3] >= 2.5) {
-            s.instFA[i + 14] = inst[i + 14] - cx;
-            s.instFA[i + 15] = inst[i + 15] - cy;
+        const conv = (a: number, b: number) => {
+          for (let i = a; i < b; i += 16) {
+            s.instFA[i] = inst[i] - cx;       // place.x relative to camera (f64→f32)
+            s.instFA[i + 1] = inst[i + 1] - cy;
+            for (let j = 2; j < 16; j++) s.instFA[i + j] = inst[i + j];
+            // Procedural grid (fillRule 3): band.zw is a world point a grid line
+            // passes through (phase). The shader computes lines from
+            // (place + rc − phase), and place is camera-relative here — the phase
+            // must be shifted the SAME way or the grid slides WITH the camera in
+            // 2D (screen-anchored) instead of staying world-anchored. For every
+            // other instance band.zw (glyph bandH/invH, rect params) is copied
+            // verbatim above and MUST NOT be touched.
+            if (inst[i + 3] >= 2.5) {
+              s.instFA[i + 14] = inst[i + 14] - cx;
+              s.instFA[i + 15] = inst[i + 15] - cy;
+            }
           }
+        };
+        if (dirty) {
+          for (const [a, b] of dirty.inst) conv(a, b);
+        } else {
+          conv(0, inst.length);
         }
       }
+      lastStaticRev = s.staticRev; lastBaseCrvLen = s.baseCrvLen; lastBaseRwsLen = s.baseRwsLen;
+      lastUpCx = cx; lastUpCy = cy; lastUpCam3d = cam3dNow; lastUpInstLen = inst.length;
+      lastCrvFA = s.crvFA; lastRwsUA = s.rwsUA; lastInstFA = s.instFA;
       s.frameDataVersion++;
       lastInstLen = inst.length; lastCrvLen = crv.length; lastRwsLen = rws.length;
+      _frameDirty = dirty;
+    } else {
+      _frameDirty = null;
     }
     mark('upload');
     const enc = s.device.createCommandEncoder();
@@ -1601,10 +1676,10 @@ export function runFrame(s: AppState): () => void {
     const opaqueN = (s.cam3d.active ? (s.interactive as any)?.opaqueCount?.() ?? 0 : 0);
     const totalInst = lastInstLen / 16;
     if (opaqueN > 0 && opaqueN < totalInst) {
-      s.renderer.draw(pass, s.crvFA.subarray(0, lastCrvLen), s.rwsUA.subarray(0, lastRwsLen), s.instFA.subarray(0, lastInstLen), opaqueN, xf, undefined, s.frameDataVersion, { depthWrite: true });
-      s.renderer.draw(pass, s.crvFA.subarray(0, lastCrvLen), s.rwsUA.subarray(0, lastRwsLen), s.instFA.subarray(0, lastInstLen), totalInst - opaqueN, xf, undefined, s.frameDataVersion, { firstInstance: opaqueN });
+      s.renderer.draw(pass, s.crvFA.subarray(0, lastCrvLen), s.rwsUA.subarray(0, lastRwsLen), s.instFA.subarray(0, lastInstLen), opaqueN, xf, undefined, s.frameDataVersion, { depthWrite: true, dirty: _frameDirty });
+      s.renderer.draw(pass, s.crvFA.subarray(0, lastCrvLen), s.rwsUA.subarray(0, lastRwsLen), s.instFA.subarray(0, lastInstLen), totalInst - opaqueN, xf, undefined, s.frameDataVersion, { firstInstance: opaqueN, dirty: _frameDirty });
     } else {
-      s.renderer.draw(pass, s.crvFA.subarray(0, lastCrvLen), s.rwsUA.subarray(0, lastRwsLen), s.instFA.subarray(0, lastInstLen), totalInst, xf, undefined, s.frameDataVersion);
+      s.renderer.draw(pass, s.crvFA.subarray(0, lastCrvLen), s.rwsUA.subarray(0, lastRwsLen), s.instFA.subarray(0, lastInstLen), totalInst, xf, undefined, s.frameDataVersion, { dirty: _frameDirty });
     }
     // Screen-space cinematic HUD overlay (letterbox + sleek timeline + controls +
     // caption), drawn through a dedicated renderer with a screen-ortho matrix, on
@@ -1650,6 +1725,7 @@ export function runFrame(s: AppState): () => void {
     // One object assign/frame — negligible. fps uses the smoothed frame interval.
     if (typeof window !== 'undefined') {
       (window as any).__perf = { fps: 1000 / fpsDt, jsMs, frameMs: frameJs, inst: inst.length / 16, now: performance.now(), dt };
+      if (trace) { (window as any).__perfSections = _traceSections; _traceSections = Object.create(null); }
     }
   }
   requestAnimationFrame(frame);

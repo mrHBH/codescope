@@ -90,6 +90,31 @@ If this file and the code disagree, investigate before trusting either.
 
 ## Log
 
+- 2026-08-03 — **Handle-drag FPS fix, attempt 2 (postmortem playbook followed;
+  DESIGN-drag-fps-2.md).** The world now composes PERSISTENTLY: clean boards
+  contribute nothing (no replay, no prefix seed), a dirty board re-emits into a
+  scratch seeded at its comp-absolute offset and splices into its slot; a slice
+  LENGTH change re-emits the tail (caches replay with correct rebases — no
+  incremental bookkeeping). frame.ts + gpu.ts upload only the world's reported
+  dirty ranges (a drag writes ~16–64KB instead of the full 1.76MB crv buffer),
+  with full-upload fallbacks for every stale-GPU hazard (growth, prefix change,
+  2D camera move, extra emitters, menu growth). `naiveEmit` flag = old full
+  recompose = differential-test reference + emergency fallback. Gates in
+  `__test_dragPerf.ts`: drag-must-change-emit (bug-A class), still-scene
+  bit-identical, persistent≡naive across drags/pans/zooms. Verified per stage:
+  tsc + 27 suites + vitest green; real-browser replay; screenshots at
+  p25/p50/p75/end LOOKED AT — pixel-identical to baseline. Drag window of
+  `repro`: jsAvg 2.92→~2.0–2.3ms, uploads 1202→~600KB/frame (91% <200KB);
+  same-conditions A/B: repro median ~181/~95 → ~206/~104, 3dsimple min 74→113,
+  latest min 87→108; simple recordings 176–239 min. A stage-4 experiment
+  (3D view-independent sigs) was A/B'd and REVERTED (wash on rotation,
+  regression on zoom-heavy 3D). Honest residual: the 3 complex 3D recordings
+  sit at 108–113 fpsMin — single-frame essential-work spikes (mode-toggle
+  rebuild ~22ms, LOD-settle rebuilds, measure-label digit boundaries) that the
+  postmortem defers to the Phase-5 worker. New dev tool: `bun run shots <name>
+  [atMs] [a:b]` = replay + screenshots + per-section/upload trace (gated on
+  `window.__trace`). The original handle-drag bug is FIXED; "solid 240 on the
+  whole mixed repro" remains worker-bound.
 - 2026-08-02 — **Replay stats panel = playground-style board (user: "the stats
   panel is different — the playground one has a copy-all button and graphs for
   the fps and labels").** The replay report + recording summary now carry the

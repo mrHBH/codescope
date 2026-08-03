@@ -14,6 +14,7 @@
     "test:watch": "vitest",
     "perf:record": "bun scripts/record.ts",
     "perf:replay": "bun scripts/replay.ts",
+    "shots": "bun scripts/shots.ts",
     "perf": "bun scripts/record.ts && bun scripts/replay.ts --expect-min 30",
     "upstream:sync": "git -C ../windfoil fetch origin && git -C ../windfoil reset --hard origin/main",
     "upstream:diff": "git diff --no-index ../windfoil/src/windfoil.wgsl src/windfoil/windfoil.wgsl"

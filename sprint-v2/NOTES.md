@@ -877,6 +877,49 @@ from the code lives here. Newest entries at the bottom of each section.
   and labels toolbar/menu presses as "ui button"/"ui click" (the 3D toggle etc.
   ARE captured as pointer events — they replay by re-clicking the same button).
 
+- **D33 — handle-drag FPS fix attempt 2 SHIPPED (stages 2+3 of
+  DESIGN-drag-fps-2.md; attempt 1's postmortem is the playbook, 2026-08-03).**
+  `windgraphWorld.emit` composes PERSISTENTLY: the world content
+  ([masthead][boards]) lives in the comp buffers across frames; per-slot sigs
+  (immutable strings — attempt-1's aliasing trap was a shared mutated array)
+  decide which slots re-emit; a dirty board re-emits into a scratch seeded at
+  its COMP-ABSOLUTE offset (prefix + running offset — seeding at the prefix
+  alone loses the offset → the "rowBase 0 vs 118" bug the differential test
+  caught) and splices into its slot; a slice LENGTH change (measure-label digit
+  boundaries) re-emits the tail boards in order — their EmitCache replays rebase
+  correctly against the shifted offsets, no incremental `+=` bookkeeping.
+  Structural changes (prefix lengths / visible-board set) fall back to a full
+  re-emit. The world exposes `dirtyRanges()` (absolute float ranges in the
+  frame arrays); `frame.ts` syncs only those into the typed arrays and
+  `gpu.ts draw(opts.dirty)` writeBuffers only those byte ranges — a drag
+  uploads ~16–64KB instead of 1.76MB crv + 1.9MB inst. Full-upload fallbacks
+  (each a stale-GPU hazard): world fullDirty, extra emitters (math/bench/menu),
+  staticRev/atlas-size change, typed-array realloc, instance count growth
+  (menu open), 2D camera move (inst is camera-relative; 3D inst is absolute).
+  `naiveEmit = true` on the world = the old full recompose = the
+  differential-test reference + emergency fallback. **Gates**
+  (`src/playground/__test_dragPerf.ts`): drag-must-change-emit (bug-A class),
+  still-scene bit-identical, persistent≡naive across drags/pans/zooms (f32-
+  tolerant — the GPU sees f32 either way). **Tooling:** `bun run shots <name>
+  [atMs] [a:b]` (scripts/shots.ts) = replay + PNGs at action fractions +
+  per-section/upload/dirty-range trace; gated on `window.__trace` (frame.ts
+  publishes `__perfSections`, gpu.ts counts `__uploadStats`). **Measured**
+  (drag window of `repro`): jsAvg 2.92→~2.0–2.3ms, interact 1.58→~1.1ms,
+  uploads 1202→~600KB/frame; same-conditions 4-run A/B: repro median
+  ~181/~95→~206/~104; 3dsimple min 74→113; latest min 87→108. **Stage 4
+  (3D view-independent board sigs + constant masthead tile) was A/B'd and
+  REVERTED:** a wash on the rotation recording (its spikes were mode-toggle +
+  LOD-settle, not tile crossings) and a regression on zoom-heavy 3D (full-
+  board rebuilds at LOD bands cost more than the old tile rebuilds). Do not
+  re-attempt without also cheapening the 3D full-board build. **Residual
+  (honest):** complex 3D recordings sit at 108–113 fpsMin — single-frame
+  essential-work spikes: 2D↔3D toggle structural rebuild (~22ms, all 9 boards),
+  LOD-settle rebuilds (~18ms), drag digit-boundary tail frames (~10% of drag
+  frames at 4.3–6.8ms). Worker offload (Phase 5) is the scheduled fix.
+  **Measurement lesson:** an interrupted `perf:replay` leaks its chromium
+  (WebGPU context); 17 leaked browsers throttled later runs to a fake 114fps on
+  a 2.4ms-js pan recording. Kill leaked chromiums before trusting numbers.
+
 ## 2. Technical tips (file:line anchored)
 
 **The 3D substrate already exists — extend, don't rebuild:**

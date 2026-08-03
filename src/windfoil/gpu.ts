@@ -3,6 +3,16 @@ import { Retirer } from './retire';
 
 const WGSL_URL = new URL('./windfoil.wgsl', import.meta.url);
 
+// Dev-tool accounting (gated on window.__trace, see scripts/shots.ts): bytes +
+// call count passed to queue.writeBuffer, so partial-upload changes can be
+// verified against the real GPU path, not inferred.
+function traceUpload(bytes: number) {
+  const g = globalThis as any;
+  if (!g.__trace) return;
+  const st = g.__uploadStats ?? (g.__uploadStats = { bytes: 0, calls: 0 });
+  st.bytes += bytes; st.calls++;
+}
+
 export async function loadShaderCode(url: string | URL = WGSL_URL): Promise<string> {
   return fetch(url).then((r) => r.text());
 }
@@ -123,7 +133,7 @@ export function createGlyphRenderer(
       uniformData[24] = fxActive;
       device.queue.writeBuffer(uniform, 0, uniformData);
     },
-    draw(pass: GPURenderPassEncoder, curves: Float32Array, rows: Uint32Array, instances: Float32Array, instanceCount: number, xforms?: Float32Array, clip?: Float32Array, dataVersion?: number, opts?: { depthWrite?: boolean; firstInstance?: number }) {
+    draw(pass: GPURenderPassEncoder, curves: Float32Array, rows: Uint32Array, instances: Float32Array, instanceCount: number, xforms?: Float32Array, clip?: Float32Array, dataVersion?: number, opts?: { depthWrite?: boolean; firstInstance?: number; dirty?: DirtyRanges | null }) {
       if (!instanceCount) return;
       let newBindGroup = false;
       let c: GPUBuffer, cc: number;
@@ -135,29 +145,48 @@ export function createGlyphRenderer(
       let i: GPUBuffer, ic: number;
       [i, ic] = ensureBuf(instBuf, instances.byteLength, instCap);
       if (i !== instBuf) { instBuf = i; instCap = ic; newBindGroup = true; }
+      // A buffer was just reallocated → its GPU content is empty → any ranged
+      // (partial) write would leave the rest stale. Force a full upload (I5).
+      const grew = newBindGroup;
       if (xforms && xforms.length > 0) {
         let x: GPUBuffer, xc: number;
         [x, xc] = ensureBuf(xformBuf, xforms.byteLength, xformCap);
         if (x !== xformBuf) { xformBuf = x; xformCap = xc; newBindGroup = true; }
-        device.queue.writeBuffer(xformBuf, 0, xforms);
+        const xd = !grew && opts?.dirty ? opts.dirty.xf : null;
+        if (xd && xd.length) {
+          for (const [a, b] of xd) { traceUpload((b - a) * 4); device.queue.writeBuffer(xformBuf, a * 4, xforms.subarray(a, b)); }
+        } else {
+          traceUpload(xforms.byteLength);
+          device.queue.writeBuffer(xformBuf, 0, xforms);
+        }
       }
       if (clip && clip.length > 0) {
         let cl: GPUBuffer, clc: number;
         [cl, clc] = ensureBuf(clipBuf, clip.byteLength, clipCap);
         if (cl !== clipBuf) { clipBuf = cl; clipCap = clc; newBindGroup = true; }
+        traceUpload(clip.byteLength);
         device.queue.writeBuffer(clipBuf, 0, clip);
       }
       if (dataVersion !== undefined) {
         if (dataVersion !== lastDataVersion) {
-          device.queue.writeBuffer(curveBuf, 0, curves);
-          device.queue.writeBuffer(rowBuf, 0, rows);
-          device.queue.writeBuffer(instBuf, 0, instances);
+          const d = !grew && opts?.dirty ? opts.dirty : null;
+          if (d && (d.crv.length || d.rws.length || d.inst.length)) {
+            for (const [a, b] of d.crv) { traceUpload((b - a) * 4); device.queue.writeBuffer(curveBuf, a * 4, curves.subarray(a, b)); }
+            for (const [a, b] of d.rws) { traceUpload((b - a) * 4); device.queue.writeBuffer(rowBuf, a * 4, rows.subarray(a, b)); }
+            for (const [a, b] of d.inst) { traceUpload((b - a) * 4); device.queue.writeBuffer(instBuf, a * 4, instances.subarray(a, b)); }
+          } else {
+            traceUpload(curves.byteLength + rows.byteLength + instances.byteLength);
+            device.queue.writeBuffer(curveBuf, 0, curves);
+            device.queue.writeBuffer(rowBuf, 0, rows);
+            device.queue.writeBuffer(instBuf, 0, instances);
+          }
           lastDataVersion = dataVersion;
           lastCurves = curves; lastRows = rows;
         }
       } else {
-        if (curves !== lastCurves) { device.queue.writeBuffer(curveBuf, 0, curves); lastCurves = curves; }
-        if (rows !== lastRows) { device.queue.writeBuffer(rowBuf, 0, rows); lastRows = rows; }
+        if (curves !== lastCurves) { traceUpload(curves.byteLength); device.queue.writeBuffer(curveBuf, 0, curves); lastCurves = curves; }
+        if (rows !== lastRows) { traceUpload(rows.byteLength); device.queue.writeBuffer(rowBuf, 0, rows); lastRows = rows; }
+        traceUpload(instances.byteLength);
         device.queue.writeBuffer(instBuf, 0, instances);
       }
       if (newBindGroup) {
@@ -172,3 +201,14 @@ export function createGlyphRenderer(
 }
 
 export type GlyphRenderer = ReturnType<typeof createGlyphRenderer>;
+
+/** Float-index ranges ([start, end)) that changed since the last upload, per
+ *  buffer. Passed to draw() so only those byte ranges are written to the GPU —
+ *  a drag uploads one board's ~16KB instead of the full ~1.76MB curve buffer.
+ *  null/absent = upload everything (the caller's correctness fallback). */
+export interface DirtyRanges {
+  crv: [number, number][];
+  rws: [number, number][];
+  inst: [number, number][];
+  xf: [number, number][];
+}

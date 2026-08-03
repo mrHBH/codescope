@@ -350,13 +350,24 @@ export class WindgraphWorld {
     return sig;
   }
 
-  // Pre-allocated composition buffers. The world composes everything (grid +
-  // every board's slice caches) into these WITHOUT growing them — V8 reallocs
-  // on number[] `.length` growth were the entire drag cost (15 compositions ×
-  // 3 arrays × realloc+copy + GC tail). One bulk-copy at the end appends to
-  // the frame buffer (a single growth). The comp crv/rws carry a copy of the
-  // frame buffer's atlas+static prefix so row/quad references stay valid; the
-  // duplicate prefix is dead weight after the bulk-copy (negligible).
+  // ── persistent composition (drag-fps fix, DESIGN-drag-fps-2.md stage 2) ────
+  // The world's content ([masthead][board0..board8]) now LIVES in these comp
+  // buffers across frames. A frame where one board's signature changed re-emits
+  // ONLY that board into a scratch (seeded to the prefix LENGTHS, not content —
+  // EmitCache capture only needs the lengths to classify atlas references) and
+  // splices the slice into its slot. Clean boards contribute nothing: no replay,
+  // no prefix copy (the old per-frame prefix seed was ~1ms of dead copying, and
+  // replaying 8 unchanged boards was 2–4ms). If a slice's LENGTH changes (a drag
+  // crossing a digit/arc boundary), everything after it must shift: the tail
+  // boards are simply RE-EMITTED in order (their caches replay with correct
+  // absolute rebases — the same code path as a normal compose, no incremental
+  // `+=` bookkeeping that could drift). Structural changes (prefix lengths or
+  // the visible-board set moved) fall back to a full re-emit that frame.
+  //
+  // `naiveEmit` (dev/test flag) restores the old full recompose — it is the
+  // differential-test reference AND an emergency fallback.
+  naiveEmit = false;
+
   private cInst: number[] = new Array(65536);
   private cCrv: number[] = new Array(65536);
   private cRws: number[] = new Array(65536);
@@ -368,44 +379,223 @@ export class WindgraphWorld {
   private xfBuf = new Float32Array(65536);
   private xfLen = 0;
   private xfOn = false;
+  // Scratch for one slot's re-emit (crv/rws seeded to prefix lengths only).
+  private sInst: number[] = new Array(4096);
+  private sCrv: number[] = new Array(4096);
+  private sRws: number[] = new Array(4096);
+  private sXf: number[] = new Array(4096);
+  // Per-slot bookkeeping: slot 0 = masthead, slots 1..N = boards. sigs are
+  // immutable strings — never a reference to something mutated in place (the
+  // aliasing trap that froze the dragged board in attempt 1).
+  private slots: { sig: string; iS: number; iL: number; cS: number; cL: number; rS: number; rL: number; xS: number; xL: number }[] = [];
+  private lastPrefixI = -1;
+  private lastPrefixC = -1;
+  private lastPrefixR = -1;
+  private lastNVisible = -1;
+  private compILen = 0;
+  private compCLen = 0;
+  private compRLen = 0;
+  private compXLen = 0;
+  // Dirty ranges this emit, ABSOLUTE in the frame arrays (prefix offsets baked
+  // in) — consumed by frame.ts for partial GPU uploads (stage 3). fullDirty
+  // means "everything changed" (structural fallback / first frame / naive).
+  private dirtyC: [number, number][] = [];
+  private dirtyR: [number, number][] = [];
+  private dirtyI: [number, number][] = [];
+  private dirtyX: [number, number][] = [];
+  private fullDirty = true;
+  /** Dirty ranges from the last emit (absolute frame-array indices), or null
+   *  when everything changed. frame.ts uploads only these when non-null. */
+  dirtyRanges(): { crv: [number, number][]; rws: [number, number][]; inst: [number, number][]; xf: [number, number][] } | null {
+    return this.fullDirty ? null : { crv: this.dirtyC, rws: this.dirtyR, inst: this.dirtyI, xf: this.dirtyX };
+  }
+
+  /** Per-board slot signature: the board's own cache key + its panel interaction
+   *  state (the panel chrome is uncached, so hover/drag must re-emit the board).
+   *  Mirrors frameSig() exactly — sig unchanged ⇒ content unchanged (I3). */
+  private slotSig(b: WgBoard, view: PlaneView, vis: boolean): string {
+    const base = vis ? b.sigFor(view) : 'off';
+    return base + (b.panel ? `p${b.panel.open ? 1 : 0},${b.panel.hovered},${b.panel.isDragging ? 1 : 0}` : '');
+  }
 
   emit(font: FontFace, atlas: any, inst: number[], crv: number[], rws: number[], now: number, view: PlaneView) {
     const t0 = performance.now();
     const inst0 = inst.length;
+    const pCrvLen = crv.length, pRwsLen = rws.length;
     const bp = this.backdropParts(view);
     const { eL, eT, eR, eB, vL, vT, vR, vB } = bp;
 
-    // Seed comp crv/rws with the frame buffer's current prefix (atlas + static
-    // + editor + …). The world's content composes after it. Comp inst starts
-    // empty — instances carry rowBases, no prefix of their own.
+    if (this.naiveEmit) {
+      this.emitNaive(font, atlas, inst, crv, rws, now, view, inst0, pCrvLen, pRwsLen, bp, eL, eT, eR, eB, vL, vT, vR, vB, t0);
+      return;
+    }
+
+    const nSlots = this.boards.length + 1;
+    if (this.slots.length !== nSlots) {
+      this.slots.length = 0;
+      for (let i = 0; i < nSlots; i++) this.slots.push({ sig: '', iS: 0, iL: 0, cS: 0, cL: 0, rS: 0, rL: 0, xS: 0, xL: 0 });
+    }
+    let nVis = 0;
+    for (const b of this.boards) if (this.boardVisible(b, null, vL, vT, vR, vB)) nVis++;
+    // Structural fallback: prefix lengths or the visible-board set changed → the
+    // persistent layout is invalid → full re-emit + full dirty (rare).
+    const structural = pCrvLen !== this.lastPrefixC || pRwsLen !== this.lastPrefixR || inst0 !== this.lastPrefixI || nVis !== this.lastNVisible;
+    this.lastPrefixC = pCrvLen; this.lastPrefixR = pRwsLen; this.lastPrefixI = inst0; this.lastNVisible = nVis;
+    this.fullDirty = structural;
+    this.dirtyC.length = 0; this.dirtyR.length = 0; this.dirtyI.length = 0; this.dirtyX.length = 0;
+
     const cCrv = this.cCrv, cRws = this.cRws, cInst = this.cInst, cXf = this.cXf;
-    const pCrvLen = crv.length, pRwsLen = rws.length;
+    const sCrv = this.sCrv, sRws = this.sRws, sInst = this.sInst, sXf = this.sXf;
+    // Running comp offsets; a length change anywhere opens a "tail" — everything
+    // from that slot onward is re-emitted and one merged dirty range covers it.
+    let oI = 0, oC = 0, oR = 0, oX = 0;
+    let tailC = -1, tailR = -1, tailI = -1, tailX = -1;
+
+    // Re-emit one slot into the scratch and splice it at the running offset.
+    // The scratch crv/rws are seeded to the slot's COMP-ABSOLUTE position
+    // (prefix + running offset), not just the prefix: EmitCache captures
+    // row/quad refs relative to the array length at build time and rebases them
+    // to the array length at replay time — seeding at the comp offset makes the
+    // captured slice's references comp-absolute, so the splice is a verbatim
+    // copy and a tail shift (replay at a new offset) rebases correctly. Seeding
+    // at the prefix alone loses the running offset (the "rowBase 0 vs 118" bug).
+    // Returns true when the slice length changed (opens the tail).
+    const splice = (slot: { sig: string; iS: number; iL: number; cS: number; cL: number; rS: number; rL: number; xS: number; xL: number }, build: () => void): boolean => {
+      sInst.length = 0; sCrv.length = pCrvLen + oC; sRws.length = pRwsLen + oR; sXf.length = 0;
+      build();
+      const needX = (sInst.length >> 4) << 3;
+      for (let i = sXf.length; i < needX; i++) sXf[i] = 0;
+      sXf.length = needX;
+      const iL = sInst.length, cL = sCrv.length - (pCrvLen + oC), rL = sRws.length - (pRwsLen + oR), xL = needX;
+      const lenChanged = iL !== slot.iL || cL !== slot.cL || rL !== slot.rL || xL !== slot.xL;
+      slot.iS = oI; slot.cS = oC; slot.rS = oR; slot.xS = oX;
+      slot.iL = iL; slot.cL = cL; slot.rL = rL; slot.xL = xL;
+      for (let i = 0; i < cL; i++) cCrv[oC + i] = sCrv[pCrvLen + oC + i];
+      for (let i = 0; i < rL; i++) cRws[oR + i] = sRws[pRwsLen + oR + i];
+      for (let i = 0; i < iL; i++) cInst[oI + i] = sInst[i];
+      for (let i = 0; i < xL; i++) cXf[oX + i] = sXf[i];
+      if (!this.fullDirty && tailC < 0 && !lenChanged) {
+        this.dirtyC.push([pCrvLen + oC, pCrvLen + oC + cL]);
+        this.dirtyR.push([pRwsLen + oR, pRwsLen + oR + rL]);
+        this.dirtyI.push([inst0 + oI, inst0 + oI + iL]);
+        this.dirtyX.push([(inst0 >> 4 << 3) + oX, (inst0 >> 4 << 3) + oX + xL]);
+      }
+      if (lenChanged && tailC < 0) { tailC = oC; tailR = oR; tailI = oI; tailX = oX; }
+      oI += iL; oC += cL; oR += rL; oX += xL;
+      return lenChanged;
+    };
+
+    const tB: number[] = [];
+    for (const b of this.boards) b.app = this.app;
+    // Slot 0: the masthead (backdrop tile cache).
+    {
+      const tb0 = performance.now();
+      const slot = this.slots[0];
+      const sig = bp.sig;
+      if (structural || sig !== slot.sig) {
+        slot.sig = sig;
+        splice(slot, () => this.backdropCache.run(sig, sInst, sCrv, sRws, () => {
+          this.drawMasthead(font, atlas, sInst, sCrv, sRws, eL, eT, eR, eB);
+        }));
+      } else {
+        oI += slot.iL; oC += slot.cL; oR += slot.rL; oX += slot.xL;
+      }
+      tB.push(performance.now() - tb0);
+    }
+    // Slots 1..N: the boards. A board re-emits when its sig changed; once a
+    // length change opened the tail, every later board re-emits too (its replay
+    // rebases absolute refs against the shifted offsets).
+    for (let bi = 0; bi < this.boards.length; bi++) {
+      const b = this.boards[bi];
+      const tb0 = performance.now();
+      const slot = this.slots[bi + 1];
+      const vis = this.boardVisible(b, null, vL, vT, vR, vB);
+      const sig = this.slotSig(b, view, vis);
+      const inTail = tailC >= 0;
+      if (structural || sig !== slot.sig || inTail) {
+        slot.sig = sig;
+        if (vis) {
+          splice(slot, () => {
+            (b as any).xfTarget = sXf;
+            b.emit(font, atlas, sInst, sCrv, sRws, now, view);
+          });
+        } else {
+          const lenChanged = slot.iL !== 0 || slot.cL !== 0 || slot.rL !== 0 || slot.xL !== 0;
+          slot.iS = oI; slot.cS = oC; slot.rS = oR; slot.xS = oX;
+          slot.iL = 0; slot.cL = 0; slot.rL = 0; slot.xL = 0;
+          if (lenChanged && tailC < 0) { tailC = oC; tailR = oR; tailI = oI; tailX = oX; }
+        }
+      } else {
+        oI += slot.iL; oC += slot.cL; oR += slot.rL; oX += slot.xL;
+      }
+      tB.push(performance.now() - tb0);
+    }
+    this.compILen = oI; this.compCLen = oC; this.compRLen = oR; this.compXLen = oX;
+    if (tailC >= 0 && !this.fullDirty) {
+      this.dirtyC.push([pCrvLen + tailC, pCrvLen + oC]);
+      this.dirtyR.push([pRwsLen + tailR, pRwsLen + oR]);
+      this.dirtyI.push([inst0 + tailI, inst0 + oI]);
+      this.dirtyX.push([(inst0 >> 4 << 3) + tailX, (inst0 >> 4 << 3) + oX]);
+    }
+
+    // Copy the world content into the frame arrays. The frame arrays are
+    // REBUILT from the prefix every frame (frame.ts truncates crv/rws to the
+    // static prefix and resets inst), so this is always a full copy — the
+    // persistence win is upstream (no prefix seed, no clean-board replays).
+    // The dirty ranges above describe what changed for the GPU-side partial
+    // upload (stage 3), where the typed arrays DO persist across frames.
+    const totalC = pCrvLen + oC, totalR = pRwsLen + oR, totalI = inst0 + oI;
+    crv.length = totalC; rws.length = totalR; inst.length = totalI;
+    for (let i = 0; i < oC; i++) crv[pCrvLen + i] = cCrv[i];
+    for (let i = 0; i < oR; i++) rws[pRwsLen + i] = cRws[i];
+    for (let i = 0; i < oI; i++) inst[inst0 + i] = cInst[i];
+
+    // Compose the per-instance 3D buffer (D10): it must cover EVERY instance the
+    // frame draws, so prefix instances (editor/static, before the world) get zeros
+    // and the world's cXf lands at the prefix offset. frame.ts hands this to the
+    // shader's fxXforms + sets fxActive only when something is actually elevated.
+    const totalInst = totalI >> 4;
+    const need = totalInst << 3;
+    if (this.xfBuf.length < need) this.xfBuf = new Float32Array(need * 2);
+    this.xfBuf.fill(0, 0, need);
+    const off = (inst0 >> 4) << 3;
+    let any = false;
+    for (let i = 0; i < oX; i++) { const v = cXf[i]; this.xfBuf[off + i] = v; if (v !== 0) any = true; }
+    this.xfOn = any;
+    this.xfLen = need;
+
+    const [tri, geom, plots] = this.boards;
+    const e = this.ema, a = e.warm ? 0.08 : 1;
+    e.warm = true;
+    e.total += (performance.now() - t0 - e.total) * a;
+    e.grid += (tB[0] - e.grid) * a;
+    e.tri += (tB[1] - e.tri) * a;
+    e.geom += (tB[2] - e.geom) * a;
+    e.plots += (tB[3] - e.plots) * a;
+    e.inst += ((inst.length - inst0) / 16 - e.inst) * a;
+    this.debug = `wg ${e.total.toFixed(2)}ms · inst ${Math.round(e.inst)}`
+      + ` · grid ${e.grid.toFixed(2)} · tri ${e.tri.toFixed(2)} · geom ${e.geom.toFixed(2)} · plots ${e.plots.toFixed(2)}`
+      + ` · miss g${this.backdropCache.misses} t${tri.cacheMisses}/${tri.directMisses} e${geom.cacheMisses} p${plots.cacheMisses}/${plots.directMisses}`;
+    this.onDebug?.(this.debug);
+  }
+
+  /** The pre-persistent full recompose (every board replays + prefix seed each
+   *  frame). Kept as the differential-test reference + emergency fallback; also
+   *  reports full-dirty ranges so the partial-upload path degrades identically. */
+  private emitNaive(font: FontFace, atlas: any, inst: number[], crv: number[], rws: number[], now: number, view: PlaneView, inst0: number, pCrvLen: number, pRwsLen: number, bp: { sig: string }, eL: number, eT: number, eR: number, eB: number, vL: number, vT: number, vR: number, vB: number, t0: number) {
+    const cCrv = this.cCrv, cRws = this.cRws, cInst = this.cInst, cXf = this.cXf;
     for (let i = 0; i < pCrvLen; i++) cCrv[i] = crv[i];
     for (let i = 0; i < pRwsLen; i++) cRws[i] = rws[i];
     let cILen = 0, cCLen = pCrvLen, cRLen = pRwsLen, cXfLen = 0;
-    // strokeInto/layoutStr push to .length, so we set .length to the logical
-    // offset before each build and read it back after.
     const setLen = (il: number, cl: number, rl: number) => { cInst.length = il; cCrv.length = cl; cRws.length = rl; cXf.length = cXfLen; };
     const readLen = () => { cILen = cInst.length; cCLen = cCrv.length; cRLen = cRws.length; cXfLen = cXf.length; };
-    // Keep cXf aligned to cInst (8 floats/instance): flat emitters advance cInst
-    // without touching cXf, so zero-pad the gap. Pre-allocated backing → no realloc.
-    const padXf = () => { const need = (cInst.length >> 4) << 3; for (let i = cXf.length; i < need; i++) cXf[i] = 0; cXf.length = need; cXfLen = need; };
-
-    const tg0 = performance.now();
+    const padXf = () => { const nx = (cInst.length >> 4) << 3; for (let i = cXf.length; i < nx; i++) cXf[i] = 0; cXf.length = nx; cXfLen = nx; };
     setLen(cILen, cCLen, cRLen);
     this.backdropCache.run(bp.sig, cInst, cCrv, cRws, () => {
       this.drawMasthead(font, atlas, cInst, cCrv, cRws, eL, eT, eR, eB);
     });
     readLen();
     padXf();
-    const tGrid = performance.now() - tg0;
-
-    // Boards compose into the same comp buffers (their caches see number[] and
-    // behave identically; the pre-allocated backing means no reallocs). Both modes
-    // emit every visible board: 2D culls boards fully off-viewport (exact AABB),
-    // 3D always emits (a rect-frustum test false-culls boards whose content is
-    // still on screen — see boardVisible). Cached replays make over-emitting
-    // cheap; the frame-skip signature keeps a still scene from emitting at all.
     const tB: number[] = [];
     for (const b of this.boards) b.app = this.app;
     for (const b of this.boards) {
@@ -419,25 +609,12 @@ export class WindgraphWorld {
       }
       tB.push(performance.now() - tb0);
     }
-
-    // Bulk-copy the world content (after the seeded prefix) into the frame
-    // buffer. The comp buffer's prefix is a verbatim copy of the frame buffer's
-    // prefix, so the world's content lands at the same indices in both arrays —
-    // row/quad references need NO adjustment (the earlier +rwsOff/+crvOff was
-    // the "just gray" bug: it shifted every reference 5×/6× off). Direct-indexed
-    // into pre-grown arrays (no .push) — the crv copy is ~130k elements and the
-    // per-frame .push loop was a measurable slice of the pan/interaction cost.
     crv.length = cCLen;
     for (let i = pCrvLen; i < cCLen; i++) crv[i] = cCrv[i];
     rws.length = cRLen;
     for (let i = pRwsLen; i < cRLen; i++) rws[i] = cRws[i];
     inst.length = inst0 + cILen;
     for (let i = 0; i < cILen; i++) inst[inst0 + i] = cInst[i];
-
-    // Compose the per-instance 3D buffer (D10): it must cover EVERY instance the
-    // frame draws, so prefix instances (editor/static, before the world) get zeros
-    // and the world's cXf lands at the prefix offset. frame.ts hands this to the
-    // shader's fxXforms + sets fxActive only when something is actually elevated.
     const totalInst = (inst0 + cILen) >> 4;
     const need = totalInst << 3;
     if (this.xfBuf.length < need) this.xfBuf = new Float32Array(need * 2);
@@ -447,19 +624,23 @@ export class WindgraphWorld {
     for (let i = 0; i < cXfLen; i++) { const v = cXf[i]; this.xfBuf[off + i] = v; if (v !== 0) any = true; }
     this.xfOn = any;
     this.xfLen = need;
-
+    // Naive = everything changed; invalidate persistence so a later switch back
+    // to the persistent path does a clean structural re-emit.
+    this.fullDirty = true;
+    this.dirtyC.length = 0; this.dirtyR.length = 0; this.dirtyI.length = 0; this.dirtyX.length = 0;
+    for (const slot of this.slots) slot.sig = '';
+    this.lastPrefixC = pCrvLen; this.lastPrefixR = pRwsLen; this.lastPrefixI = inst0;
+    this.lastNVisible = -1;
+    this.compILen = cILen; this.compCLen = cCLen - pCrvLen; this.compRLen = cRLen - pRwsLen; this.compXLen = cXfLen;
     const [tri, geom, plots] = this.boards;
     const e = this.ema, a = e.warm ? 0.08 : 1;
     e.warm = true;
     e.total += (performance.now() - t0 - e.total) * a;
-    e.grid += (tGrid - e.grid) * a;
     e.tri += (tB[0] - e.tri) * a;
     e.geom += (tB[1] - e.geom) * a;
     e.plots += (tB[2] - e.plots) * a;
     e.inst += ((inst.length - inst0) / 16 - e.inst) * a;
-    this.debug = `wg ${e.total.toFixed(2)}ms · inst ${Math.round(e.inst)}`
-      + ` · grid ${e.grid.toFixed(2)} · tri ${e.tri.toFixed(2)} · geom ${e.geom.toFixed(2)} · plots ${e.plots.toFixed(2)}`
-      + ` · miss g${this.backdropCache.misses} t${tri.cacheMisses}/${tri.directMisses} e${geom.cacheMisses} p${plots.cacheMisses}/${plots.directMisses}`;
+    this.debug = `wg(naive) ${e.total.toFixed(2)}ms · inst ${Math.round(e.inst)}`;
     this.onDebug?.(this.debug);
   }
 
