@@ -140,7 +140,7 @@ export async function createEngine(): Promise<Engine> {
   // depthWrite variant: the analytic-3D opaque pass (D26) self-occludes space
   // curves through the shared depth buffer; the IDE's renderer (its own call)
   // has no 3D content so it skips the second pipeline.
-  const renderer = createGlyphRenderer(device, { code: shaderCode, format: 'rgba8unorm', depthWrite: true });
+  const renderer = createGlyphRenderer(device, { code: shaderCode, format: 'rgba8unorm', depthWrite: true, label: 'scene' });
   const upscaler = createUpscaler(device, 'rgba8unorm');
   const meshRenderer = createMeshRenderer(device, 'rgba8unorm');
   // The 3D free-camera (camera-controls) is bound once to the interaction canvas

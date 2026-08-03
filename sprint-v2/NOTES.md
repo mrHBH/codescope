@@ -877,6 +877,41 @@ from the code lives here. Newest entries at the bottom of each section.
   and labels toolbar/menu presses as "ui button"/"ui click" (the 3D toggle etc.
   ARE captured as pointer events — they replay by re-clicking the same button).
 
+- **D34 — handle-drag FPS fix attempt 3 = "0 fps hit" SHIPPED (stages 5+5b +
+  DOM readout toggle, 2026-08-03).** Traced the residual drag-window cost with
+  per-label GPU-upload accounting (`gpu.ts traceUpload(label)`, `mesh3d`,
+  `scripts/shots.ts` DUMP_SERIES) and found FOUR stacked causes, each fixed:
+  (1) the world's per-frame EMA debug line (`wg 1.2ms · …`) fed
+  `s.hudDebugExtra`, which is part of the HUD skip-sig → the screen HUD
+  rebuilt + re-uploaded its buffers EVERY drag frame; now sampled at 8Hz like
+  `hudDebugText` (`hudDebugExtraLive` staging). (2) the screen HUD seeded its
+  "prefix" from `s.baseCrv` — the LIVE working array (~1MB incl. scene
+  content), so its partial uploads never engaged; now seeded from
+  `s.atlas.curves/rows` (immutable between bakes, IDE pattern) + ScreenHud
+  uploads the atlas prefix once and only the overlay tail per rebuild. (3) the
+  xf buffer was FULL-uploaded on every draw call whenever `dirty.xf` was empty
+  (two draws/frame in 3D); now empty `dirty.xf` = "unchanged" = no upload, and
+  the upload is gated on dataVersion (once per frame). (4) the digit/arc
+  boundary frames: a slice LENGTH change re-emitted the whole tail (4–9ms +
+  525KB upload, ~11% of drag frames) — replaced by STAGE 5 fixed crv/rws slots
+  with stride-aligned capacities (`capFor`, crv×6/rws×5 — object-resolver's
+  `seedRows*6` dies on fractional seeds): a changed slice splices inside its
+  slot's slack; inst/xf stay compacted via a read-all-write-all memmove (row
+  refs stay valid because crv/rws slots never move); overflow → rare relayout
+  (fullDirty). STAGE 5b: frame.ts preserves the world's crv/rws region across
+  frames (`frameSpanC/R`); the epilogue splices only dirty ranges (copy
+  1.1ms→0.09ms). `slotSlack=false` keeps the layout packed ≡ naive (differential
+  gates 3/3b); gates 4/4b/4c/5 cover slack-mode rendered-equivalence (resolver
+  drops absolute rowBase), no-full-dirty-drags, still-frame identity, and the
+  persistent-region protocol. **Result (repro drag window): 244→3 over-budget
+  frames (analytic chip), jsAvg 2.92→0.93ms; with the new DOM readout 1/843.**
+  The user's suspicion was right: the analytic fps chip's text is in the HUD
+  sig → 8Hz HUD rebuilds (~1–3ms) during drags; toolbar `stats` button now
+  swaps it for the trivial DOM `#fps` (free — the textContent write already
+  happens at 8Hz), and `hudSig` drops the chip text when the chip is hidden.
+  Residual (not drag-related): 2D↔3D mode-toggle rebuild (~25ms) and rare
+  drag-start relayout / slice rebuilds (4–5ms) — Phase-5 worker territory.
+
 - **D33 — handle-drag FPS fix attempt 2 SHIPPED (stages 2+3 of
   DESIGN-drag-fps-2.md; attempt 1's postmortem is the playbook, 2026-08-03).**
   `windgraphWorld.emit` composes PERSISTENTLY: the world content

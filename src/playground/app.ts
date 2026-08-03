@@ -75,6 +75,14 @@ export function finishApp(s: AppState, onBack: () => void, extras: ToolbarButton
     const toolbar = new AnalyticToolbar([
       { id: 'back', icon: 'home', title: 'Back to launcher', onClick: onBack },
       ...extras,
+      // The analytic chip's text is part of the HUD skip-sig → a HUD rebuild at
+      // 8Hz. The DOM #fps writes the same text at 8Hz for free; offer it as the
+      // zero-cost readout when profiling drags.
+      { id: 'fpsdom', icon: 'stats', title: 'FPS readout: analytic chip ↔ plain DOM overlay (DOM is free; the chip rebuilds the HUD at 8Hz)', active: () => s.fpsDom, onClick: () => {
+        s.fpsDom = !s.fpsDom;
+        if (s.fpsChip) s.fpsChip.visible = !s.fpsDom;
+        if (s.fpsEl) s.fpsEl.style.display = s.fpsDom ? '' : 'none';
+      } },
       { id: 'theme', icon: 'moon', title: 'Cycle theme: light → dark → high contrast', onClick: () => s.cycleTheme!() },
     ]);
     s.toolbar = toolbar;

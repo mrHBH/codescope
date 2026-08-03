@@ -91,8 +91,19 @@ export interface AppState {
   /** Analytic fps/perf chip (screen HUD) — zero-DOM replacement for #fps.
    *  Click cycles fps → full → full+diagnostics; long press copies. */
   fpsChip: import('./ui/fpsChip').FpsChip | null;
-  /** Extra diagnostic line the active demo feeds the chip's third mode. */
+  /** Extra diagnostic line the active demo feeds the chip's third mode.
+   *  Sampled at 8Hz from `hudDebugExtraLive` — it is part of the HUD skip-sig,
+   *  so writing it every frame would defeat the HUD frame-skip (a full HUD
+   *  rebuild + ~1.2MB re-upload per frame during handle drags). */
   hudDebugExtra: string;
+  /** FPS readout mode: false = analytic chip in the screen HUD (default), true =
+   *  the trivial DOM/CSS #fps overlay. The analytic chip's text is part of the
+   *  HUD skip-sig, so it forces a HUD rebuild at 8Hz; DOM mode is free (the #fps
+   *  textContent write already happens at 8Hz regardless). Toolbar-toggled. */
+  fpsDom: boolean;
+  /** Per-frame staging for `hudDebugExtra` (EMA readouts change every emit);
+   *  NOT part of the HUD sig — the frame loop copies it at 8Hz. */
+  hudDebugExtraLive: string;
   /** Bumped whenever buildStatic re-bakes (theme/resize) — frame-skip key. */
   staticRev: number;
   /** Bumped when the main instance buffers get new content — tells the glyph
@@ -260,7 +271,7 @@ export function createAppState(partial: Partial<AppState>): AppState {
     upscaler: null, lowResSharpen: false, integralScale: 0.6, sharpenAmount: 0.6,
     postfx: null, hudRenderer: null, screenHud: null, toolbar: null, panel: null, hudDebugText: '',
     meshAA: false, meshSmooth: true,
-    fpsChip: null, hudDebugExtra: '', staticRev: 0, frameDataVersion: 0,
+    fpsChip: null, hudDebugExtra: '', hudDebugExtraLive: '', fpsDom: false, staticRev: 0, frameDataVersion: 0,
     container: null as any,
     styledEls: [], pageRoots: [], editableEls: [], dynamicEls: [], marqueeEls: [], pages: [], docH: 0, docRoot: null as any,
     cssRules: [], isDark: false, themeMode: 'light', themeCol: {

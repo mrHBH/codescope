@@ -90,6 +90,25 @@ If this file and the code disagree, investigate before trusting either.
 
 ## Log
 
+- 2026-08-03 — **Handle-drag FPS fix, attempt 3 = "0 fps hit" (user: the repro
+  still shows an fps hit while dragging; make it really free; is the debug fps
+  panel the cause?).** Per-label GPU-upload tracing exposed four stacked costs,
+  all fixed (NOTES D34): the world's per-frame EMA line was in the HUD skip-sig
+  (HUD rebuilt + re-uploaded every drag frame) → sampled at 8Hz; the screen HUD
+  seeded from the live working array so its partial uploads never engaged →
+  atlas-only seed + prefix-once uploads; xf was full-uploaded twice per frame →
+  skip-when-clean + dataVersion-gated; and digit/arc-boundary length changes
+  re-emitted the whole tail → **stage 5 fixed crv/rws slots with slack** (slice
+  splices in place; inst memmoved; rare relayout on overflow) + **stage 5b
+  persistent frame region** (dirty-range splice, copy 1.1→0.09ms). New gates
+  4/4b/4c/5 (slack rendered-equivalence vs naive, no full-dirty drags,
+  persistent-region protocol); 3/3b run no-slack ≡ naive. **Repro drag window:
+  244→3 over-budget frames, jsAvg 2.92→0.93ms.** And YES — the analytic chip's
+  text is in the HUD sig (8Hz rebuilds ≈ 1–3ms spikes mid-drag): new toolbar
+  `stats` button swaps it for the trivial DOM `#fps` (free) → **1/843 frames
+  over budget during the drag**. All suites + tsc green; all 8 recordings
+  replay ok; screenshots looked at (pixel-faithful). Residual non-drag spikes:
+  mode-toggle rebuild + rare drag-start relayout (Phase-5 worker).
 - 2026-08-03 — **Handle-drag FPS fix, attempt 2 (postmortem playbook followed;
   DESIGN-drag-fps-2.md).** The world now composes PERSISTENTLY: clean boards
   contribute nothing (no replay, no prefix seed), a dirty board re-emits into a

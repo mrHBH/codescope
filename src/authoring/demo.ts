@@ -51,7 +51,7 @@ function bootScene(engine: Engine, onBack: () => void, doc: SceneDoc, opts: Opts
 function bootCinematic(s: AppState, runtime: SceneRuntime, engine: Engine, onBack: () => void): () => void {
   // Dedicated renderer for the screen-space HUD overlay (separate buffers so its
   // draw never aliases the scene draw in the same command buffer).
-  s.hudRenderer = createGlyphRenderer(engine.device, { code: engine.shaderCode, format: 'rgba8unorm' });
+  s.hudRenderer = createGlyphRenderer(engine.device, { code: engine.shaderCode, format: 'rgba8unorm', label: 'hud' });
 
   // Shader vignette + analytic splash (the only grade; no DOM splash overlay).
   const postfx = createPostFx(engine.device, 'rgba8unorm');

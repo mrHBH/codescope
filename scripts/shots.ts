@@ -11,7 +11,7 @@
 // section ms/frame, upload KB/frame during the action).
 
 import { spawn, type ChildProcess } from 'node:child_process';
-import { readFileSync, existsSync, mkdirSync } from 'node:fs';
+import { readFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { resolve, join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -64,25 +64,39 @@ async function main() {
       // Per-frame series during the action: { t (ms since event-dispatch t0), js, upKB, sec }.
       // The replay engine sets __recReplaying, then sleeps 250ms (pose warm) + 120ms
       // (pre-dispatch) before t0 — so t0 ≈ flip + 370ms.
-      let wasReplaying = false, t0 = 0, lastUp = 0;
-      const series: { t: number; js: number; up: number; dirtyKB: number; sec: Record<string, number> }[] = [];
+      let wasReplaying = false, t0 = 0, lastUp = 0, lastBy: Record<string, number> = {};
+      const series: { t: number; js: number; up: number; dirtyKB: number; fb: string; sec: Record<string, number>; upBy: Record<string, number>; wg: any }[] = [];
       const loop = () => {
         requestAnimationFrame(loop);
         const isRep = !!w.__recReplaying;
         if (isRep && !wasReplaying) t0 = performance.now() + 370;
         wasReplaying = isRep;
-        if (!isRep) { lastUp = w.__uploadStats?.bytes ?? 0; return; }
+        const by = w.__uploadStats?.byLabel ?? {};
+        if (!isRep) { lastUp = w.__uploadStats?.bytes ?? 0; lastBy = { ...by }; return; }
         const up = w.__uploadStats?.bytes ?? 0;
+        const upBy: Record<string, number> = {};
+        for (const k of Object.keys(by)) { const d = (by[k] ?? 0) - (lastBy[k] ?? 0); if (d > 0) upBy[k] = d / 1024; }
         const p = w.__perf;
         const dr = w.__csState?.interactive?.dirtyRanges?.();
         const dirtyKB = dr ? (dr.crv.reduce((n: number, r: number[]) => n + (r[1] - r[0]), 0) * 4) / 1024 : -1;
-        series.push({ t: performance.now() - t0, js: p?.frameMs ?? 0, up: (up - lastUp) / 1024, dirtyKB, sec: w.__perfSections ?? {} });
-        lastUp = up;
+        series.push({ t: performance.now() - t0, js: p?.frameMs ?? 0, up: (up - lastUp) / 1024, dirtyKB, fb: w.__fbLast ?? '', sec: w.__perfSections ?? {}, upBy, wg: w.__wgEmit ?? null });
+        lastUp = up; lastBy = { ...by };
       };
       requestAnimationFrame(loop);
       w.__traceSeries = () => series;
     });
     await page.goto(`${BASE}/#${rec.route}?replay=${encodeURIComponent(name)}`, { waitUntil: 'load' });
+    if (process.env.FPSDOM) {
+      // Dev measurement hook: switch the readout to the DOM #fps (the toolbar
+      // button does this live; the replay can't click the analytic button).
+      await page.waitForFunction(() => (window as any).__csState != null, null, { timeout: 20000 });
+      await page.evaluate(() => {
+        const s = (window as any).__csState;
+        s.fpsDom = true;
+        if (s.fpsChip) s.fpsChip.visible = false;
+        if (s.fpsEl) s.fpsEl.style.display = '';
+      });
+    }
     // Wait for the replay engine to start dispatching.
     await page.waitForFunction(() => (window as any).__recReplaying === true, null, { timeout: 20000 });
     const tStart = Date.now();
@@ -105,7 +119,14 @@ async function main() {
     }
     await page.waitForFunction(() => (window as any).__recReport != null, null, { timeout: 30000 });
     const report = await page.evaluate(() => (window as any).__recReport);
-    const series: { t: number; js: number; up: number; dirtyKB: number; sec: Record<string, number> }[] = await page.evaluate(() => (window as any).__traceSeries());
+    const fbReasons = await page.evaluate(() => (window as any).__fbReasons);
+    if (fbReasons) console.log('FB-REASONS', JSON.stringify(fbReasons));
+    if (process.env.DUMP_SERIES) {
+      const all = await page.evaluate(() => (window as any).__traceSeries());
+      writeFileSync(process.env.DUMP_SERIES, JSON.stringify(all));
+      console.log('series →', process.env.DUMP_SERIES, all.length, 'frames');
+    }
+    const series: { t: number; js: number; up: number; dirtyKB: number; fb: string; sec: Record<string, number>; upBy: Record<string, number>; wg: any }[] = await page.evaluate(() => (window as any).__traceSeries());
     // Optional "start:end" arg (ms into the action) windows the stats, e.g.
     // `bun run shots repro 5307:8871` for just the handle-drag window.
     let wA = 0, wB = Infinity;

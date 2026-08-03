@@ -6,11 +6,13 @@ const WGSL_URL = new URL('./windfoil.wgsl', import.meta.url);
 // Dev-tool accounting (gated on window.__trace, see scripts/shots.ts): bytes +
 // call count passed to queue.writeBuffer, so partial-upload changes can be
 // verified against the real GPU path, not inferred.
-function traceUpload(bytes: number) {
+function traceUpload(bytes: number, label = '?') {
   const g = globalThis as any;
   if (!g.__trace) return;
   const st = g.__uploadStats ?? (g.__uploadStats = { bytes: 0, calls: 0 });
   st.bytes += bytes; st.calls++;
+  const by = st.byLabel ?? (st.byLabel = {} as Record<string, number>);
+  by[label] = (by[label] ?? 0) + bytes;
 }
 
 export async function loadShaderCode(url: string | URL = WGSL_URL): Promise<string> {
@@ -40,13 +42,15 @@ export interface GlyphRendererOptions {
    * test-only pipeline, not this one.
    */
   depthWrite?: boolean;
+  /** Dev-only tag for __uploadStats.byLabel accounting (see traceUpload). */
+  label?: string;
 }
 
 export function createGlyphRenderer(
   device: GPUDevice,
   opts: GlyphRendererOptions,
 ) {
-  const { code, format, constants, sampleCount = 1, depthWrite = false } = opts;
+  const { code, format, constants, sampleCount = 1, depthWrite = false, label = 'renderer' } = opts;
   const module = device.createShaderModule({ code });
 
   const makePipe = (write: boolean) => device.createRenderPipeline({
@@ -148,34 +152,43 @@ export function createGlyphRenderer(
       // A buffer was just reallocated → its GPU content is empty → any ranged
       // (partial) write would leave the rest stale. Force a full upload (I5).
       const grew = newBindGroup;
+      let xfGrew = false;
       if (xforms && xforms.length > 0) {
         let x: GPUBuffer, xc: number;
         [x, xc] = ensureBuf(xformBuf, xforms.byteLength, xformCap);
-        if (x !== xformBuf) { xformBuf = x; xformCap = xc; newBindGroup = true; }
-        const xd = !grew && opts?.dirty ? opts.dirty.xf : null;
-        if (xd && xd.length) {
-          for (const [a, b] of xd) { traceUpload((b - a) * 4); device.queue.writeBuffer(xformBuf, a * 4, xforms.subarray(a, b)); }
+        if (x !== xformBuf) { xformBuf = x; xformCap = xc; newBindGroup = true; xfGrew = true; }
+      }
+      // xf upload. When the caller supplies dirty ranges, an EMPTY dirty.xf means
+      // "xf unchanged" → upload NOTHING (previously this case fell through to a
+      // FULL xf upload on every draw call — in 3D there are two draws per frame,
+      // so a handle drag re-uploaded the whole xf buffer twice per frame). The
+      // upload is gated on dataVersion below so the 3D double-draw pays it once.
+      const xfUpload = () => {
+        if (!xforms || xforms.length === 0) return;
+        if (opts?.dirty && !xfGrew) {
+          for (const [a, b] of opts.dirty.xf) { traceUpload((b - a) * 4, label + ':xf'); device.queue.writeBuffer(xformBuf, a * 4, xforms.subarray(a, b)); }
         } else {
-          traceUpload(xforms.byteLength);
+          traceUpload(xforms.byteLength, label + ':xf-FULL');
           device.queue.writeBuffer(xformBuf, 0, xforms);
         }
-      }
+      };
       if (clip && clip.length > 0) {
         let cl: GPUBuffer, clc: number;
         [cl, clc] = ensureBuf(clipBuf, clip.byteLength, clipCap);
         if (cl !== clipBuf) { clipBuf = cl; clipCap = clc; newBindGroup = true; }
-        traceUpload(clip.byteLength);
+        traceUpload(clip.byteLength, label + ':clip');
         device.queue.writeBuffer(clipBuf, 0, clip);
       }
       if (dataVersion !== undefined) {
         if (dataVersion !== lastDataVersion) {
+          xfUpload();
           const d = !grew && opts?.dirty ? opts.dirty : null;
           if (d && (d.crv.length || d.rws.length || d.inst.length)) {
-            for (const [a, b] of d.crv) { traceUpload((b - a) * 4); device.queue.writeBuffer(curveBuf, a * 4, curves.subarray(a, b)); }
-            for (const [a, b] of d.rws) { traceUpload((b - a) * 4); device.queue.writeBuffer(rowBuf, a * 4, rows.subarray(a, b)); }
-            for (const [a, b] of d.inst) { traceUpload((b - a) * 4); device.queue.writeBuffer(instBuf, a * 4, instances.subarray(a, b)); }
+            for (const [a, b] of d.crv) { traceUpload((b - a) * 4, label + ':crv'); device.queue.writeBuffer(curveBuf, a * 4, curves.subarray(a, b)); }
+            for (const [a, b] of d.rws) { traceUpload((b - a) * 4, label + ':rws'); device.queue.writeBuffer(rowBuf, a * 4, rows.subarray(a, b)); }
+            for (const [a, b] of d.inst) { traceUpload((b - a) * 4, label + ':inst'); device.queue.writeBuffer(instBuf, a * 4, instances.subarray(a, b)); }
           } else {
-            traceUpload(curves.byteLength + rows.byteLength + instances.byteLength);
+            traceUpload(curves.byteLength + rows.byteLength + instances.byteLength, label + ':FULL');
             device.queue.writeBuffer(curveBuf, 0, curves);
             device.queue.writeBuffer(rowBuf, 0, rows);
             device.queue.writeBuffer(instBuf, 0, instances);
@@ -184,9 +197,10 @@ export function createGlyphRenderer(
           lastCurves = curves; lastRows = rows;
         }
       } else {
-        if (curves !== lastCurves) { traceUpload(curves.byteLength); device.queue.writeBuffer(curveBuf, 0, curves); lastCurves = curves; }
-        if (rows !== lastRows) { traceUpload(rows.byteLength); device.queue.writeBuffer(rowBuf, 0, rows); lastRows = rows; }
-        traceUpload(instances.byteLength);
+        xfUpload();
+        if (curves !== lastCurves) { traceUpload(curves.byteLength, label + ':crv-ref'); device.queue.writeBuffer(curveBuf, 0, curves); lastCurves = curves; }
+        if (rows !== lastRows) { traceUpload(rows.byteLength, label + ':rws-ref'); device.queue.writeBuffer(rowBuf, 0, rows); lastRows = rows; }
+        traceUpload(instances.byteLength, label + ':inst-always');
         device.queue.writeBuffer(instBuf, 0, instances);
       }
       if (newBindGroup) {

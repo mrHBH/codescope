@@ -13,6 +13,16 @@ export const DEPTH_FORMAT: GPUTextureFormat = 'depth32float'; // resolvable (mes
 
 import { Retirer } from './retire';
 
+// Dev-only upload accounting (gated on window.__trace; shared shape with gpu.ts).
+function traceMeshUpload(bytes: number, label: string) {
+  const g = globalThis as any;
+  if (!g.__trace) return;
+  const st = g.__uploadStats ?? (g.__uploadStats = { bytes: 0, calls: 0 });
+  st.bytes += bytes; st.calls++;
+  const by = st.byLabel ?? (st.byLabel = {} as Record<string, number>);
+  by[label] = (by[label] ?? 0) + bytes;
+}
+
 const MESH_WGSL = /* wgsl */`
 struct U { viewProj : mat4x4<f32>, };
 @group(0) @binding(0) var<uniform> u : U;
@@ -112,7 +122,7 @@ export function createMeshRenderer(device: GPUDevice, format: GPUTextureFormat, 
       const n = verts.length / 7; if (!n) return;
       const prev = triBuf;
       [triBuf, triCap] = grow(triBuf, triCap, verts.byteLength);
-      if (triBuf !== prev || verts !== lastTris) { device.queue.writeBuffer(triBuf, 0, verts); lastTris = verts; }
+      if (triBuf !== prev || verts !== lastTris) { traceMeshUpload(verts.byteLength, 'mesh:tris'); device.queue.writeBuffer(triBuf, 0, verts); lastTris = verts; }
       pass.setPipeline(triPipeS); pass.setBindGroup(0, triBind);
       pass.setVertexBuffer(0, triBuf, 0, verts.byteLength); pass.draw(n);
     },
@@ -120,7 +130,7 @@ export function createMeshRenderer(device: GPUDevice, format: GPUTextureFormat, 
       const n = verts.length / 7; if (!n) return;
       const prev = lineBuf;
       [lineBuf, lineCap] = grow(lineBuf, lineCap, verts.byteLength);
-      if (lineBuf !== prev || verts !== lastLines) { device.queue.writeBuffer(lineBuf, 0, verts); lastLines = verts; }
+      if (lineBuf !== prev || verts !== lastLines) { traceMeshUpload(verts.byteLength, 'mesh:lines'); device.queue.writeBuffer(lineBuf, 0, verts); lastLines = verts; }
       pass.setPipeline(linePipe); pass.setBindGroup(0, lineBind);
       pass.setVertexBuffer(0, lineBuf, 0, verts.byteLength); pass.draw(n);
     },
@@ -130,7 +140,7 @@ export function createMeshRenderer(device: GPUDevice, format: GPUTextureFormat, 
       const n = verts.length / 7; if (!n) return;
       const prev = triBuf;
       [triBuf, triCap] = grow(triBuf, triCap, verts.byteLength);
-      if (triBuf !== prev || verts !== lastTris) { device.queue.writeBuffer(triBuf, 0, verts); lastTris = verts; }
+      if (triBuf !== prev || verts !== lastTris) { traceMeshUpload(verts.byteLength, 'mesh:tris-depth'); device.queue.writeBuffer(triBuf, 0, verts); lastTris = verts; }
       pass.setPipeline(triPipeDepth); pass.setBindGroup(0, triDepthBind);
       pass.setVertexBuffer(0, triBuf, 0, verts.byteLength); pass.draw(n);
     },
@@ -139,7 +149,7 @@ export function createMeshRenderer(device: GPUDevice, format: GPUTextureFormat, 
       const n = verts.length / 7; if (!n) return;
       const prev = lineBuf;
       [lineBuf, lineCap] = grow(lineBuf, lineCap, verts.byteLength);
-      if (lineBuf !== prev || verts !== lastLines) { device.queue.writeBuffer(lineBuf, 0, verts); lastLines = verts; }
+      if (lineBuf !== prev || verts !== lastLines) { traceMeshUpload(verts.byteLength, 'mesh:lines-depth'); device.queue.writeBuffer(lineBuf, 0, verts); lastLines = verts; }
       pass.setPipeline(linePipeDepth); pass.setBindGroup(0, lineDepthBind);
       pass.setVertexBuffer(0, lineBuf, 0, verts.byteLength); pass.draw(n);
     },

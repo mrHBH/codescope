@@ -350,23 +350,36 @@ export class WindgraphWorld {
     return sig;
   }
 
-  // ── persistent composition (drag-fps fix, DESIGN-drag-fps-2.md stage 2) ────
-  // The world's content ([masthead][board0..board8]) now LIVES in these comp
-  // buffers across frames. A frame where one board's signature changed re-emits
-  // ONLY that board into a scratch (seeded to the prefix LENGTHS, not content —
-  // EmitCache capture only needs the lengths to classify atlas references) and
+  // ── persistent composition (drag-fps fix, DESIGN-drag-fps-2.md stages 2+5) ──
+  // The world's content ([masthead][board0..board8]) LIVES in these comp buffers
+  // across frames. A frame where one board's signature changed re-emits ONLY
+  // that board into a scratch (seeded to the slot's comp-absolute offset —
+  // EmitCache capture only needs the LENGTHS to classify atlas references) and
   // splices the slice into its slot. Clean boards contribute nothing: no replay,
-  // no prefix copy (the old per-frame prefix seed was ~1ms of dead copying, and
-  // replaying 8 unchanged boards was 2–4ms). If a slice's LENGTH changes (a drag
-  // crossing a digit/arc boundary), everything after it must shift: the tail
-  // boards are simply RE-EMITTED in order (their caches replay with correct
-  // absolute rebases — the same code path as a normal compose, no incremental
-  // `+=` bookkeeping that could drift). Structural changes (prefix lengths or
-  // the visible-board set moved) fall back to a full re-emit that frame.
+  // no prefix copy.
+  //
+  // STAGE 5 — fixed crv/rws slots with capacity (the "0 fps hit" fix): each
+  // slot owns a FIXED crv/rws region (cS/rS, capacity capC/capR). A slice whose
+  // LENGTH changes (a drag crossing a digit/arc boundary) now stays INSIDE its
+  // slot's slack — nothing after it shifts, so the old tail re-emit (replaying
+  // every later board, ~4–9ms + a ~525KB dirty upload, ~11% of drag frames) is
+  // gone. crv/rws gaps between used lengths are legal: rows/quads are only ever
+  // read through instance references, which stay inside the used regions.
+  // Instances CANNOT have gaps (the GPU iterates 0..count; the shader's
+  // band_index clamps to [0, R-1] and would underflow on an empty instance), so
+  // inst/xf stay COMPACTED: when a slot's instance count changes, the later
+  // slots' inst/xf slices are memmoved (their CONTENT is unchanged — rowBase
+  // references absolute row indices, which the fixed crv/rws slots keep stable).
+  // A slice that outgrows its capacity triggers a rare full RELAYOUT at grown
+  // capacities (fullDirty). Structural changes (prefix lengths or the visible-
+  // board set moved) also relayout.
   //
   // `naiveEmit` (dev/test flag) restores the old full recompose — it is the
-  // differential-test reference AND an emergency fallback.
+  // differential-test reference AND an emergency fallback. `slotSlack = false`
+  // forces capacities to exact lengths → the layout is always packed → output
+  // is bit-identical to naive (the differential gate runs in that mode).
   naiveEmit = false;
+  slotSlack = true;
 
   private cInst: number[] = new Array(65536);
   private cCrv: number[] = new Array(65536);
@@ -379,19 +392,37 @@ export class WindgraphWorld {
   private xfBuf = new Float32Array(65536);
   private xfLen = 0;
   private xfOn = false;
-  // Scratch for one slot's re-emit (crv/rws seeded to prefix lengths only).
+  // Scratch for one slot's re-emit (crv/rws seeded to the slot's comp offset).
   private sInst: number[] = new Array(4096);
   private sCrv: number[] = new Array(4096);
   private sRws: number[] = new Array(4096);
   private sXf: number[] = new Array(4096);
+  // Per-slot staging for a re-emitted slot's inst/xf slices (kept until the
+  // inst-compaction pass; the scratch is reused per slot). Temp buffers for the
+  // compaction rebuild (read-all-then-write-all avoids overlap hazards).
+  private stageI: number[][] = [];
+  private stageX: number[][] = [];
+  private tmpI: number[] = new Array(4096);
+  private tmpX: number[] = new Array(4096);
   // Per-slot bookkeeping: slot 0 = masthead, slots 1..N = boards. sigs are
   // immutable strings — never a reference to something mutated in place (the
-  // aliasing trap that froze the dragged board in attempt 1).
-  private slots: { sig: string; iS: number; iL: number; cS: number; cL: number; rS: number; rL: number; xS: number; xL: number }[] = [];
+  // aliasing trap that froze the dragged board in attempt 1). cS/rS are FIXED
+  // slot offsets (Σ capacities of the earlier slots); cL/rL ≤ capC/capR are the
+  // used lengths; iS/xS are compacted (inst/xf have no gaps).
+  private slots: { sig: string; iS: number; iL: number; cS: number; cL: number; rS: number; rL: number; xS: number; xL: number; capC: number; capR: number }[] = [];
   private lastPrefixI = -1;
   private lastPrefixC = -1;
   private lastPrefixR = -1;
   private lastNVisible = -1;
+  /** False until the first relayout has placed content at capacity-slots. */
+  private laidOut = false;
+  // Overflow report from fastPass (consumed by relayout to grow capacities).
+  private overflowNeedC = 0;
+  private overflowNeedR = 0;
+  private overflowSlot = -1;
+  /** Trace flag: the last emit ran a full relayout (dev only). */
+  private lastRelayout = false;
+  private lastOverflow: number[] | null = null;
   private compILen = 0;
   private compCLen = 0;
   private compRLen = 0;
@@ -418,136 +449,77 @@ export class WindgraphWorld {
     return base + (b.panel ? `p${b.panel.open ? 1 : 0},${b.panel.hovered},${b.panel.isDragging ? 1 : 0}` : '');
   }
 
+  /** The span of the world's crv/rws content currently mirrored into the frame
+   *  arrays. frame.ts PRESERVES [staticLen, staticLen+span) across frames (stage
+   *  5b) so the epilogue can splice only dirty ranges instead of re-copying the
+   *  whole span every frame. 0 when nothing is mirrored yet. */
+  frameSpanC = 0;
+  frameSpanR = 0;
+
   emit(font: FontFace, atlas: any, inst: number[], crv: number[], rws: number[], now: number, view: PlaneView) {
     const t0 = performance.now();
     const inst0 = inst.length;
-    const pCrvLen = crv.length, pRwsLen = rws.length;
+    // frame.ts preserves this world's crv/rws region across frames at
+    // [staticLen, staticLen+frameSpan); baseC/R is where it starts THIS frame.
+    // Callers that rebuild the arrays from scratch (tests, naive demos) pass
+    // shorter arrays → the guard drops the preserved-span assumption.
+    let baseC = crv.length - this.frameSpanC;
+    let baseR = rws.length - this.frameSpanR;
+    if (baseC < 0 || baseR < 0) { baseC = crv.length; baseR = rws.length; this.frameSpanC = 0; this.frameSpanR = 0; }
     const bp = this.backdropParts(view);
     const { eL, eT, eR, eB, vL, vT, vR, vB } = bp;
 
     if (this.naiveEmit) {
-      this.emitNaive(font, atlas, inst, crv, rws, now, view, inst0, pCrvLen, pRwsLen, bp, eL, eT, eR, eB, vL, vT, vR, vB, t0);
+      // Naive appends at the array end — drop the preserved-span protocol so
+      // frame.ts stops reserving the region (this frame's leftover region is
+      // unreferenced garbage, harmless).
+      this.frameSpanC = 0; this.frameSpanR = 0;
+      this.emitNaive(font, atlas, inst, crv, rws, now, view, inst0, baseC, baseR, bp, eL, eT, eR, eB, vL, vT, vR, vB, t0);
       return;
     }
 
     const nSlots = this.boards.length + 1;
     if (this.slots.length !== nSlots) {
-      this.slots.length = 0;
-      for (let i = 0; i < nSlots; i++) this.slots.push({ sig: '', iS: 0, iL: 0, cS: 0, cL: 0, rS: 0, rL: 0, xS: 0, xL: 0 });
+      this.slots.length = 0; this.stageI.length = 0; this.stageX.length = 0;
+      for (let i = 0; i < nSlots; i++) {
+        this.slots.push({ sig: '', iS: 0, iL: 0, cS: 0, cL: 0, rS: 0, rL: 0, xS: 0, xL: 0, capC: 0, capR: 0 });
+        this.stageI.push(new Array(1024)); this.stageX.push(new Array(1024));
+      }
+      this.laidOut = false;
     }
     let nVis = 0;
     for (const b of this.boards) if (this.boardVisible(b, null, vL, vT, vR, vB)) nVis++;
-    // Structural fallback: prefix lengths or the visible-board set changed → the
-    // persistent layout is invalid → full re-emit + full dirty (rare).
-    const structural = pCrvLen !== this.lastPrefixC || pRwsLen !== this.lastPrefixR || inst0 !== this.lastPrefixI || nVis !== this.lastNVisible;
-    this.lastPrefixC = pCrvLen; this.lastPrefixR = pRwsLen; this.lastPrefixI = inst0; this.lastNVisible = nVis;
+    // Structural fallback: the region base, the instance prefix, or the visible-
+    // board set changed → the persistent layout is invalid → full relayout +
+    // full dirty (rare).
+    const structural = baseC !== this.lastPrefixC || baseR !== this.lastPrefixR || inst0 !== this.lastPrefixI || nVis !== this.lastNVisible;
+    this.lastPrefixC = baseC; this.lastPrefixR = baseR; this.lastPrefixI = inst0; this.lastNVisible = nVis;
     this.fullDirty = structural;
     this.dirtyC.length = 0; this.dirtyR.length = 0; this.dirtyI.length = 0; this.dirtyX.length = 0;
 
-    const cCrv = this.cCrv, cRws = this.cRws, cInst = this.cInst, cXf = this.cXf;
-    const sCrv = this.sCrv, sRws = this.sRws, sInst = this.sInst, sXf = this.sXf;
-    // Running comp offsets; a length change anywhere opens a "tail" — everything
-    // from that slot onward is re-emitted and one merged dirty range covers it.
-    let oI = 0, oC = 0, oR = 0, oX = 0;
-    let tailC = -1, tailR = -1, tailI = -1, tailX = -1;
-
-    // Re-emit one slot into the scratch and splice it at the running offset.
-    // The scratch crv/rws are seeded to the slot's COMP-ABSOLUTE position
-    // (prefix + running offset), not just the prefix: EmitCache captures
-    // row/quad refs relative to the array length at build time and rebases them
-    // to the array length at replay time — seeding at the comp offset makes the
-    // captured slice's references comp-absolute, so the splice is a verbatim
-    // copy and a tail shift (replay at a new offset) rebases correctly. Seeding
-    // at the prefix alone loses the running offset (the "rowBase 0 vs 118" bug).
-    // Returns true when the slice length changed (opens the tail).
-    const splice = (slot: { sig: string; iS: number; iL: number; cS: number; cL: number; rS: number; rL: number; xS: number; xL: number }, build: () => void): boolean => {
-      sInst.length = 0; sCrv.length = pCrvLen + oC; sRws.length = pRwsLen + oR; sXf.length = 0;
-      build();
-      const needX = (sInst.length >> 4) << 3;
-      for (let i = sXf.length; i < needX; i++) sXf[i] = 0;
-      sXf.length = needX;
-      const iL = sInst.length, cL = sCrv.length - (pCrvLen + oC), rL = sRws.length - (pRwsLen + oR), xL = needX;
-      const lenChanged = iL !== slot.iL || cL !== slot.cL || rL !== slot.rL || xL !== slot.xL;
-      slot.iS = oI; slot.cS = oC; slot.rS = oR; slot.xS = oX;
-      slot.iL = iL; slot.cL = cL; slot.rL = rL; slot.xL = xL;
-      for (let i = 0; i < cL; i++) cCrv[oC + i] = sCrv[pCrvLen + oC + i];
-      for (let i = 0; i < rL; i++) cRws[oR + i] = sRws[pRwsLen + oR + i];
-      for (let i = 0; i < iL; i++) cInst[oI + i] = sInst[i];
-      for (let i = 0; i < xL; i++) cXf[oX + i] = sXf[i];
-      if (!this.fullDirty && tailC < 0 && !lenChanged) {
-        this.dirtyC.push([pCrvLen + oC, pCrvLen + oC + cL]);
-        this.dirtyR.push([pRwsLen + oR, pRwsLen + oR + rL]);
-        this.dirtyI.push([inst0 + oI, inst0 + oI + iL]);
-        this.dirtyX.push([(inst0 >> 4 << 3) + oX, (inst0 >> 4 << 3) + oX + xL]);
-      }
-      if (lenChanged && tailC < 0) { tailC = oC; tailR = oR; tailI = oI; tailX = oX; }
-      oI += iL; oC += cL; oR += rL; oX += xL;
-      return lenChanged;
-    };
-
-    const tB: number[] = [];
     for (const b of this.boards) b.app = this.app;
-    // Slot 0: the masthead (backdrop tile cache).
-    {
-      const tb0 = performance.now();
-      const slot = this.slots[0];
-      const sig = bp.sig;
-      if (structural || sig !== slot.sig) {
-        slot.sig = sig;
-        splice(slot, () => this.backdropCache.run(sig, sInst, sCrv, sRws, () => {
-          this.drawMasthead(font, atlas, sInst, sCrv, sRws, eL, eT, eR, eB);
-        }));
-      } else {
-        oI += slot.iL; oC += slot.cL; oR += slot.rL; oX += slot.xL;
-      }
-      tB.push(performance.now() - tb0);
-    }
-    // Slots 1..N: the boards. A board re-emits when its sig changed; once a
-    // length change opened the tail, every later board re-emits too (its replay
-    // rebases absolute refs against the shifted offsets).
-    for (let bi = 0; bi < this.boards.length; bi++) {
-      const b = this.boards[bi];
-      const tb0 = performance.now();
-      const slot = this.slots[bi + 1];
-      const vis = this.boardVisible(b, null, vL, vT, vR, vB);
-      const sig = this.slotSig(b, view, vis);
-      const inTail = tailC >= 0;
-      if (structural || sig !== slot.sig || inTail) {
-        slot.sig = sig;
-        if (vis) {
-          splice(slot, () => {
-            (b as any).xfTarget = sXf;
-            b.emit(font, atlas, sInst, sCrv, sRws, now, view);
-          });
-        } else {
-          const lenChanged = slot.iL !== 0 || slot.cL !== 0 || slot.rL !== 0 || slot.xL !== 0;
-          slot.iS = oI; slot.cS = oC; slot.rS = oR; slot.xS = oX;
-          slot.iL = 0; slot.cL = 0; slot.rL = 0; slot.xL = 0;
-          if (lenChanged && tailC < 0) { tailC = oC; tailR = oR; tailI = oI; tailX = oX; }
-        }
-      } else {
-        oI += slot.iL; oC += slot.cL; oR += slot.rL; oX += slot.xL;
-      }
-      tB.push(performance.now() - tb0);
-    }
-    this.compILen = oI; this.compCLen = oC; this.compRLen = oR; this.compXLen = oX;
-    if (tailC >= 0 && !this.fullDirty) {
-      this.dirtyC.push([pCrvLen + tailC, pCrvLen + oC]);
-      this.dirtyR.push([pRwsLen + tailR, pRwsLen + oR]);
-      this.dirtyI.push([inst0 + tailI, inst0 + oI]);
-      this.dirtyX.push([(inst0 >> 4 << 3) + tailX, (inst0 >> 4 << 3) + oX]);
-    }
+    const args = [font, atlas, inst, crv, rws, now, view, bp, inst0, baseC, baseR, eL, eT, eR, eB, vL, vT, vR, vB] as const;
+    // Fast path: fixed slots. Falls back to a relayout on a capacity overflow
+    // (a slice outgrew its slack — rare; the relayout grows capacities).
+    const tB = structural ? this.relayout(...args) : this.fastPass(...args) ?? this.relayout(...args);
 
-    // Copy the world content into the frame arrays. The frame arrays are
-    // REBUILT from the prefix every frame (frame.ts truncates crv/rws to the
-    // static prefix and resets inst), so this is always a full copy — the
-    // persistence win is upstream (no prefix seed, no clean-board replays).
-    // The dirty ranges above describe what changed for the GPU-side partial
-    // upload (stage 3), where the typed arrays DO persist across frames.
-    const totalC = pCrvLen + oC, totalR = pRwsLen + oR, totalI = inst0 + oI;
+    const tCopy0 = performance.now();
+    const cCrv = this.cCrv, cRws = this.cRws, cInst = this.cInst, cXf = this.cXf;
+    const oC = this.compCLen, oR = this.compRLen, oI = this.compILen, oX = this.compXLen;
+    const totalC = baseC + oC, totalR = baseR + oR, totalI = inst0 + oI;
     crv.length = totalC; rws.length = totalR; inst.length = totalI;
-    for (let i = 0; i < oC; i++) crv[pCrvLen + i] = cCrv[i];
-    for (let i = 0; i < oR; i++) rws[pRwsLen + i] = cRws[i];
+    // The frame region is persistent (frame.ts preserves it): splice only the
+    // dirty ranges. A relayout / structural frame (fullDirty) or a moved/resized
+    // region re-copies the whole span once.
+    if (this.fullDirty || oC !== this.frameSpanC || oR !== this.frameSpanR) {
+      for (let i = 0; i < oC; i++) crv[baseC + i] = cCrv[i];
+      for (let i = 0; i < oR; i++) rws[baseR + i] = cRws[i];
+    } else {
+      for (const [a, b] of this.dirtyC) for (let i = a; i < b; i++) crv[i] = cCrv[i - baseC];
+      for (const [a, b] of this.dirtyR) for (let i = a; i < b; i++) rws[i] = cRws[i - baseR];
+    }
+    this.frameSpanC = oC; this.frameSpanR = oR;
+    // inst is rebuilt from scratch every frame (frame.ts resets it) — full copy.
     for (let i = 0; i < oI; i++) inst[inst0 + i] = cInst[i];
 
     // Compose the per-instance 3D buffer (D10): it must cover EVERY instance the
@@ -564,6 +536,10 @@ export class WindgraphWorld {
     this.xfOn = any;
     this.xfLen = need;
 
+    if ((globalThis as any).__trace) {
+      (globalThis as any).__wgEmit = { tB: tB.slice(), tail: this.lastRelayout, structural, oC, oI, copy: performance.now() - tCopy0, ov: this.lastOverflow };
+    }
+    this.lastRelayout = false;
     const [tri, geom, plots] = this.boards;
     const e = this.ema, a = e.warm ? 0.08 : 1;
     e.warm = true;
@@ -579,14 +555,299 @@ export class WindgraphWorld {
     this.onDebug?.(this.debug);
   }
 
+  private slackFor(len: number): number {
+    return this.slotSlack ? (len >> 2) + 1024 : 0;
+  }
+
+  /** Capacity for a measured length, rounded UP to the buffer stride (crv rows
+   *  are 6 floats, rws rows 5): the scratch seed lengths (prefix + slot offset)
+   *  must stay stride-aligned, or the emitters' row/quad arithmetic (and
+   *  object-resolver's `seedRows * 6`) produces fractional array lengths. */
+  private capFor(len: number, stride: number): number {
+    const c = len + this.slackFor(len);
+    return Math.ceil(c / stride) * stride;
+  }
+
+  /** The steady-state path: each slot's crv/rws lives at a FIXED offset with a
+   *  capacity, so a changed slice that fits its slack splices in place — nothing
+   *  after it shifts (the old tail re-emit is gone). inst/xf stay compacted: a
+   *  changed instance count memmoves the later slots' slices (content unchanged —
+   *  rowBase refs stay valid because crv/rws slots never move). Returns null
+   *  when a slice outgrew its capacity → the caller runs a relayout. */
+  private fastPass(font: FontFace, atlas: any, inst: number[], crv: number[], rws: number[], now: number, view: PlaneView, bp: { sig: string }, inst0: number, baseC: number, baseR: number, eL: number, eT: number, eR: number, eB: number, vL: number, vT: number, vR: number, vB: number): number[] | null {
+    const cCrv = this.cCrv, cRws = this.cRws, cInst = this.cInst, cXf = this.cXf;
+    const sCrv = this.sCrv, sRws = this.sRws, sInst = this.sInst, sXf = this.sXf;
+    const tB: number[] = [];
+    const reemitted: boolean[] = [];
+    let overflow = false;
+
+    // Re-emit slot `idx` into the scratch seeded at the slot's FIXED comp offset
+    // (EmitCache rebases captured refs to the seed length → comp-absolute) and
+    // splice crv/rws into the slot region. inst/xf go to per-slot staging for the
+    // compaction pass below (the scratch is reused per slot).
+    const reemitSlot = (idx: number, build: () => void) => {
+      const slot = this.slots[idx];
+      sInst.length = 0; sCrv.length = baseC + slot.cS; sRws.length = baseR + slot.rS; sXf.length = 0;
+      build();
+      const needX = (sInst.length >> 4) << 3;
+      for (let i = sXf.length; i < needX; i++) sXf[i] = 0;
+      sXf.length = needX;
+      const iL = sInst.length, cL = sCrv.length - (baseC + slot.cS), rL = sRws.length - (baseR + slot.rS), xL = needX;
+      // No-slack mode must repack on ANY length change (even a shrink): the span
+      // has to stay Σ-used ≡ naive, and a shrink inside the slot would leave the
+      // stale tail inside the span. Slack mode absorbs both directions.
+      if (cL > slot.capC || rL > slot.capR || (!this.slotSlack && (cL !== slot.cL || rL !== slot.rL))) {
+        this.overflowSlot = idx; this.overflowNeedC = cL; this.overflowNeedR = rL;
+        this.lastOverflow = [idx, cL - slot.capC, rL - slot.capR, slot.capC, slot.cL];
+        overflow = true;
+        return;
+      }
+      for (let i = 0; i < cL; i++) cCrv[slot.cS + i] = sCrv[baseC + slot.cS + i];
+      for (let i = 0; i < rL; i++) cRws[slot.rS + i] = sRws[baseR + slot.rS + i];
+      const stI = this.stageI[idx], stX = this.stageX[idx];
+      for (let i = 0; i < iL; i++) stI[i] = sInst[i];
+      stI.length = iL;
+      for (let i = 0; i < xL; i++) stX[i] = sXf[i];
+      stX.length = xL;
+      slot.iL = iL; slot.cL = cL; slot.rL = rL; slot.xL = xL;
+      if (!this.fullDirty) {
+        if (cL > 0) this.dirtyC.push([baseC + slot.cS, baseC + slot.cS + cL]);
+        if (rL > 0) this.dirtyR.push([baseR + slot.rS, baseR + slot.rS + rL]);
+      }
+      reemitted[idx] = true;
+    };
+
+    {
+      const tb0 = performance.now();
+      const slot = this.slots[0];
+      const sig = bp.sig;
+      if (sig !== slot.sig) {
+        slot.sig = sig;
+        reemitSlot(0, () => this.backdropCache.run(sig, sInst, sCrv, sRws, () => {
+          this.drawMasthead(font, atlas, sInst, sCrv, sRws, eL, eT, eR, eB);
+        }));
+      }
+      tB.push(performance.now() - tb0);
+      if (overflow) return null;
+    }
+    for (let bi = 0; bi < this.boards.length; bi++) {
+      const b = this.boards[bi];
+      const tb0 = performance.now();
+      const slot = this.slots[bi + 1];
+      const vis = this.boardVisible(b, null, vL, vT, vR, vB);
+      const sig = this.slotSig(b, view, vis);
+      if (sig !== slot.sig) {
+        slot.sig = sig;
+        if (vis) {
+          reemitSlot(bi + 1, () => {
+            (b as any).xfTarget = sXf;
+            b.emit(font, atlas, sInst, sCrv, sRws, now, view);
+          });
+        } else {
+          // Became invisible WITHOUT an nVis change is impossible (nVis is part of
+          // the structural check), but stay safe: empty the slot's used lengths.
+          slot.iL = 0; slot.cL = 0; slot.rL = 0; slot.xL = 0;
+          this.stageI[bi + 1].length = 0; this.stageX[bi + 1].length = 0;
+          reemitted[bi + 1] = true;
+        }
+      }
+      tB.push(performance.now() - tb0);
+      if (overflow) return null;
+    }
+
+    // Compact inst/xf: slots keep their order; a re-emitted slot brings fresh
+    // content (staging), a shifted slot keeps its content (fixed crv/rws slots
+    // keep rowBase refs valid — no rewrite, just a move). Read-all-then-write-all
+    // through the temp buffers avoids in-place overlap hazards.
+    const n = this.slots.length;
+    const newIS: number[] = [];
+    let runI = 0;
+    for (let idx = 0; idx < n; idx++) { newIS[idx] = runI; runI += this.slots[idx].iL; }
+    let first = -1;
+    for (let idx = 0; idx < n; idx++) {
+      if (reemitted[idx] || newIS[idx] !== this.slots[idx].iS) { first = idx; break; }
+    }
+    if (first >= 0) {
+      const tmpI = this.tmpI, tmpX = this.tmpX;
+      let w = 0, wx = 0;
+      for (let idx = first; idx < n; idx++) {
+        const slot = this.slots[idx];
+        const srcI = reemitted[idx] ? this.stageI[idx] : cInst;
+        const sI0 = reemitted[idx] ? 0 : slot.iS;
+        for (let i = 0; i < slot.iL; i++) tmpI[w + i] = srcI[sI0 + i];
+        const srcX = reemitted[idx] ? this.stageX[idx] : cXf;
+        const sX0 = reemitted[idx] ? 0 : slot.xS;
+        for (let i = 0; i < slot.xL; i++) tmpX[wx + i] = srcX[sX0 + i];
+        w += slot.iL; wx += slot.xL;
+      }
+      const baseI = newIS[first], baseX = (baseI >> 4) << 3;
+      for (let i = 0; i < w; i++) cInst[baseI + i] = tmpI[i];
+      for (let i = 0; i < wx; i++) cXf[baseX + i] = tmpX[i];
+      for (let idx = first; idx < n; idx++) {
+        this.slots[idx].iS = newIS[idx];
+        this.slots[idx].xS = (newIS[idx] >> 4) << 3;
+      }
+      if (!this.fullDirty) {
+        this.dirtyI.push([inst0 + baseI, inst0 + runI]);
+        if (wx > 0) this.dirtyX.push([(inst0 >> 4 << 3) + baseX, (inst0 >> 4 << 3) + baseX + wx]);
+      }
+    }
+    this.compILen = runI;
+    this.compXLen = (runI >> 4) << 3;
+    return tB;
+  }
+
+  /** Full re-emit of every slot at capacity-slot offsets (structural change,
+   *  first emit, or a capacity overflow). Places crv/rws at gapped slot offsets
+   *  (cS = Σ earlier capacities), inst/xf compacted, gaps zeroed (unreferenced —
+   *  but never holes). Retries with grown capacities if a slot overflows its
+   *  precomputed capacity (bounded: each retry strictly grows a capacity). */
+  private relayout(font: FontFace, atlas: any, inst: number[], crv: number[], rws: number[], now: number, view: PlaneView, bp: { sig: string }, inst0: number, baseC: number, baseR: number, eL: number, eT: number, eR: number, eB: number, vL: number, vT: number, vR: number, vB: number): number[] {
+    this.lastRelayout = true;
+    this.fullDirty = true;
+    this.dirtyC.length = 0; this.dirtyR.length = 0; this.dirtyI.length = 0; this.dirtyX.length = 0;
+    const cCrv = this.cCrv, cRws = this.cRws, cInst = this.cInst, cXf = this.cXf;
+    const sCrv = this.sCrv, sRws = this.sRws, sInst = this.sInst, sXf = this.sXf;
+
+    // First-ever layout: capacities unknown → one PACKED pass measures every
+    // slot's length, then capacities = length + slack and the gapped placement
+    // pass below places the content at the slot offsets. No-slack mode ALWAYS
+    // re-measures packed (its layout must stay Σ-used ≡ naive — a culled board
+    // keeping its capacity would leave a stale tail inside the span).
+    if (!this.laidOut || !this.slotSlack) {
+      let oI = 0, oC = 0, oR = 0, oX = 0;
+      const splicePacked = (slot: (typeof this.slots)[number], build: () => void) => {
+        sInst.length = 0; sCrv.length = baseC + oC; sRws.length = baseR + oR; sXf.length = 0;
+        build();
+        const needX = (sInst.length >> 4) << 3;
+        for (let i = sXf.length; i < needX; i++) sXf[i] = 0;
+        sXf.length = needX;
+        const iL = sInst.length, cL = sCrv.length - (baseC + oC), rL = sRws.length - (baseR + oR);
+        slot.iS = oI; slot.cS = oC; slot.rS = oR; slot.xS = oX;
+        slot.iL = iL; slot.cL = cL; slot.rL = rL; slot.xL = needX;
+        for (let i = 0; i < cL; i++) cCrv[oC + i] = sCrv[baseC + oC + i];
+        for (let i = 0; i < rL; i++) cRws[oR + i] = sRws[baseR + oR + i];
+        for (let i = 0; i < iL; i++) cInst[oI + i] = sInst[i];
+        for (let i = 0; i < needX; i++) cXf[oX + i] = sXf[i];
+        oI += iL; oC += cL; oR += rL; oX += needX;
+      };
+      const sig0 = bp.sig;
+      this.slots[0].sig = sig0;
+      splicePacked(this.slots[0], () => this.backdropCache.run(sig0, sInst, sCrv, sRws, () => {
+        this.drawMasthead(font, atlas, sInst, sCrv, sRws, eL, eT, eR, eB);
+      }));
+      for (let bi = 0; bi < this.boards.length; bi++) {
+        const b = this.boards[bi];
+        const slot = this.slots[bi + 1];
+        const vis = this.boardVisible(b, null, vL, vT, vR, vB);
+        slot.sig = this.slotSig(b, view, vis);
+        if (vis) {
+          splicePacked(slot, () => {
+            (b as any).xfTarget = sXf;
+            b.emit(font, atlas, sInst, sCrv, sRws, now, view);
+          });
+        } else {
+          slot.iS = oI; slot.cS = oC; slot.rS = oR; slot.xS = oX;
+          slot.iL = 0; slot.cL = 0; slot.rL = 0; slot.xL = 0;
+        }
+      }
+      for (const slot of this.slots) {
+        slot.capC = this.capFor(slot.cL, 6);
+        slot.capR = this.capFor(slot.rL, 5);
+      }
+      this.laidOut = true;
+      if (!this.slotSlack) {
+        // Zero slack → packed layout IS the slot layout; the measurement pass
+        // already placed everything correctly (bit-identical to naive).
+        this.compILen = oI; this.compCLen = oC; this.compRLen = oR; this.compXLen = oX;
+        return this.slots.map(() => 0);
+      }
+    }
+
+    // Gapped placement (with retry on capacity overflow).
+    for (let attempt = 0; attempt < 5; attempt++) {
+      if (this.overflowSlot >= 0) {
+        const slot = this.slots[this.overflowSlot];
+        // No-slack mode (differential tests) grows to the EXACT needed length so
+        // the layout stays packed ≡ naive; slack mode adds headroom. Capacities
+        // stay stride-aligned (see capFor).
+        slot.capC = this.slotSlack
+          ? this.capFor(Math.max(this.overflowNeedC, slot.capC + (slot.capC >> 1) + 256), 6)
+          : this.overflowNeedC;
+        slot.capR = this.slotSlack
+          ? this.capFor(Math.max(this.overflowNeedR, slot.capR + (slot.capR >> 1) + 256), 5)
+          : this.overflowNeedR;
+        this.overflowSlot = -1;
+      }
+      let oC = 0, oR = 0;
+      for (const slot of this.slots) { slot.cS = oC; slot.rS = oR; oC += slot.capC; oR += slot.capR; }
+      let oI = 0, oX = 0;
+      let overflowed = false;
+      const tB: number[] = [];
+      const place = (idx: number, build: () => void) => {
+        const slot = this.slots[idx];
+        sInst.length = 0; sCrv.length = baseC + slot.cS; sRws.length = baseR + slot.rS; sXf.length = 0;
+        build();
+        const needX = (sInst.length >> 4) << 3;
+        for (let i = sXf.length; i < needX; i++) sXf[i] = 0;
+        sXf.length = needX;
+        const iL = sInst.length, cL = sCrv.length - (baseC + slot.cS), rL = sRws.length - (baseR + slot.rS);
+        if (cL > slot.capC || rL > slot.capR) {
+          this.overflowSlot = idx; this.overflowNeedC = cL; this.overflowNeedR = rL;
+          overflowed = true;
+          return;
+        }
+        for (let i = 0; i < cL; i++) cCrv[slot.cS + i] = sCrv[baseC + slot.cS + i];
+        for (let i = cL; i < slot.capC; i++) cCrv[slot.cS + i] = 0; // gap: unreferenced, never a hole
+        for (let i = 0; i < rL; i++) cRws[slot.rS + i] = sRws[baseR + slot.rS + i];
+        for (let i = rL; i < slot.capR; i++) cRws[slot.rS + i] = 0;
+        for (let i = 0; i < iL; i++) cInst[oI + i] = sInst[i];
+        for (let i = 0; i < needX; i++) cXf[oX + i] = sXf[i];
+        slot.iS = oI; slot.xS = oX;
+        slot.iL = iL; slot.cL = cL; slot.rL = rL; slot.xL = needX;
+        oI += iL; oX += needX;
+      };
+      {
+        const tb0 = performance.now();
+        const sig0 = bp.sig;
+        this.slots[0].sig = sig0;
+        place(0, () => this.backdropCache.run(sig0, sInst, sCrv, sRws, () => {
+          this.drawMasthead(font, atlas, sInst, sCrv, sRws, eL, eT, eR, eB);
+        }));
+        tB.push(performance.now() - tb0);
+      }
+      for (let bi = 0; bi < this.boards.length && !overflowed; bi++) {
+        const b = this.boards[bi];
+        const tb0 = performance.now();
+        const slot = this.slots[bi + 1];
+        const vis = this.boardVisible(b, null, vL, vT, vR, vB);
+        slot.sig = this.slotSig(b, view, vis);
+        if (vis) {
+          place(bi + 1, () => {
+            (b as any).xfTarget = sXf;
+            b.emit(font, atlas, sInst, sCrv, sRws, now, view);
+          });
+        } else {
+          slot.iS = oI; slot.xS = oX;
+          slot.iL = 0; slot.cL = 0; slot.rL = 0; slot.xL = 0;
+        }
+        tB.push(performance.now() - tb0);
+      }
+      if (overflowed) continue; // grow the overflowed capacity and retry
+      this.compILen = oI; this.compCLen = oC; this.compRLen = oR; this.compXLen = oX;
+      return tB;
+    }
+    throw new Error('windgraph relayout: capacity overflow did not converge');
+  }
+
   /** The pre-persistent full recompose (every board replays + prefix seed each
    *  frame). Kept as the differential-test reference + emergency fallback; also
    *  reports full-dirty ranges so the partial-upload path degrades identically. */
-  private emitNaive(font: FontFace, atlas: any, inst: number[], crv: number[], rws: number[], now: number, view: PlaneView, inst0: number, pCrvLen: number, pRwsLen: number, bp: { sig: string }, eL: number, eT: number, eR: number, eB: number, vL: number, vT: number, vR: number, vB: number, t0: number) {
+  private emitNaive(font: FontFace, atlas: any, inst: number[], crv: number[], rws: number[], now: number, view: PlaneView, inst0: number, baseC: number, baseR: number, bp: { sig: string }, eL: number, eT: number, eR: number, eB: number, vL: number, vT: number, vR: number, vB: number, t0: number) {
     const cCrv = this.cCrv, cRws = this.cRws, cInst = this.cInst, cXf = this.cXf;
-    for (let i = 0; i < pCrvLen; i++) cCrv[i] = crv[i];
-    for (let i = 0; i < pRwsLen; i++) cRws[i] = rws[i];
-    let cILen = 0, cCLen = pCrvLen, cRLen = pRwsLen, cXfLen = 0;
+    for (let i = 0; i < baseC; i++) cCrv[i] = crv[i];
+    for (let i = 0; i < baseR; i++) cRws[i] = rws[i];
+    let cILen = 0, cCLen = baseC, cRLen = baseR, cXfLen = 0;
     const setLen = (il: number, cl: number, rl: number) => { cInst.length = il; cCrv.length = cl; cRws.length = rl; cXf.length = cXfLen; };
     const readLen = () => { cILen = cInst.length; cCLen = cCrv.length; cRLen = cRws.length; cXfLen = cXf.length; };
     const padXf = () => { const nx = (cInst.length >> 4) << 3; for (let i = cXf.length; i < nx; i++) cXf[i] = 0; cXf.length = nx; cXfLen = nx; };
@@ -610,9 +871,9 @@ export class WindgraphWorld {
       tB.push(performance.now() - tb0);
     }
     crv.length = cCLen;
-    for (let i = pCrvLen; i < cCLen; i++) crv[i] = cCrv[i];
+    for (let i = baseC; i < cCLen; i++) crv[i] = cCrv[i];
     rws.length = cRLen;
-    for (let i = pRwsLen; i < cRLen; i++) rws[i] = cRws[i];
+    for (let i = baseR; i < cRLen; i++) rws[i] = cRws[i];
     inst.length = inst0 + cILen;
     for (let i = 0; i < cILen; i++) inst[inst0 + i] = cInst[i];
     const totalInst = (inst0 + cILen) >> 4;
@@ -629,9 +890,9 @@ export class WindgraphWorld {
     this.fullDirty = true;
     this.dirtyC.length = 0; this.dirtyR.length = 0; this.dirtyI.length = 0; this.dirtyX.length = 0;
     for (const slot of this.slots) slot.sig = '';
-    this.lastPrefixC = pCrvLen; this.lastPrefixR = pRwsLen; this.lastPrefixI = inst0;
+    this.lastPrefixC = baseC; this.lastPrefixR = baseR; this.lastPrefixI = inst0;
     this.lastNVisible = -1;
-    this.compILen = cILen; this.compCLen = cCLen - pCrvLen; this.compRLen = cRLen - pRwsLen; this.compXLen = cXfLen;
+    this.compILen = cILen; this.compCLen = cCLen - baseC; this.compRLen = cRLen - baseR; this.compXLen = cXfLen;
     const [tri, geom, plots] = this.boards;
     const e = this.ema, a = e.warm ? 0.08 : 1;
     e.warm = true;
@@ -715,7 +976,11 @@ export function bootWindgraphWorld(engine: Engine, onBack: () => void): () => vo
   const s = createBaseApp(engine, false);
   const world = new WindgraphWorld();
   world.app = s;
-  world.onDebug = (line) => { s.hudDebugExtra = line; };
+  // Stage into hudDebugExtraLive: the EMA readout changes every emit, but the
+  // frame loop samples it into hudDebugExtra at 8Hz — hudDebugExtra is part of
+  // the HUD skip-sig, so writing it per frame would force a full HUD rebuild +
+  // ~1.2MB re-upload on EVERY drag frame (the residual handle-drag fps hit).
+  world.onDebug = (line) => { s.hudDebugExtraLive = line; };
   s.interactive = world;
   const qualityPanel = makeQualityPanel(s, true);
   s.panel = qualityPanel;

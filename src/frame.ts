@@ -996,6 +996,10 @@ export function runFrame(s: AppState): () => void {
       s.fpsEl.textContent = `${Math.round(1000 / fpsDt)} fps  ·  ${zoomStr}×  ·  js ${jsMs.toFixed(1)}ms  ·  worst ${worstDt.toFixed(0)}ms  ·  ev ${evPerS}/s${perfTag}`;
       // Mirror the readout for the DOM-free cinematic HUD (drawn analytically).
       s.hudDebugText = s.fpsEl.textContent ?? '';
+      // Sample the demo's per-frame diagnostic line at 8Hz (it is part of the HUD
+      // skip-sig — copying it every frame would defeat the HUD frame-skip and
+      // force a full HUD rebuild + ~1.2MB re-upload on every changed frame).
+      s.hudDebugExtra = s.hudDebugExtraLive;
       // Analytic fps chip: short + full + demo diagnostics (3rd click mode).
       // The skip count climbs while the scene is still (frame-level dirty
       // tracking redraws persistent GPU buffers instead of re-emitting).
@@ -1081,12 +1085,19 @@ export function runFrame(s: AppState): () => void {
     }
     mark('hover');
 
-    // Build working arrays: pre-concatenated base atlas + precomputed static data
+    // Build working arrays: pre-concatenated base atlas + precomputed static data.
+    // The interactive world's crv/rws region is PRESERVED across frames (its
+    // frameSpanC/R): it splices only its dirty ranges into the persistent region
+    // instead of re-copying its whole ~200k-float span every frame (stage 5b of
+    // the drag-fps work). Emitters that run before/after the world still append
+    // freely; anything after the preserved region is re-emitted every frame.
+    const wSpanC = ((s.interactive as any)?.frameSpanC ?? 0) as number;
+    const wSpanR = ((s.interactive as any)?.frameSpanR ?? 0) as number;
     const crv: number[] = s.baseCrv as number[];
-    crv.length = s.staticCrvLen;
+    crv.length = s.staticCrvLen + wSpanC;
     for (let i = s.baseCrvLen; i < s.staticCrvLen; i++) crv[i] = s.staticCrv[i];
     const rws: number[] = s.baseRws as number[];
-    rws.length = s.staticRwsLen;
+    rws.length = s.staticRwsLen + wSpanR;
     for (let i = s.baseRwsLen; i < s.staticRwsLen; i++) rws[i] = s.staticRws[i];
     s.instJS.length = 0;
     const inst: number[] = s.instJS;
@@ -1469,6 +1480,12 @@ export function runFrame(s: AppState): () => void {
       const cx = s.viewX, cy = s.viewY;
       const camMoved = !cam3dNow && (cx !== lastUpCx || cy !== lastUpCy);
       const instPartialOk = !!dirty && !camMoved && cam3dNow === lastUpCam3d && inst.length <= lastUpInstLen;
+      if ((globalThis as any).__trace) {
+        const r = ((globalThis as any).__fbReasons ??= {} as Record<string, number>);
+        const k = !dirty ? 'world-null' : extraEmitted ? 'extra' : (s.staticRev !== lastStaticRev || s.baseCrvLen !== lastBaseCrvLen || s.baseRwsLen !== lastBaseRwsLen) ? 'static' : (crvGrew || rwsGrew || instGrew) ? 'grew' : camMoved ? 'camMoved' : cam3dNow !== lastUpCam3d ? 'cam3d' : inst.length > lastUpInstLen ? `instLen(${lastUpInstLen}→${inst.length})` : 'partial';
+        r[k] = (r[k] ?? 0) + 1;
+        (globalThis as any).__fbLast = k;
+      }
       if (!instPartialOk) dirty = null; // inst drives the decision: crv/rws/xf partial only when inst is
       if (crvGrew) s.crvFA = new Float32Array(crv.length * 2);
       if (dirty) {
@@ -1706,9 +1723,18 @@ export function runFrame(s: AppState): () => void {
     // HUD frame-skip: chrome changes only on hover, panel/menu interaction, or
     // the 8Hz readout tick — otherwise the pass redraws persistent buffers.
     const chip = s.fpsChip;
+    // The chip's live text is part of the sig ONLY while the chip is visible —
+    // in DOM readout mode the HUD must not rebuild at 8Hz (that rebuild is the
+    // chip's entire cost; the DOM #fps gets the same text for free).
+    const chipLive = !!chip && chip.visible;
     const chromeSig = s.interactive?.screenChromeSig?.(s) ?? '';
-    const hudSig = `${Cw}x${Ch}|${s.toolbar?.hoveredId ?? ''}|${chip ? `${chip.mode}|${chip.status}|${chip.pressed ? 1 : 0}` : ''}|${s.hudDebugText}|${s.hudDebugExtra}|${s.analyticMenu?.open ? 'M' + Math.floor(now / 50) : ''}|${s.panel?.open ? 'P' + Math.floor(now / 50) : ''}|${chromeSig}`;
-    s.screenHud?.frame(pass, Cw, Ch, now, s.baseCrv, s.baseRws, hudSig);
+    const hudSig = `${Cw}x${Ch}|${s.toolbar?.hoveredId ?? ''}|${chipLive ? `${chip.mode}|${chip.status}|${chip.pressed ? 1 : 0}` : ''}|${chipLive ? s.hudDebugText : ''}|${chipLive ? s.hudDebugExtra : ''}|${s.analyticMenu?.open ? 'M' + Math.floor(now / 50) : ''}|${s.panel?.open ? 'P' + Math.floor(now / 50) : ''}|${chromeSig}`;
+    // Seed the HUD with the ATLAS prefix only (immutable between glyph bakes),
+    // not s.baseCrv — that is the live working array and by here it carries the
+    // whole frame's scene content (~1MB that changed every frame, defeating the
+    // HUD's partial uploads and re-uploading ~1.2MB at 8Hz during handle drags).
+    // HUD glyph instances only reference atlas rows — same pattern as the IDE.
+    s.screenHud?.frame(pass, Cw, Ch, now, s.atlas.curves, s.atlas.rows, hudSig);
     pass.end();
     // Resolve the offscreen render to the full-res swapchain: cinematic grade
     // (postfx) or contrast-adaptive sharpen (upscale), else already on swapchain.
