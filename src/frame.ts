@@ -958,6 +958,13 @@ export function runFrame(s: AppState): () => void {
   let lastFrameSig = '';
   let lastInstLen = 0, lastCrvLen = 0, lastRwsLen = 0;
   let skipCount = 0;
+  // Still-frame cache state: the HUD sig + view-projection the CACHED frame was
+  // rendered with (validity flag on the cache itself). A still frame presents the
+  // cache via one cheap blit instead of re-running the full coverage + mesh passes
+  // — see the cache decision below.
+  let lastHudSig = '';
+  const lastVP: Float32Array = new Float32Array(16);
+  let cacheValid = false;
   // Per-frame section timings for the __trace dev hook (published, then reset).
   let _traceSections: Record<string, number> = Object.create(null);
   // Partial-upload state (drag-fps fix stage 3): the last full-sync snapshot the
@@ -1545,7 +1552,6 @@ export function runFrame(s: AppState): () => void {
       _frameDirty = null;
     }
     mark('upload');
-    const enc = s.device.createCommandEncoder();
     // Cinematic post-process (vignette + splash) takes precedence: the coverage
     // pass draws into the postfx offscreen target at FULL resolution, then a
     // fullscreen fragment shader grades it onto the swapchain. Otherwise the
@@ -1556,6 +1562,53 @@ export function runFrame(s: AppState): () => void {
     // resolves are 1:1 NDC fullscreen passes, so content lands identically.
     const usePostfx = !!s.postfx;
     const sharpen = !usePostfx && s.lowResSharpen && !!s.upscaler;
+    // The HUD skip-sig (computed up front — the still-frame cache decision needs
+    // it before choosing the render target; the screenHud draw below reuses it).
+    const chip = s.fpsChip;
+    // The chip's live text is part of the sig ONLY while the chip is visible —
+    // in DOM readout mode the HUD must not rebuild at 8Hz (that rebuild is the
+    // chip's entire cost; the DOM #fps gets the same text for free).
+    const chipLive = !!chip && chip.visible;
+    const chromeSig = s.interactive?.screenChromeSig?.(s) ?? '';
+    const hudSig = `${Cw}x${Ch}|${s.toolbar?.hoveredId ?? ''}|${chipLive ? `${chip!.mode}|${chip!.status}|${chip!.pressed ? 1 : 0}` : ''}|${chipLive ? s.hudDebugText : ''}|${chipLive ? s.hudDebugExtra : ''}|${s.analyticMenu?.open ? 'M' + Math.floor(now / 50) : ''}|${s.panel?.open ? 'P' + Math.floor(now / 50) : ''}|${chromeSig}`;
+    // ── still-frame cache ─────────────────────────────────────────────────────
+    // The frame-skip sig match proves the instance BYTES are unchanged; when the
+    // camera pose and the HUD are ALSO identical to the cached frame, the GPU
+    // output is pixel-identical. Then, instead of re-running the full coverage +
+    // mesh passes — whose cost straddles the vsync budget at high refresh rates,
+    // so a NOTHING-CHANGING 3D scene flips a coin between full and half rate
+    // every frame and the fps readout fluctuates — present the cached last render
+    // with one cheap fullscreen blit. Still frames keep SUBMITTING (Chromium
+    // throttles a page to ~60Hz once the canvas stops generating damage, and the
+    // ramp-back would slow-motion the next gesture), they just stop re-rendering.
+    // Interactive frames render straight to the swapchain exactly as before (zero
+    // overhead); the first still frame after activity fills the cache. The
+    // cinematic HUD is time-driven and the postfx/sharpen paths own their own
+    // offscreen flow — both are excluded.
+    const cacheable = canFrameSkip && !usePostfx && !sharpen && !!s.frameCache
+      && !(s.hudRenderer && (s.interactive as any)?.hudCount);
+    const stillNow = cacheable && skipFrame && hudSig === lastHudSig;
+    if (stillNow && cacheValid && s.frameCache!.w === Cw && s.frameCache!.h === Ch) {
+      let vpSame = true;
+      for (let i = 0; i < 16; i++) if (viewProj[i] !== lastVP[i]) { vpSame = false; break; }
+      if (vpSame) {
+        if (typeof window !== 'undefined') (window as any).__frameBlits = (((window as any).__frameBlits as number) ?? 0) + 1;
+        const benc = s.device.createCommandEncoder();
+        const bswap = s.gpuCtx.getCurrentTexture().createView();
+        s.frameCache!.blit(benc, bswap);
+        s.device.queue.submit([benc.finish()]);
+        mark('encode');
+        const frameJs = performance.now() - t0;
+        jsMs = jsMs * .9 + frameJs * .1;
+        if (s.perf && s.perf.running) s.perf.sample(dt, frameJs, inst.length / 16, prof, evThisFrame, evCoalThisFrame, evMsThisFrame);
+        if (typeof window !== 'undefined') {
+          (window as any).__perf = { fps: 1000 / fpsDt, jsMs, frameMs: frameJs, inst: inst.length / 16, now: performance.now(), dt };
+          if (trace) { (window as any).__perfSections = _traceSections; _traceSections = Object.create(null); }
+        }
+        return; // rAF already scheduled at the top — the cached frame presents again
+      }
+    }
+    const enc = s.device.createCommandEncoder();
     const iScale = sharpen ? Math.min(Math.max(s.integralScale, 0.25), 1) : 1;
     const renderW = sharpen ? Math.max(1, Math.round(Cw * iScale)) : Cw;
     const renderH = sharpen ? Math.max(1, Math.round(Ch * iScale)) : Ch;
@@ -1589,7 +1642,14 @@ export function runFrame(s: AppState): () => void {
     const depthView = ensureDepthView(s.device, renderW, renderH, 1);
     const msaaDepthView = msaa > 1 ? ensureDepthView(s.device, renderW, renderH, 4) : null;
     const swapView = s.gpuCtx.getCurrentTexture().createView();
-    const colorView = usePostfx ? s.postfx!.target(Cw, Ch) : sharpen ? s.upscaler!.target(renderW, renderH) : swapView;
+    // Frames that skipped the emit render into the cache (and present it via the
+    // blit below): the NEXT still frames then blit straight from it. This includes
+    // the 8Hz chip/HUD tick frames while idle (skipFrame still true) — rendering
+    // them direct would invalidate the cache and force a second full render on the
+    // next frame. Emit frames (drag/zoom — the sensitive path) render straight to
+    // the swapchain exactly as before: zero overhead.
+    const renderToCache = cacheable && skipFrame;
+    const colorView = usePostfx ? s.postfx!.target(Cw, Ch) : sharpen ? s.upscaler!.target(renderW, renderH) : renderToCache ? s.frameCache!.target(Cw, Ch) : swapView;
     const msaaView = msaa > 1 ? ensureMsaaColor(s.device, renderW, renderH) : null;
     // Clear to the theme backdrop: the canvas is OPAQUE (see main.ts), so the
     // backdrop is painted here instead of showing a CSS background through a
@@ -1722,13 +1782,7 @@ export function runFrame(s: AppState): () => void {
     // Seeded with the atlas base band tables so menu/toolbar glyphs resolve.
     // HUD frame-skip: chrome changes only on hover, panel/menu interaction, or
     // the 8Hz readout tick — otherwise the pass redraws persistent buffers.
-    const chip = s.fpsChip;
-    // The chip's live text is part of the sig ONLY while the chip is visible —
-    // in DOM readout mode the HUD must not rebuild at 8Hz (that rebuild is the
-    // chip's entire cost; the DOM #fps gets the same text for free).
-    const chipLive = !!chip && chip.visible;
-    const chromeSig = s.interactive?.screenChromeSig?.(s) ?? '';
-    const hudSig = `${Cw}x${Ch}|${s.toolbar?.hoveredId ?? ''}|${chipLive ? `${chip.mode}|${chip.status}|${chip.pressed ? 1 : 0}` : ''}|${chipLive ? s.hudDebugText : ''}|${chipLive ? s.hudDebugExtra : ''}|${s.analyticMenu?.open ? 'M' + Math.floor(now / 50) : ''}|${s.panel?.open ? 'P' + Math.floor(now / 50) : ''}|${chromeSig}`;
+    // (hudSig is computed up front — the still-frame cache decision needs it.)
     // Seed the HUD with the ATLAS prefix only (immutable between glyph bakes),
     // not s.baseCrv — that is the live working array and by here it carries the
     // whole frame's scene content (~1MB that changed every frame, defeating the
@@ -1740,7 +1794,14 @@ export function runFrame(s: AppState): () => void {
     // (postfx) or contrast-adaptive sharpen (upscale), else already on swapchain.
     if (usePostfx) s.postfx!.resolve(enc, swapView, Cw, Ch);
     else if (sharpen) s.upscaler!.resolve(enc, swapView, renderW, renderH, Cw, Ch, s.sharpenAmount);
+    else if (renderToCache) s.frameCache!.blit(enc, swapView);
     s.device.queue.submit([enc.finish()]);
+    // Cache bookkeeping: valid only when THIS frame rendered into it; any other
+    // path (interactive / postfx / sharpen) leaves it stale. The sig/VP snapshot
+    // updates on EVERY rendered frame so the first still frame after activity
+    // recognizes itself as unchanged and fills the cache.
+    cacheValid = renderToCache;
+    lastHudSig = hudSig; lastVP.set(viewProj);
     mark('encode');
     const frameJs = performance.now() - t0;
     jsMs = jsMs * .9 + frameJs * .1;

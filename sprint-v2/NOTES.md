@@ -912,6 +912,34 @@ from the code lives here. Newest entries at the bottom of each section.
   Residual (not drag-related): 2D↔3D mode-toggle rebuild (~25ms) and rare
   drag-start relayout / slice rebuilds (4–5ms) — Phase-5 worker territory.
 
+- **D35 — 3D-idle fps fluctuation = full GPU redraw straddling the vsync budget;
+  fixed with a still-frame cache + blit (2026-08-04, user: "zoom in, switch to
+  3D, nothing changes but fps fluctuates a lot").** Diagnosis (real-browser
+  replay of `3ddonothing` + raw per-frame dt/js): idle 3D frames are JS-idle
+  (js≈0.1, emit skipped) yet dt bimodally splits 4.2/8.3ms — the render pass
+  REDRAWS the whole scene (clear + mesh/MSAA + analytic + HUD over the full
+  backing store) every frame, and that GPU cost sits right at the 240Hz vsync
+  budget, so each frame coin-flips full vs half rate → the fps readout
+  oscillates. The naive fix (skip the submit when nothing changed) is WRONG on
+  Chromium: a canvas that stops generating damage gets its BeginFrame rate
+  throttled to ~60Hz (measured: the whole page dropped to 60fps) and the
+  ramp-back slow-motions the next gesture. So the fix keeps PRESENTING every
+  frame but makes still frames cheap: `windfoil/frameCache.ts` holds the last
+  render in an offscreen rgba8unorm texture; a still frame (frame-skip sig +
+  view-projection + HUD sig all unchanged) presents it with one fullscreen
+  nearest-blit (~0.3ms, comfortably inside the budget) instead of re-running the
+  coverage integral. Emit frames (drag/zoom — the sensitive path) render straight
+  to the swapchain exactly as before (zero overhead); skipFrame frames render
+  INTO the cache so the 8Hz chip/HUD tick doesn't force a double full-render.
+  Gated to `canFrameSkip && !postfx && !sharpen && !cinematicHud`. Measured
+  (real GPU): 3D idle 97% cache-blit at a stable 240fps (was 120/240 oscillation,
+  fpsMin 102→134+); A/B replay of all 9 recordings: no regression (3ddonothing
+  avg 200→233; repro 225→234; 3dsimple 194→214), screenshots pixel-faithful
+  (residual per-run diff is the fps-chip text, smaller than baseline-vs-baseline).
+  Residual ~1s-period single-frame stalls (js≈0.1) are external (GPU reclock /
+  compositor — present in the pre-change baseline on pure-blit frames too), not
+  the render path; they move the fps EMA ~1 digit, not the old wild oscillation.
+
 - **D33 — handle-drag FPS fix attempt 2 SHIPPED (stages 2+3 of
   DESIGN-drag-fps-2.md; attempt 1's postmortem is the playbook, 2026-08-03).**
   `windgraphWorld.emit` composes PERSISTENTLY: the world content

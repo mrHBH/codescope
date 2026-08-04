@@ -37,7 +37,7 @@ import { createScriptRuntime } from './scriptRuntime';
 // loop and removes all listeners + DOM chrome, so the launcher can tear it down
 // and return to the menu.
 export function bootPlayground(engine: Engine, onBack?: () => void): () => void {
-  const { fpsEl, dpr, PAGE_W, rCanvas, tCanvas, rCtx, gpuCtx, device, font, renderer, atlas, upscaler, meshRenderer } = engine;
+  const { fpsEl, dpr, PAGE_W, rCanvas, tCanvas, rCtx, gpuCtx, device, font, renderer, atlas, upscaler, frameCache, meshRenderer } = engine;
   const { container, themeStyle, styledEls, pageRoots, docH, pages, docRoot } = engine.ref;
 
   const s = createAppState({
@@ -54,6 +54,7 @@ export function bootPlayground(engine: Engine, onBack?: () => void): () => void 
   theme.apply('dark');
   s.cycleTheme = theme.cycle;
   s.upscaler = upscaler;
+  s.frameCache = frameCache;
 
   // The fps/debug readout is drawn analytically in the screen HUD (below), so hide
   // the shared DOM #fps overlay for a 0-DOM frame (restored on teardown).

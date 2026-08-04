@@ -90,6 +90,21 @@ If this file and the code disagree, investigate before trusting either.
 
 ## Log
 
+- 2026-08-04 — **3D-idle fps fluctuation fixed = still-frame cache + blit (user:
+  "zoom in, switch to 3D, nothing changes but fps fluctuates a lot").** Idle 3D
+  was re-running the full coverage+mesh+HUD redraw every frame; that GPU cost sat
+  at the 240Hz vsync budget so dt split 4.2/8.3ms (fps oscillated 120↔240, min
+  102). Full submit-skip is wrong (Chromium throttles a no-damage canvas to 60Hz),
+  so the fix keeps presenting but makes still frames cheap: `windfoil/frameCache.ts`
+  caches the last render offscreen and a still frame (frame-skip sig + viewProj +
+  HUD sig unchanged) presents it with one ~0.3ms blit. Emit frames render direct
+  (zero overhead); skipFrame frames render into the cache (8Hz chip tick doesn't
+  double-render). Real-GPU: 3D idle stable 240fps at 97% blit; A/B replay all 9
+  recordings no regression (3ddonothing avg 200→233, repro 225→234, 3dsimple
+  194→214); screenshots pixel-faithful. Residual ~1s single-frame stalls are
+  external (GPU reclock/compositor; in the pre-change baseline too). NOTES D35.
+  tsc + 27 bun suites + vitest green.
+
 - 2026-08-03 — **Handle-drag FPS fix, attempt 3 = "0 fps hit" (user: the repro
   still shows an fps hit while dragging; make it really free; is the debug fps
   panel the cause?).** Per-label GPU-upload tracing exposed four stacked costs,

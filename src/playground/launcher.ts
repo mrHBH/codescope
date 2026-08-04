@@ -47,7 +47,7 @@ function menuHTML(demos: Demo[]): string {
 }
 
 export function bootLauncher(engine: Engine, onPick: (demo: Demo) => void): () => void {
-  const { fpsEl, dpr, PAGE_W, rCanvas, tCanvas, rCtx, gpuCtx, device, font, renderer, upscaler, atlas } = engine;
+  const { fpsEl, dpr, PAGE_W, rCanvas, tCanvas, rCtx, gpuCtx, device, font, renderer, upscaler, frameCache, atlas } = engine;
 
   // Build the hidden, measured menu document.
   const container = document.createElement('div');
@@ -76,6 +76,7 @@ export function bootLauncher(engine: Engine, onPick: (demo: Demo) => void): () =
   };
   rCanvas.style.background = '#141416';
   s.upscaler = upscaler;
+  s.frameCache = frameCache;
   // The launcher is a static analytic menu; hide the shared DOM #fps overlay for a
   // 0-DOM frame (restored on teardown).
   const prevFpsDisplay = fpsEl.style.display;

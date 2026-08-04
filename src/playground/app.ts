@@ -25,7 +25,7 @@ import { setMeshAA } from '../windfoil/msaaSwap';
 // static buffers, sized canvas. `useDoc=false` yields an empty document — the
 // theme loop over zero styledEls is a no-op.
 export function createBaseApp(engine: Engine, useDoc: boolean): AppState {
-  const { fpsEl, dpr, PAGE_W, rCanvas, tCanvas, rCtx, gpuCtx, device, font, renderer, upscaler, atlas, ref, meshRenderer } = engine;
+  const { fpsEl, dpr, PAGE_W, rCanvas, tCanvas, rCtx, gpuCtx, device, font, renderer, upscaler, frameCache, atlas, ref, meshRenderer } = engine;
   const els = useDoc ? ref.styledEls : [];
   const s = createAppState({
     dpr, PAGE_W, rCanvas, tCanvas, rCtx, gpuCtx, device, renderer, font, atlas, container: ref.container,
@@ -42,6 +42,7 @@ export function createBaseApp(engine: Engine, useDoc: boolean): AppState {
   theme.apply('dark');
   s.cycleTheme = theme.cycle;
   s.upscaler = upscaler;
+  s.frameCache = frameCache;
   s.meshRenderer = meshRenderer;
   // The AA toggle (MSAA) swaps these to lazily-created 4× variants and back; the
   // engine's 1× renderers stay as the bases.

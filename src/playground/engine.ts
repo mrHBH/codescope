@@ -14,6 +14,7 @@
 import { loadFont, type FontFace } from '../windfoil/font';
 import { loadShaderCode, requestDevice, createGlyphRenderer } from '../windfoil/gpu';
 import { createUpscaler, type Upscaler } from '../windfoil/upscale';
+import { createFrameCache, type FrameCache } from '../windfoil/frameCache';
 import { buildGlyphAtlas } from '../windfoil/bands';
 import { createMeshRenderer, type MeshRenderer } from '../windfoil/mesh3d';
 import { svgPathToQuads } from '../windfoil/svg';
@@ -51,6 +52,7 @@ export interface Engine {
   renderer: any;
   atlas: any;
   upscaler: Upscaler;
+  frameCache: FrameCache;
   meshRenderer: MeshRenderer;
   /** The reference design document (shared by the playground + reference demos). */
   ref: RefDoc;
@@ -142,6 +144,7 @@ export async function createEngine(): Promise<Engine> {
   // has no 3D content so it skips the second pipeline.
   const renderer = createGlyphRenderer(device, { code: shaderCode, format: 'rgba8unorm', depthWrite: true, label: 'scene' });
   const upscaler = createUpscaler(device, 'rgba8unorm');
+  const frameCache = createFrameCache(device, 'rgba8unorm');
   const meshRenderer = createMeshRenderer(device, 'rgba8unorm');
   // The 3D free-camera (camera-controls) is bound once to the interaction canvas
   // and shared by every demo; it stays disabled until a demo enters 3D.
@@ -149,6 +152,6 @@ export async function createEngine(): Promise<Engine> {
 
   return {
     fpsEl, dpr, PAGE_W, rCanvas, tCanvas, rCtx, gpuCtx, device,
-    font, shaderCode, renderer, atlas, upscaler, meshRenderer, ref,
+    font, shaderCode, renderer, atlas, upscaler, frameCache, meshRenderer, ref,
   };
 }

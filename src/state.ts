@@ -56,6 +56,12 @@ export interface AppState {
   // texture at `integralScale` × the swapchain size, then a contrast-adaptive
   // sharpen upscales it to full resolution — cheap fill-rate, crisp display.
   upscaler: import('./windfoil/upscale').Upscaler | null;
+  // Still-frame cache (see windfoil/frameCache.ts): the last rendered frame, held
+  // offscreen so a scene that stops changing presents it with one cheap blit
+  // instead of re-running the full coverage + mesh passes — keeps a still frame
+  // inside the vsync budget (stable fps) while continuing to generate the canvas
+  // damage Chromium needs to keep the page at full refresh rate.
+  frameCache: import('./windfoil/frameCache').FrameCache | null;
   lowResSharpen: boolean;
   integralScale: number;
   sharpenAmount: number;
@@ -268,7 +274,7 @@ export function createAppState(partial: Partial<AppState>): AppState {
     rendererMsaa: null, meshRendererMsaa: null, shaderCode: '',
     font: null as any, atlas: null,
     renderScale: 1, lastCam3d: false,
-    upscaler: null, lowResSharpen: false, integralScale: 0.6, sharpenAmount: 0.6,
+    upscaler: null, frameCache: null, lowResSharpen: false, integralScale: 0.6, sharpenAmount: 0.6,
     postfx: null, hudRenderer: null, screenHud: null, toolbar: null, panel: null, hudDebugText: '',
     meshAA: false, meshSmooth: true,
     fpsChip: null, hudDebugExtra: '', hudDebugExtraLive: '', fpsDom: false, staticRev: 0, frameDataVersion: 0,
