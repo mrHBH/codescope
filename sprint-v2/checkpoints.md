@@ -71,7 +71,9 @@ glyph text feel premium or gimmicky? Kill / continue / rework-what?
 
 ## CP4 — Flagship #1: contour→surface (after G6)
 
-**Purpose:** is this the "nobody else can do this" shot?
+**Purpose:** is this flagship teaching-quality — the best tool anywhere for
+conveying this idea? (D38: the bar is pedagogy + execution quality, not
+novelty. All 3D here is mesh3d; analytic stays 2D chrome.)
 **Steps:** open `contour_lift`. Scrub the lift slider slowly (contours rise,
 skin stretches between them), then fast; orbit; zoom into the skin and into a
 contour line where it meets the skin. Play the cinematic flight capture.
@@ -104,6 +106,12 @@ physics, not a simulation-of-physics cutscene. Histogram genuinely tracks the pi
 drag things, scrub sliders.
 **Questions:** Which boards feel weak? Which parity items should be CUT from
 Phases 5–6 entirely? Which deserve extra polish? (Record culls as struck tasks.)
+
+> **Format (2026-08-04, D36):** CP6 is split PER LANE — one sitting per lane
+> (A, B, C, D, K) instead of ~49 boards in one session. Prerequisite: the
+> showcase pass (D20 lesson — Phase 4 counted kinds done at engine-wiring while
+> the boards were stubs; the taste judgment needs showcases). Culls are recorded
+> as strikes in Phases 5–6.
 
 > **Verdict:** _pending_
 

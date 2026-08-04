@@ -1,11 +1,14 @@
 # windgraph v2 — Master Expansion Plan
 
-**Goal:** make windgraph the most comprehensive math plotting + geometry +
-animation engine that exists — beating JSXGraph, GeoGebra, Desmos, Plotly, and
-Manim each on their home turf, then going somewhere none of them can follow:
-**continuous 2D↔3D with true glyph height, and physics-driven graphs** (box3d),
-all rendered through the analytic windfoil pipeline (one draw call, zero
-aliasing, any zoom).
+**Goal (updated 2026-08-04 — NOTES D38):** make windgraph **the best math
+plotting + animation library for the web**: a pedagogical tool that makes math
+accessible directly in the browser, better than Manim (interactive, real-time,
+sharp at any zoom, exportable). Ultra-high performance; the analytic windfoil
+pipeline for best-in-class 2D sharpness (one draw call, zero aliasing, any
+zoom); mesh3d for all 3D bodies — **two separate pipelines; there is no
+analytic 3D** (the winding integral does not generalize to 3D). Breadth
+(plotting/geometry/stats/calculus/3D), smooth animation, and interactivity win
+it — execution quality, not uniqueness for its own sake.
 
 Status: planning doc. Supersedes nothing — `sprint/` phases 0–8 stay valid;
 this adds the v2 surface on top. Granular checkboxes will move into
@@ -261,13 +264,11 @@ unique assets (analytic AA, shared 3D, physics, glyph height).
 - [ ] **P0** Billboarded crisp axis labels (pending sprint item — needs per-instance Z)
 - [ ] **P0** Parametric surfaces `S(u,v)`: torus, Möbius band, helicoid, catenoid,
       Enneper, ellipsoid, sphere — with u/v range sliders that **morph the mesh live**
-- [ ] **P0** Space curves `C(t)`: helix, torus knots `(p,q)`, 3D Lissajous — as
-      analytic tubes (stroke engine extruded ⚡). Foundation (D26): the
-      **depth-write pipeline variant** (opaque 3D analytic content self-occludes
-      inside the single draw call via per-vertex z) + **adaptive screen-space
-      subdivision** (perspective-projected Béziers are rational, not quadratic;
-      subdivide until the midpoint's projected chord deviation is sub-pixel).
-      Flat stroke-ribbon segments first; N-gon tubes follow.
+- [x] **P0** Space curves `C(t)`: helix, torus knots `(p,q)`, 3D Lissajous —
+      **DONE (F3D-2, 2026-07-31)** as watertight Gouraud MESH tubes (`pushTube`
+      in `space3d/curve3d.ts`, D26 pivot). Analytic 3D tubes abandoned — the
+      winding integral does not generalize to 3D (D38 two-pipeline law).
+      `#curve3d` demo is the reference architecture.
 - [ ] **P1** **Implicit surfaces** `f(x,y,z)=0` via marching cubes (worker thread),
       smooth-shaded; gyroid showcase — **sampled content** (§5 carve-out):
       adaptive tessellation + silhouette refinement, labeled as such
@@ -295,9 +296,9 @@ No engine does this. Rule: **there is no 3D mode.** Every object carries an
 animatable elevation/extrusion; the camera tilt is continuous (`tilt(polar)`
 already exists in the FX ctx); representations morph, never switch.
 
-- [ ] **P0** **Per-Mobject `elevation` + `extrude`** — flat shape → prism with
-      analytic side walls + lit top face (reuse `LIGHT_DIR`/colormap shading).
-      Zero at rest; any animation can drive it.
+- [x] **P0** **Per-Mobject `elevation` + `extrude`** — shipped in Phase 2 (2.2):
+      mesh3d side walls + analytic top face (D16/D17 — analytic walls are never
+      watertight), lit with `LIGHT_DIR`. Zero at rest; any animation can drive it.
 - [ ] **P0** **Glyph height** — any text/label/math can extrude (the IDE
       fireworks/logo effect generalized: `fxXforms` already carries per-instance
       `rotX/rotY/z/scale`; promote to a first-class Mobject property, not FX-only)

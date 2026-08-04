@@ -1,5 +1,12 @@
 # windgraph v2 — Sprint Execution Plan
 
+> **2026-08-04 update (NOTES D38):** positioning and architecture superseded —
+> the goal is **the best math + animation library for the web** (pedagogical,
+> better than Manim: interactive, real-time, sharp, exportable), not a
+> uniqueness moat; and there is **no analytic 3D pipeline** (windfoil analytic
+> = 2D content, mesh3d = all 3D bodies). Read "moat" below as "flagship
+> quality demos". D2's ordering (flagships before parity) stands.
+
 Companion to `WINDGRAPH.md` (feature surface) and the critique of it. This is
 the execution plan: phased, moat-first, structured for autonomous agent churn
 with a small number of human feel-checkpoints.

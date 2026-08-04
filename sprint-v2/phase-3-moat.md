@@ -11,6 +11,17 @@ if nothing else ever ships. Deliberate pause point.
 
 ## Lane G — continuous 2D↔3D (depends on Phase 2)
 
+- [ ] **G0** Design notes BEFORE code (D36). Two DESIGN-*.md in `sprint-v2/`:
+      (a) **G4's analytic↔mesh seam** — how the ribbon→surface morph crosses the
+      D3 boundary without re-inventing the hybrid fragility D16/D17/D18 killed
+      (no painter-order walls; depth-tested analytic over mesh; plug-eps/inset
+      where a sharp face meets a mesh body; what the morph parameter actually
+      drives).       (b) **G5's skin loft** — how the lifted contour loops become the
+      surface (loft method between marching-squares loops, watertightness,
+      degenerate loops, LOD). Per D38 everything 3D is mesh3d: the lifted
+      contour lines = mesh tubes/lines riding the skin; analytic stays 2D
+      (labels, axes, flat chrome on planes) — NO analytic-on-curved-surface
+      overlay. Review before G4/G5 start.
 - [ ] **G1** Bars ↔ 3D columns morph — same instances, elevation animates;
       slider + auto-play. Board `bars_to_columns`. *Acceptance: one object
       changing representation, never a crossfade of two.*
@@ -22,12 +33,15 @@ if nothing else ever ships. Deliberate pause point.
 - [ ] **G4** `y=f(x)` ribbon → `z=f(x,y)` surface morph — the function gains a
       second argument while the ribbon extrudes along z; cross-fade geometry
       weight between the analytic pass and mesh3d, never switch pipelines by cut.
-      Board `ribbon_to_surface`.
+      Board `ribbon_to_surface`. *Seam handling per G0(a) — the D17/D18
+      hybrid-seam laws apply; no crossfade that re-creates painter fragility.*
 - [ ] **G5** **Contours → surface (flagship).** `plotImplicit` level curves
       lift to their heights; a skin interpolates between them on one slider.
       Reuse marching-squares output from `plot/implicit.ts` (NOTES §2). Board
-      `contour_lift`. *Acceptance: sharp contour lines sitting on a smooth
-      Gouraud skin; the slider reads as one continuous object.*
+      `contour_lift`. *Design note G0(b) first — highest-risk task in the
+      plan.* *Acceptance: contour lines (mesh tubes, sub-pixel-smooth at
+      working zoom; honestly sampled at extreme zoom per D3) sitting on a
+      smooth Gouraud skin; the slider reads as one continuous object.*
 - [ ] **G6** Cinematic flight capture of G5 + camera-keyframe polish (extend
       `story/` CameraRig). *Acceptance: a flight shot that orbits the lift
       mid-sweep without a stutter.*

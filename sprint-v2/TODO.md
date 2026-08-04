@@ -6,6 +6,13 @@ start a phase before its predecessor's checkpoint passed (`checkpoints.md`).
 
 Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `~~struck~~` = culled by a CP verdict
 
+**2026-08-04 re-focus (D36 + D38):** performance era closed; back to the
+sprint. Goal = the best math + animation library for the web (pedagogical,
+better than Manim). Architecture law: analytic windfoil = 2D content, mesh3d =
+3D bodies — no analytic 3D. Order: Phase-4 showcase pass → CP6 (split per
+lane) → **Phase 3 flagships-first** (G ‖ H, L1 parallel). Phase 3 was skipped
+during the parity/perf era — it now takes priority over further Phase 5/6 work.
+
 ---
 
 ## Phase 0 — Substrate repair (`phase-0-substrate.md`)
@@ -33,6 +40,7 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `~~struck~~` = culled b
 - [x] **CP3 passed** — thesis kill-gate (2026-07-28: "both ok")
 
 ## Phase 3 — Moat flagships (`phase-3-moat.md`) — lanes G ‖ H
+- [ ] G0 design notes before code: G4 analytic↔mesh seam (D16/D17/D18 laws) + G5 skin loft (DESIGN-*.md)
 - [ ] G1 bars ↔ columns · G2 scatter↔cloud + heatmap↔heightfield · G3 pie↔cylinder
 - [ ] G4 ribbon → surface morph
 - [ ] G5 **contours → surface** (flagship)
@@ -49,7 +57,8 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `~~struck~~` = culled b
 - [x] C1–C7 stats/probability (distributions, CLT, Monte Carlo, correlation, CI…) — domain + IR wired
 - [x] D1–D6 linear algebra (matrix plane morph, determinant, eigen, SVD…) — domain + IR wired
 - [x] K1–K6 mathtex (matrices, cases, align, accents, arrows, formula↔graph binding)
-- [ ] **CP6 passed** — gallery cull (culls recorded as strikes in Phases 5–6)
+- [ ] Showcase pass: every lane board reads as a showcase + chrome on-brand (D20 lesson) — CP6 prerequisite
+- [ ] **CP6 passed** — gallery cull, **split per lane (A/B/C/D/K sittings)** (culls recorded as strikes in Phases 5–6)
 
 ## Phase 5 — Depth (`phase-5-depth.md`) — lanes F3D ‖ L ‖ E ‖ J
 - [~] F3D-1…9 3D catalog (parametric/implicit surfaces, solids of revolution, slicing, quadrics…) — **F3D-2 DONE (2026-07-31): watertight Gouraud mesh tubes for space curves (mesh3d pivot, D26); depth-write analytic pipeline kept as infra for planar content. Next: grid-in-plane, quiver3D, F3D-1 surfaces.**
@@ -61,7 +70,7 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `~~struck~~` = culled b
 ## Phase 6 — Product (`phase-6-product.md`)
 - [ ] I1–I10 analytic chrome (tooltips, crosshair, sidebar, inspector, undo, selection, snapping, context menu, ticker, linked views)
 - [ ] M1–M6 export (SVG/PNG, LaTeX/URL, PDF/WebM, TikZ, CSV import, glTF)
-- [ ] N1–N4 perf gates (dirty-tracking, caching, GPU picking, benchmarks)
-- [ ] X1–X3 cleanup (math islands → primitives, gallery unification, naming)
+- [ ] N1–N4 perf gates (GPU picking, benchmarks) — N1/N2 substantially delivered by D33/D34/EmitCache: verify as acceptance, don't rebuild; N4 via `perf:replay`
+- [ ] X1–X3 cleanup (math islands → primitives, gallery unification, naming) + X-dead: remove deprecated analytic-3D depth-write infra (D38)
 - [ ] X4 split `object-resolver.ts` (2176 lines) and `frame.ts` (1614 lines) using the D8 pattern (free functions + narrow host interface)
 - [ ] **CP8 passed** — final

@@ -31,18 +31,28 @@ Export + perf follow; island migration cleanup last.
 
 - [ ] **M1** SVG export (contours are Béziers — near-free) · PNG via GPU readback.
 - [ ] **M2** Copy-expression-as-LaTeX · board-state URL serialization
-      (SceneDoc is JSON — mostly free).
+      (SceneDoc is JSON — mostly free). **The primary share format (D39): a
+      self-contained link = the live interactive scene, beating Manim's video.**
 - [ ] **M3** PDF export · WebM/GIF animation capture (frame-sequence encoder).
+      *(Video can wait — D39; option, not priority.)*
 - [ ] **M4** TikZ/pgfplots codegen (GeoGebra parity).
 - [ ] **M5** CSV/JSON drag-and-drop import → auto scatter/line/bars specs.
 - [ ] **M6** glTF export of the 3D scene (mesh3d geometry is already triangles).
 
 ## Lane N — perf gates (acceptance criteria, verified not built)
 
+**2026-08-04 status (D36):** N1 + N2 are substantially DELIVERED by the perf
+era — frame-skip sigs, per-mobject slice caches, persistent world composition
++ dirty-range GPU uploads (D33/D34), mesh reference-cache, frameCache blit
+(D35). This lane now VERIFIES them against the benchmarks with the
+record/replay harness — do not rebuild.
+
 - [ ] **N1** Dirty-tracking proven: slider drag recomputes only the
       ConstraintGraph dependency cone; idle frames upload nothing.
+      *(Delivered by D33/D34 — verify, don't rebuild.)*
 - [ ] **N2** Geometry caching: re-tessellation only on param change (extend
       `EmitCache` usage across all new boards).
+      *(Delivered by EmitCache + mesh-ref-cache — verify on the new boards.)*
 - [ ] **N3** GPU picking (color-id pass) for dense scenes beyond current hit-test.
 - [ ] **N4** Benchmark boards, all @60fps: 10k-segment curve · 5k-point scatter
       · 200-slider scene · 500-ball Galton. Numbers recorded in NOTES.md.
@@ -56,6 +66,9 @@ Export + perf follow; island migration cleanup last.
       board rendering every IR kind (A–E/K + F3D) with spec-inspect panels —
       `plotGalleryDoc()` is its seed; the per-lane boards fold under it.
 - [ ] **X3** Settle the name (OQ-6) before any export/branding surface ships.
+- [ ] **X-dead** Remove the deprecated D26 analytic-3D depth-write infra —
+      `gpu.ts` `depthWrite` pipeline variant, the `engine.ts` depth-write
+      renderer, the `frame.ts` `opaqueCount` opaque pass (zero consumers, D38).
 
 ---
 

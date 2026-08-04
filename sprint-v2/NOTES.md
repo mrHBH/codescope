@@ -979,9 +979,81 @@ from the code lives here. Newest entries at the bottom of each section.
   essential-work spikes: 2D↔3D toggle structural rebuild (~22ms, all 9 boards),
   LOD-settle rebuilds (~18ms), drag digit-boundary tail frames (~10% of drag
   frames at 4.3–6.8ms). Worker offload (Phase 5) is the scheduled fix.
-  **Measurement lesson:** an interrupted `perf:replay` leaks its chromium
-  (WebGPU context); 17 leaked browsers throttled later runs to a fake 114fps on
-  a 2.4ms-js pan recording. Kill leaked chromiums before trusting numbers.
+   **Measurement lesson:** an interrupted `perf:replay` leaks its chromium
+   (WebGPU context); 17 leaked browsers throttled later runs to a fake 114fps on
+   a 2.4ms-js pan recording. Kill leaked chromiums before trusting numbers.
+
+- **D36 — Re-focus on the original sprint; moat-first restored (user directive,
+  2026-08-04).** The performance era (D27–D35) delivered and holds: 240fps idle
+  3D, near-zero-fps-hit drags, record/replay harness. Focus returns to the
+  sprint goal — the best math plotting + animation library. Review finding:
+  execution had drifted from D2 (moat-first): Phase 3's flagships (G5
+  contour→surface, H4 Galton — the plan's own "minimum viable done") are
+  UNBUILT while Phase 4 parity and F3D-2 shipped. **Locked order:**
+  (1) showcase pass on the Phase-4 boards (D20: a kind is done when its board
+  reads as a showcase — CP6's taste judgment needs showcases, not stubs);
+  (2) CP6 split PER LANE (A/B/C/D/K sittings) so the cull is tractable;
+  (3) Phase 3: G0 design notes → G1–G6 → CP4, lane H concurrent with an early
+  box3d 500-ball benchmark (OQ-4) → CP5; Lane L1 may run in parallel (disjoint
+  modules: parser/ConstraintGraph vs mesh emit vs physics). **Design laws
+  carried into Phase 3:** G4/G5 must NOT re-invent the hybrid-seam fragility
+  D16/D17/D18 killed — where analytic content meets mesh3d, use the sanctioned
+  patterns (depth-tested analytic over mesh, plug-eps, inset loops); G5's skin
+  loft gets a written design note first (the DESIGN-*.md habit from the
+  drag-fps work). **Lane N credit:** N1 (dirty-tracking) + N2 (geometry
+  caching) are substantially delivered by D33/D34/EmitCache/mesh-ref-cache —
+  Phase 6 verifies them as acceptance, not rebuilds; N4 benchmarks run through
+  the record/replay harness (`perf:replay --expect-min`).
+
+- **D37 — OQ-9 resolved → design law: 2D↔3D indistinguishable at top-down
+  (CP3 verdict 2026-07-28 + the Phase-2 mechanism).** "Continuous" means at
+  polar≈0 the 3D view reads IDENTICAL to 2D. The rule that satisfied it:
+  elevated content ALWAYS carries its true z; only the projection changes.
+  Under the 2D ortho VP the shader's clip-z row is zero, so per-instance z is
+  invisible in 2D and reveals continuously on tilt — no flat↔raised geometry
+  switch, so top-down 3D ≡ 2D by construction. CP3 confirmed ("both ok").
+  **Permanent law for all G-lane morphs and future 3D content:** never switch
+  GEOMETRY between modes; let the camera/projection do the revealing. Residual
+  camera-handoff ease (enterOrbit eps, perspective foreshortening of
+  off-ground content) stays a glide via continuous polar easing, never a snap.
+
+- **D38 — Two-pipeline law + repositioning: best math + animation library, not
+  "moat" (user directive, 2026-08-04).** (1) **ARCHITECTURE: there is NO
+  analytic 3D pipeline** — tried, too much headache, and the winding-integral
+  algorithm does not generalize to 3D. Law: **windfoil analytic = 2D content**
+  (text, plots, chrome, flat faces — including ground-plane boards viewed under
+  the orbit camera, and flat analytic faces depth-tested OVER mesh, e.g. the
+  extruded-glyph top) · **mesh3d = everything with real 3D extent** (surfaces,
+  tubes, solids, walls, lifted curves). The `#curve3d` demo is the reference:
+  mesh tubes + flat analytic chrome, separate pipelines, shared depth buffer.
+  **Supersedes the "kept as infra" part of D26:** the depth-write analytic
+  pipeline variant + `opaqueCount` opaque pass have zero live consumers
+  (verified 2026-08-04: no board implements `opaqueCount`) — deprecated,
+  remove in Lane X cleanup. (2) **POSITIONING:** the goal is NOT a uniqueness
+  moat — it is **the best math plotting + animation library for the web**:
+  ultra-high performance, best-in-class sharpness via windfoil, mesh3d where
+  analytic can't reach, smooth animation, breadth of features. The framing is
+  pedagogical — make math accessible directly in the browser, **better than
+  Manim** (Manim renders offline video; we are interactive, real-time, sharp at
+  any zoom, in the browser, and can also export). Consequences: the G/H
+  flagships stay next (best teaching demos, not "unique tricks"); G5 becomes
+  fully-mesh 3D + 2D analytic chrome (phase-3 G0(b) updated); lane J
+  (animation) + M3 (video capture) gain strategic weight for the Manim story —
+  weigh them at the CP6/CP7 culls.
+
+- **D39 — Video export can wait; the share format is a self-contained link;
+  focus = the hypersmooth live renderer (user directive, 2026-08-04).**
+  Corrects D38's "M3 gains weight": video capture (M3) stays an OPTION in
+  Phase 6 — do not pull it forward. A **self-contained link** (M2 URL-state
+  serialization — SceneDoc is JSON) is the share format that beats Manim:
+  the recipient gets the LIVE, interactive scene, not a dead video file.
+  **The #1 focus is the hypersmooth live renderer:** performance work is not
+  a detour, it IS the product — every feature (Phase-3 flagships included)
+  must hold real-time smoothness: no hitches on morphs/LOD rebuilds, no
+  snapping, fps-gated via the record/replay harness (`perf:replay
+  --expect-min`) before a board counts as done. Where a flagship conflicts
+  with smoothness (e.g. mesh rebuild hitches, marching-squares re-runs),
+  smoothness wins — debounce, cache, LOD, or precompute.
 
 ## 2. Technical tips (file:line anchored)
 
@@ -1197,22 +1269,10 @@ from the code lives here. Newest entries at the bottom of each section.
 - ~~**OQ-7 — runtime.ts split seams (0.1).**~~ **Resolved 2026-07-27 → D8.**
   Seams confirmed as hypothesized, minus camera/playback/layout (too
   state-entangled to separate cleanly; they stay on the class).
-- **OQ-9 — 2D↔3D must be indistinguishable at top-down (user, 2026-07-28).**
-  User report: in the playground, toggling 2D↔3D changes the v1 surface EVEN
-  top-down — "continuous" means top-down 3D should be indistinguishable from 2D.
-  Root cause: the v1 graph3d renders TWO geometries — frame.ts:1440 flattens it
-  in 2D (`meshVP` row 2 → z=0.5, height ignored = flat colour map) while 3D uses
-  real height, so the CONTENT pops, not just the camera. **Design rule for the
-  moat (2.1/2.2/2.3/2.4):** elevated content must ALWAYS carry its true z; only
-  the projection changes. Under the 2D ortho VP the shader's clip-z row is zero
-  (`cameraViewProj` ortho: only [0],[5],[15] set), so per-instance z is invisible
-  → flat-looking; tilting to the perspective orbit reveals height continuously.
-  No flat↔raised geometry switch ⇒ top-down 3D ≡ 2D by construction. CP3 verdict
-  must check this: at polar≈0 the extrude board should read identical to 2D. The
-  v1 graph3d flat-map path is out of Phase-2 scope (not a moat file); revisit if
-  CP3 demands it. Residual camera-handoff mismatch = `enterOrbit` eps=0.0015 tilt
-  (orbit.ts:137) + perspective foreshortening of off-ground content — keep the
-  toggle easing polar continuously (2.4) so any residual is a glide, not a snap.
+- ~~**OQ-9 — 2D↔3D must be indistinguishable at top-down (user, 2026-07-28).**~~
+  **Resolved 2026-07-28 (CP3 passed) → D37.** Elevated content always carries
+  its true z; only the projection changes → top-down 3D ≡ 2D by construction.
+  Now a permanent design law for the G-lane morphs.
 
 - **Concurrent tracks (2026-07-28).** Phase 2 runs alongside Track B (IR/plot:
   `ir/types.ts`, `ir/validate.ts`, `builder/objects.ts`, `windgraph/plot/*`) and
@@ -1310,11 +1370,17 @@ from the code lives here. Newest entries at the bottom of each section.
 
 ## 5. Direction reminders (why, when tired)
 
-- The moat is §G/§H of `WINDGRAPH.md`: continuous 2D↔3D with glyph height, and
-  physics-driven graphs. If a task doesn't serve the moat or unblock something
-  that does, question whether it's in the right phase.
+- North star (D38): **the best math plotting + animation library for the web** —
+  a pedagogical tool that makes math accessible in the browser, better than
+  Manim (interactive, real-time, sharp, exportable). Not uniqueness for its own
+  sake; execution quality: performance, sharpness, smooth animation, breadth.
+- The hypersmooth live renderer IS the product (D39): every feature must hold
+  real-time smoothness — fps-gate new boards via record/replay. Sharing =
+  self-contained link (M2), not video (M3 can wait).
+- Two pipelines, no exceptions (D38): windfoil analytic = 2D content (text,
+  plots, chrome, flat faces); mesh3d = every 3D body. Never retry analytic 3D.
 - Sharpness is the brand. Every 2D element must survive 1000× zoom in every
-  board, including new chrome and shadows. Sampled 3D says so honestly (D3).
+  board, including new chrome. Sampled 3D says so honestly (D3).
 - One draw call is the religion. New passes need justification; batch geometry;
   keep per-frame CPU bounded.
 - Smooth by construction: no snapping anywhere — every mode change is an
